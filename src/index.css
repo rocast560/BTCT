@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: 220 15% 96%;
+  --foreground: 220 20% 10%;
+  --card: 220 15% 93%;
+  --card-foreground: 220 20% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 20% 10%;
+  --primary: 42 76% 46%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 10% 88%;
+  --secondary-foreground: 220 20% 10%;
+  --muted: 220 10% 90%;
+  --muted-foreground: 220 10% 40%;
+  --accent: 42 40% 90%;
+  --accent-foreground: 42 76% 25%;
+  --destructive: 0 65% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 10% 82%;
+  --input: 220 10% 82%;
+  --ring: 42 76% 46%;
+  --status-green: 145 70% 42%;
+  --status-amber: 42 76% 46%;
+  --status-red: 0 65% 50%;
+  --radius: 0;
+  --sidebar-width: 280px;
+  --properties-width: 300px;
+}
+
+.dark {
+  --background: 0 0% 5%;
+  --foreground: 0 0% 80%;
+  --card: 0 0% 8%;
+  --card-foreground: 0 0% 80%;
+  --popover: 0 0% 10%;
+  --popover-foreground: 0 0% 80%;
+  --primary: 42 76% 46%;
+  --primary-foreground: 0 0% 5%;
+  --secondary: 0 0% 12%;
+  --secondary-foreground: 0 0% 80%;
+  --muted: 0 0% 12%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 14%;
+  --accent-foreground: 0 0% 80%;
+  --destructive: 0 60% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 14%;
+  --input: 0 0% 14%;
+  --ring: 42 76% 46%;
+  --status-green: 145 70% 42%;
+  --status-amber: 42 76% 46%;
+  --status-red: 0 60% 45%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  margin: 0;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Anduril-style sharp corners globally */
+*,
+*::before,
+*::after {
+  border-radius: 0 !important;
+}
+
+/* Allow small radius only where explicitly set */
+.rounded-sm { border-radius: 2px !important; }
+
+/* Lattice-style thin scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Selection color — amber accent */
+::selection {
+  background: hsl(42 76% 46% / 0.3);
+}
+
+/* React Flow overrides for Lattice theme */
+.react-flow__edge-path {
+  stroke: hsl(var(--muted-foreground)) !important;
+  stroke-width: 1.5 !important;
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: hsl(42 76% 46%) !important;
+  stroke-width: 2 !important;
+}
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke: #d4a017 !important;
+  stroke-width: 3 !important;
+}
+.react-flow__edge.animated .react-flow__edge-path {
+  animation: edge-glow 1.5s ease-in-out infinite;
+}
+@keyframes edge-glow {
+  0%, 100% { opacity: 0.7; stroke-width: 3; }
+  50% { opacity: 1; stroke-width: 4; }
+}
+.react-flow__connection-line {
+  stroke: hsl(42 76% 46%) !important;
+}
+
+/* Node search flash highlight — GPU-accelerated */
+@keyframes node-flash {
+  0%, 100% { outline: 3px solid transparent; outline-offset: 2px; }
+  20%, 50% { outline: 3px solid #d4a017; outline-offset: 2px; }
+  80% { outline: 3px solid transparent; outline-offset: 2px; }
+}
+.node-flash-highlight {
+  animation: node-flash 1.2s ease-in-out;
+  will-change: outline-color;
+}
+
+/* ── Attack chain highlight ── */
+/* Chain edges: red with marching-ants flow animation (overrides the gold animated rule) */
+.react-flow__edge.chain-edge .react-flow__edge-path,
+.react-flow__edge.animated.chain-edge .react-flow__edge-path {
+  stroke: #ef4444 !important;
+  stroke-width: 3 !important;
+  stroke-dasharray: 8 4 !important;
+  animation: chain-flow 0.7s linear infinite !important;
+  filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.6));
+}
+@keyframes chain-flow {
+  to { stroke-dashoffset: -24; }
+}
+
+/* Chain nodes: red outer outline + inner tapering red glow */
+.node-chain-highlight {
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.75)) drop-shadow(0 0 14px rgba(239, 68, 68, 0.35));
+  animation: chain-node-pulse 2s ease-in-out infinite;
+}
+.node-chain-highlight > *:first-child {
+  position: relative;
+  outline: 2px solid #ef4444;
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 1px rgba(239, 68, 68, 0.9),
+    inset 0 0 12px 2px rgba(239, 68, 68, 0.55),
+    inset 0 0 32px 8px rgba(239, 68, 68, 0.18);
+}
+@keyframes chain-node-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.75)) drop-shadow(0 0 14px rgba(239, 68, 68, 0.35)); }
+  50%      { filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.95)) drop-shadow(0 0 22px rgba(239, 68, 68, 0.55)); }
+}
