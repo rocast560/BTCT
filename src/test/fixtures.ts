@@ -1,4 +1,5 @@
 import type { Page, GraphNode, GraphEdge } from '@/types';
+import { defaultFindingData } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
 const now = Date.now();
@@ -72,7 +73,7 @@ export const fixtureNodes: GraphNode[] = [
     type: 'finding',
     label: 'SQLi',
     position: { x: 500, y: 350 },
-    data: { title: 'SQL Injection', severity: 'critical' as const, cvss: 9.1 },
+    data: { ...defaultFindingData(), title: 'SQL Injection', severity: 'critical' as const, cvss: 9.1 },
     linkedPageId: 'page-2',
     discoveredAt: now,
     createdAt: now,

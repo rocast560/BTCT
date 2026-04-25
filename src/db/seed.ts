@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './database';
 import type { Workspace, Page, Graph, GraphNode, GraphEdge, EdgeType } from '@/types';
+import { defaultFindingData } from '@/types';
 
 // Bump this when the demo data shape changes to force a re-seed on next load.
 const SEED_VERSION = 3;
@@ -349,7 +350,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f1: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Domain Admin via Kerberoasting', position: { x: 150, y: 1150 },
-    data: { title: 'Kerberoastable SPN on svc_web service account with Domain Admin privileges allows offline password cracking and full domain compromise', severity: 'critical', cvss: 9.8 },
+    data: { ...defaultFindingData(), title: 'Kerberoastable SPN on svc_web service account with Domain Admin privileges allows offline password cracking and full domain compromise', severity: 'critical', cvss: 9.8 },
     linkedPageId: p_f1.id, discoveredAt: t(3, 15, 30), createdAt, updatedAt: createdAt,
   };
 
@@ -357,7 +358,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f2: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Unconstrained Delegation', position: { x: 400, y: 100 },
-    data: { title: 'WEB-01 configured with unconstrained Kerberos delegation allowing TGT theft of any authenticating user including Domain Admins', severity: 'critical', cvss: 9.1 },
+    data: { ...defaultFindingData(), title: 'WEB-01 configured with unconstrained Kerberos delegation allowing TGT theft of any authenticating user including Domain Admins', severity: 'critical', cvss: 9.1 },
     linkedPageId: p_f2.id, discoveredAt: t(1, 13, 0), createdAt, updatedAt: createdAt,
   };
 
@@ -365,7 +366,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f3: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'DCSync Rights – svc_backup', position: { x: 600, y: 1150 },
-    data: { title: 'svc_backup has Replicating Directory Changes and Replicating Directory Changes All rights enabling DCSync attack for all domain password hashes', severity: 'critical', cvss: 9.8 },
+    data: { ...defaultFindingData(), title: 'svc_backup has Replicating Directory Changes and Replicating Directory Changes All rights enabling DCSync attack for all domain password hashes', severity: 'critical', cvss: 9.8 },
     linkedPageId: p_f3.id, discoveredAt: t(3, 10, 30), createdAt, updatedAt: createdAt,
   };
 
@@ -374,7 +375,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f4: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'SQL Injection – Inventory App', position: { x: 900, y: 300 },
-    data: { title: 'Blind SQL injection in /api/inventory endpoint on WEB-02 allows database extraction and OS command execution via xp_cmdshell', severity: 'high', cvss: 8.6 },
+    data: { ...defaultFindingData(), title: 'Blind SQL injection in /api/inventory endpoint on WEB-02 allows database extraction and OS command execution via xp_cmdshell', severity: 'high', cvss: 8.6 },
     linkedPageId: p_f4.id, discoveredAt: t(1, 10, 30), createdAt, updatedAt: createdAt,
   };
 
@@ -382,7 +383,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f5: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'LLMNR/NBT-NS Poisoning', position: { x: 350, y: 200 },
-    data: { title: 'LLMNR and NBT-NS broadcast protocols enabled on internal subnet allowing NTLMv2 hash capture via Responder', severity: 'high', cvss: 8.0 },
+    data: { ...defaultFindingData(), title: 'LLMNR and NBT-NS broadcast protocols enabled on internal subnet allowing NTLMv2 hash capture via Responder', severity: 'high', cvss: 8.0 },
     linkedPageId: p_f5.id, discoveredAt: t(0, 14, 0), createdAt, updatedAt: createdAt,
   };
 
@@ -390,7 +391,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f6: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Weak Kerberos Encryption (RC4)', position: { x: 100, y: 1050 },
-    data: { title: 'Domain permits RC4_HMAC_MD5 etype for Kerberos making Kerberoast and AS-REP roast attacks practical with GPU cracking', severity: 'high', cvss: 7.5 },
+    data: { ...defaultFindingData(), title: 'Domain permits RC4_HMAC_MD5 etype for Kerberos making Kerberoast and AS-REP roast attacks practical with GPU cracking', severity: 'high', cvss: 7.5 },
     linkedPageId: p_f6.id, discoveredAt: t(1, 15, 30), createdAt, updatedAt: createdAt,
   };
 
@@ -398,7 +399,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f7: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'LAPS Not Deployed', position: { x: 500, y: 1050 },
-    data: { title: 'Local Administrator Password Solution (LAPS) is not deployed resulting in shared local admin password across all member servers and workstations', severity: 'high', cvss: 7.8 },
+    data: { ...defaultFindingData(), title: 'Local Administrator Password Solution (LAPS) is not deployed resulting in shared local admin password across all member servers and workstations', severity: 'high', cvss: 7.8 },
     linkedPageId: p_f7.id, discoveredAt: t(2, 13, 0), createdAt, updatedAt: createdAt,
   };
 
@@ -406,7 +407,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f8: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Cleartext GPP Passwords', position: { x: 850, y: 550 },
-    data: { title: 'Group Policy Preferences in SYSVOL contain AES-256 encrypted credentials (cpassword) decryptable by any domain user via published Microsoft key', severity: 'high', cvss: 7.9 },
+    data: { ...defaultFindingData(), title: 'Group Policy Preferences in SYSVOL contain AES-256 encrypted credentials (cpassword) decryptable by any domain user via published Microsoft key', severity: 'high', cvss: 7.9 },
     linkedPageId: p_f8.id, discoveredAt: t(2, 9, 0), createdAt, updatedAt: createdAt,
   };
 
@@ -415,7 +416,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f9: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'SMB Signing Disabled', position: { x: 200, y: 450 },
-    data: { title: 'SMB message signing is not required on FILE-01 and DB-01 enabling NTLM relay attacks', severity: 'medium', cvss: 5.9 },
+    data: { ...defaultFindingData(), title: 'SMB message signing is not required on FILE-01 and DB-01 enabling NTLM relay attacks', severity: 'medium', cvss: 5.9 },
     linkedPageId: p_f9.id, discoveredAt: t(2, 10, 0), createdAt, updatedAt: createdAt,
   };
 
@@ -423,7 +424,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f10: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Unrestricted Outbound Access', position: { x: 900, y: 50 },
-    data: { title: 'Internal servers have unrestricted outbound internet access on all ports enabling data exfiltration and C2 communication', severity: 'medium', cvss: 6.5 },
+    data: { ...defaultFindingData(), title: 'Internal servers have unrestricted outbound internet access on all ports enabling data exfiltration and C2 communication', severity: 'medium', cvss: 6.5 },
     linkedPageId: p_f10.id, discoveredAt: t(1, 10, 0), createdAt, updatedAt: createdAt,
   };
 
@@ -431,7 +432,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f11: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Weak Domain Password Policy', position: { x: 50, y: 1150 },
-    data: { title: 'Default domain password policy requires only 8 characters with no complexity requirements enabling successful password spray attacks', severity: 'medium', cvss: 5.5 },
+    data: { ...defaultFindingData(), title: 'Default domain password policy requires only 8 characters with no complexity requirements enabling successful password spray attacks', severity: 'medium', cvss: 5.5 },
     linkedPageId: p_f11.id, discoveredAt: t(1, 11, 30), createdAt, updatedAt: createdAt,
   };
 
@@ -439,7 +440,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f12: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'No MFA on Remote Access', position: { x: 1100, y: 350 },
-    data: { title: 'VPN and Outlook Web Access (OWA) do not enforce multi-factor authentication allowing credential-stuffing attacks', severity: 'medium', cvss: 6.8 },
+    data: { ...defaultFindingData(), title: 'VPN and Outlook Web Access (OWA) do not enforce multi-factor authentication allowing credential-stuffing attacks', severity: 'medium', cvss: 6.8 },
     linkedPageId: p_f12.id, discoveredAt: t(1, 8, 45), createdAt, updatedAt: createdAt,
   };
 
@@ -448,7 +449,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f13: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'SNMP Default Community String', position: { x: -100, y: 450 },
-    data: { title: 'FILE-01 responds to SNMP queries using the default "public" community string disclosing system information', severity: 'low', cvss: 3.5 },
+    data: { ...defaultFindingData(), title: 'FILE-01 responds to SNMP queries using the default "public" community string disclosing system information', severity: 'low', cvss: 3.5 },
     linkedPageId: p_f13.id, discoveredAt: t(0, 10, 0), createdAt, updatedAt: createdAt,
   };
 
@@ -456,7 +457,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f14: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'DNS Zone Transfer Allowed', position: { x: 500, y: 850 },
-    data: { title: 'DC-01 permits unrestricted DNS zone transfers (AXFR) exposing all internal DNS records', severity: 'low', cvss: 3.1 },
+    data: { ...defaultFindingData(), title: 'DC-01 permits unrestricted DNS zone transfers (AXFR) exposing all internal DNS records', severity: 'low', cvss: 3.1 },
     linkedPageId: p_f14.id, discoveredAt: t(0, 10, 30), createdAt, updatedAt: createdAt,
   };
 
@@ -465,7 +466,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f15: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Internal IP Address Disclosure', position: { x: 550, y: 50 },
-    data: { title: 'IIS and Tomcat response headers disclose internal RFC1918 IP addresses to unauthenticated users', severity: 'info', cvss: 0.0 },
+    data: { ...defaultFindingData(), title: 'IIS and Tomcat response headers disclose internal RFC1918 IP addresses to unauthenticated users', severity: 'info', cvss: 0.0 },
     linkedPageId: p_f15.id, discoveredAt: t(0, 11, 45), createdAt, updatedAt: createdAt,
   };
 
@@ -473,7 +474,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f16: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Service Version Enumeration', position: { x: 700, y: 400 },
-    data: { title: 'Multiple services expose detailed version banners (MSSQL, IIS, Tomcat, SMB) aiding targeted exploit selection', severity: 'info', cvss: 0.0 },
+    data: { ...defaultFindingData(), title: 'Multiple services expose detailed version banners (MSSQL, IIS, Tomcat, SMB) aiding targeted exploit selection', severity: 'info', cvss: 0.0 },
     linkedPageId: p_f16.id, discoveredAt: t(0, 11, 15), createdAt, updatedAt: createdAt,
   };
 
@@ -510,7 +511,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f17: GraphNode = {
     id: uuidv4(), graphId: externalGraph.id, type: 'finding',
     label: 'MS17-010 EternalBlue', position: { x: 350, y: 200 },
-    data: { title: 'DMZ web server vulnerable to MS17-010 (EternalBlue) allowing unauthenticated remote code execution as SYSTEM', severity: 'critical', cvss: 9.8 },
+    data: { ...defaultFindingData(), title: 'DMZ web server vulnerable to MS17-010 (EternalBlue) allowing unauthenticated remote code execution as SYSTEM', severity: 'critical', cvss: 9.8 },
     linkedPageId: p_f17.id, discoveredAt: t(1, 13, 0), createdAt, updatedAt: createdAt,
   };
 
@@ -518,7 +519,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f18: GraphNode = {
     id: uuidv4(), graphId: externalGraph.id, type: 'finding',
     label: 'ProxyLogon (CVE-2021-26855)', position: { x: 650, y: 200 },
-    data: { title: 'Exchange server EX-01 is vulnerable to ProxyLogon (CVE-2021-26855) enabling pre-authentication remote code execution', severity: 'high', cvss: 8.8 },
+    data: { ...defaultFindingData(), title: 'Exchange server EX-01 is vulnerable to ProxyLogon (CVE-2021-26855) enabling pre-authentication remote code execution', severity: 'high', cvss: 8.8 },
     linkedPageId: p_f18.id, discoveredAt: t(1, 15, 0), createdAt, updatedAt: createdAt,
   };
 
@@ -526,7 +527,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f19: GraphNode = {
     id: uuidv4(), graphId: externalGraph.id, type: 'finding',
     label: 'Outdated TLS 1.0/1.1', position: { x: 100, y: 400 },
-    data: { title: 'DMZ web server supports deprecated TLS 1.0 and TLS 1.1 protocols vulnerable to POODLE and BEAST attacks', severity: 'medium', cvss: 5.3 },
+    data: { ...defaultFindingData(), title: 'DMZ web server supports deprecated TLS 1.0 and TLS 1.1 protocols vulnerable to POODLE and BEAST attacks', severity: 'medium', cvss: 5.3 },
     linkedPageId: p_f19.id, discoveredAt: t(0, 10, 30), createdAt, updatedAt: createdAt,
   };
 
@@ -534,7 +535,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   const f20: GraphNode = {
     id: uuidv4(), graphId: externalGraph.id, type: 'finding',
     label: 'Missing HTTP Security Headers', position: { x: 400, y: 400 },
-    data: { title: 'Web application is missing X-Frame-Options, Content-Security-Policy, and Strict-Transport-Security headers', severity: 'low', cvss: 3.3 },
+    data: { ...defaultFindingData(), title: 'Web application is missing X-Frame-Options, Content-Security-Policy, and Strict-Transport-Security headers', severity: 'low', cvss: 3.3 },
     linkedPageId: p_f20.id, discoveredAt: t(0, 11, 0), createdAt, updatedAt: createdAt,
   };
 

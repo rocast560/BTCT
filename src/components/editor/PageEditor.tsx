@@ -1,39 +1,34 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
-import { BlockNoteSchema, createCodeBlockSpec } from '@blocknote/core';
-import { useCreateBlockNote } from '@blocknote/react';
-import { BlockNoteView } from '@blocknote/mantine';
-import '@blocknote/mantine/style.css';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { Crepe } from '@milkdown/crepe';
+import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
+import { listener, listenerCtx } from '@milkdown/plugin-listener';
+import { callCommand } from '@milkdown/utils';
+import type { Editor } from '@milkdown/core';
+import '@milkdown/crepe/theme/common/style.css';
+import '@milkdown/crepe/theme/frame-dark.css';
+import {
+  Bold, Italic, Strikethrough, Code, Link as LinkIcon,
+  Heading1, Heading2, Heading3,
+  List, ListOrdered, Quote,
+} from 'lucide-react';
+import {
+  HIGHLIGHT_COLORS,
+  highlightPlugin,
+  toggleHighlightCommand,
+  type HighlightColor,
+} from '@/lib/highlight-plugin';
 import { useAppStore } from '@/stores';
 import { pageRepo } from '@/db';
+import { normalizePageContent } from '@/export/markdown';
 import { graphNodeRepo } from '@/db/graph-node-repo';
 import { graphEdgeRepo } from '@/db/graph-edge-repo';
 import type {
-  Page, PartialBlockContent, GraphNode, GraphEdge,
+  Page, GraphNode, GraphEdge,
   HostData, ServiceData, FindingData, PivotData,
 } from '@/types';
-import { createHighlighter } from 'shiki';
 import { Monitor, Key, Cog, Bug, ArrowRightLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-
-const schema = BlockNoteSchema.create().extend({
-  blockSpecs: {
-    codeBlock: createCodeBlockSpec({
-      indentLineWithTab: true,
-      defaultLanguage: 'bash',
-      supportedLanguages: {
-        bash: { name: 'Bash', aliases: ['sh', 'shell'] },
-        python: { name: 'Python', aliases: ['py'] },
-        yaml: { name: 'YAML', aliases: ['yml'] },
-        json: { name: 'JSON' },
-      },
-      createHighlighter: () =>
-        createHighlighter({
-          themes: ['dark-plus', 'light-plus'],
-          langs: ['bash', 'python', 'yaml', 'json'],
-        }),
-    }),
-  },
-});
 
 export function PageEditor({ pageId }: { pageId: string }) {
   const [page, setPage] = useState<Page | null>(null);
@@ -67,29 +62,40 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
 }) {
   const updatePage = useAppStore((s) => s.updatePage);
   const updateGraphNode = useAppStore((s) => s.updateGraphNode);
-  const darkMode = useAppStore((s) => s.darkMode);
   const [titleValue, setTitleValue] = useState(page.title);
   const [slugValue, setSlugValue] = useState(page.slug ?? '');
   const [editingSlug, setEditingSlug] = useState(false);
 
-  const editor = useCreateBlockNote({
-    schema,
-    uploadFile: async (file: File) => {
-      return new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-    },
-    initialContent: page.content && (page.content as PartialBlockContent).length > 0
-      ? (page.content as Parameters<typeof useCreateBlockNote>[0] extends { initialContent?: infer I } ? I : never)
-      : undefined,
-  }, [page.id]);
+  // Keep a ref to the live markdown so the debounced persister always sees
+  // the latest value without re-subscribing the Milkdown listener.
+  const latestMarkdown = useRef<string>(normalizePageContent(page.content));
+  const saveTimer = useRef<number | null>(null);
+
+  // Shared ref to the Milkdown editor so the side format panel can dispatch
+  // commands. `MarkdownEditor` assigns this on mount.
+  const editorRef = useRef<Editor | null>(null);
+
+  const queueSave = useCallback(() => {
+    if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      saveTimer.current = null;
+      void updatePage(page.id, { content: latestMarkdown.current });
+    }, 400);
+  }, [page.id, updatePage]);
+
+  // Flush any pending save when the active page changes or the component unmounts.
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current != null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        void updatePage(page.id, { content: latestMarkdown.current });
+      }
+    };
+  }, [page.id, updatePage]);
 
   const discoveredAt = useMemo(() => {
     if (!page) return null;
-    // Check if this is a graph-linked page
     if (page.isGraphPage) return page.createdAt;
     return null;
   }, [page]);
@@ -97,7 +103,6 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
   const handleTitleChange = (value: string) => {
     setTitleValue(value);
     void updatePage(page.id, { title: value });
-    // Sync label to linked graph node
     if (linkedNode) {
       void updateGraphNode(linkedNode.id, { label: value });
       setLinkedNode((prev) => prev ? { ...prev, label: value } : prev);
@@ -106,10 +111,19 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
 
   const handleNodeDataChange = useCallback((patch: Record<string, unknown>) => {
     if (!linkedNode) return;
-    const newData = { ...linkedNode.data, ...patch };
-    void updateGraphNode(linkedNode.id, { data: newData });
-    setLinkedNode((prev) => prev ? { ...prev, data: newData } : prev);
-  }, [linkedNode, updateGraphNode]);
+    // Allow nested fields (e.g. host "Hostname") to also bump the node label
+    // and page title by passing a magic `__label` key in the patch.
+    const { __label, ...dataPatch } = patch as { __label?: unknown } & Record<string, unknown>;
+    const newData = { ...linkedNode.data, ...dataPatch };
+    const updates: Partial<GraphNode> = { data: newData };
+    if (typeof __label === 'string') {
+      updates.label = __label;
+      setTitleValue(__label);
+      void updatePage(page.id, { title: __label });
+    }
+    void updateGraphNode(linkedNode.id, updates);
+    setLinkedNode((prev) => prev ? { ...prev, ...updates, data: newData } : prev);
+  }, [linkedNode, updateGraphNode, updatePage, page.id, setLinkedNode]);
 
   const handleSlugChange = (value: string) => {
     const sanitized = value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
@@ -121,11 +135,6 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
     const trimmed = slugValue.replace(/(^-|-$)/g, '');
     setSlugValue(trimmed);
     void updatePage(page.id, { slug: trimmed });
-  };
-
-  const handleContentChange = () => {
-    const blocks = editor.document;
-    void updatePage(page.id, { content: blocks as unknown as PartialBlockContent });
   };
 
   return (
@@ -191,20 +200,262 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
           <ConnectedNodes node={linkedNode} />
         )}
 
-        {/* BlockNote Editor */}
-        <div className="min-h-[400px]">
-          <BlockNoteView
-            editor={editor}
-            onChange={handleContentChange}
-            theme={darkMode ? 'dark' : 'light'}
+        {/* Milkdown (Crepe) editor — Obsidian-style live-preview markdown. */}
+        <MilkdownProvider>
+          <MarkdownEditor
+            key={page.id}
+            initialMarkdown={normalizePageContent(page.content)}
+            editorRef={editorRef}
+            onChange={(md) => {
+              latestMarkdown.current = md;
+              queueSave();
+            }}
           />
-        </div>
+        </MilkdownProvider>
       </div>
+      {/* Floating format popup — only shown while text is selected. */}
+      <FloatingFormatPanel editorRef={editorRef} />
     </div>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Milkdown (Crepe) editor wrapper.
+//
+// Crepe ships with Obsidian-style live preview: you type ``` to open a code
+// block, `# ` for headings, `- [ ]` for checklists, `|` tables, etc., and
+// rendering happens inline as you type. We mount a single Crepe instance
+// per page id (hence the `key={page.id}` in the caller) and subscribe to
+// the listener plugin's `markdownUpdated` event to drive persistence.
+// ─────────────────────────────────────────────────────────────────────────
+function MarkdownEditor({
+  initialMarkdown,
+  onChange,
+  editorRef,
+}: {
+  initialMarkdown: string;
+  onChange: (markdown: string) => void;
+  editorRef: React.MutableRefObject<Editor | null>;
+}) {
+  // onChange needs to stay fresh without forcing the editor to remount.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+
+  useEditor((root) => {
+    const crepe = new Crepe({
+      root,
+      defaultValue: initialMarkdown,
+      // Disable the floating bold/italic bubble — we render a side panel
+      // on the right of the page instead so the controls don't overlap
+      // the text the user is selecting.
+      features: {
+        [Crepe.Feature.Toolbar]: false,
+      },
+    });
+    crepe.editor
+      .use(listener)
+      .use(highlightPlugin)
+      .config((ctx) => {
+        ctx.get(listenerCtx).markdownUpdated((_, md) => {
+          onChangeRef.current(md);
+        });
+      });
+    editorRef.current = crepe.editor;
+    return crepe;
+  }, []);
+
+  useEffect(() => {
+    return () => { editorRef.current = null; };
+  }, [editorRef]);
+
+  return (
+    <div className="milkdown-host min-h-[400px]">
+      <Milkdown />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Floating format panel — portal-mounted popup that appears only while the
+// user has a non-empty text selection inside the editor. Positioned to the
+// right of the selection when there's room, otherwise to the left, flipped
+// above/below as needed so it never covers the selected text.
+// ─────────────────────────────────────────────────────────────────────────
+function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<Editor | null> }) {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const update = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        setPos(null);
+        return;
+      }
+      const anchor = sel.anchorNode;
+      if (!anchor) { setPos(null); return; }
+      const anchorEl = anchor.nodeType === Node.ELEMENT_NODE
+        ? (anchor as Element)
+        : anchor.parentElement;
+      if (!anchorEl || !anchorEl.closest('.milkdown-host .ProseMirror')) {
+        setPos(null);
+        return;
+      }
+      // Don't hide when interacting with the panel itself.
+      if (panelRef.current && panelRef.current.contains(anchorEl)) return;
+
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        setPos(null);
+        return;
+      }
+
+      const panel = panelRef.current;
+      const w = panel?.offsetWidth ?? 200;
+      const h = panel?.offsetHeight ?? 160;
+      const gap = 12;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      // Prefer right of the selection, then left, then below, then above.
+      let left: number;
+      let top: number;
+      if (rect.right + gap + w <= vw - 8) {
+        left = rect.right + gap;
+        top = Math.min(vh - h - 8, Math.max(8, rect.top));
+      } else if (rect.left - gap - w >= 8) {
+        left = rect.left - gap - w;
+        top = Math.min(vh - h - 8, Math.max(8, rect.top));
+      } else if (rect.bottom + gap + h <= vh - 8) {
+        top = rect.bottom + gap;
+        left = Math.min(vw - w - 8, Math.max(8, rect.left + rect.width / 2 - w / 2));
+      } else {
+        top = Math.max(8, rect.top - gap - h);
+        left = Math.min(vw - w - 8, Math.max(8, rect.left + rect.width / 2 - w / 2));
+      }
+      setPos({ top, left });
+    };
+
+    const onChange = () => requestAnimationFrame(update);
+    document.addEventListener('selectionchange', onChange);
+    window.addEventListener('scroll', onChange, true);
+    window.addEventListener('resize', onChange);
+    return () => {
+      document.removeEventListener('selectionchange', onChange);
+      window.removeEventListener('scroll', onChange, true);
+      window.removeEventListener('resize', onChange);
+    };
+  }, []);
+
+  const run = useCallback(<P,>(commandKey: string, payload?: P) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.action(callCommand(commandKey, payload));
+  }, [editorRef]);
+
+  const applyHighlight = useCallback((color: HighlightColor | null) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.action(callCommand(toggleHighlightCommand.key, color));
+  }, [editorRef]);
+
+  if (!pos) return null;
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      className="fixed z-[60] flex flex-col gap-3 border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2 shadow-xl animate-[hl-toolbar-in_0.08s_ease-out]"
+      style={{ top: pos.top, left: pos.left, width: 200 }}
+      role="toolbar"
+      aria-label="Text formatting"
+      // Preserve the editor selection while clicking inside the panel.
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      <FormatGroup label="Text">
+        <FormatButton title="Bold (Ctrl+B)"   onClick={() => run('ToggleStrong')}><Bold size={14} /></FormatButton>
+        <FormatButton title="Italic (Ctrl+I)" onClick={() => run('ToggleEmphasis')}><Italic size={14} /></FormatButton>
+        <FormatButton title="Strikethrough"   onClick={() => run('ToggleStrikeThrough')}><Strikethrough size={14} /></FormatButton>
+        <FormatButton title="Inline code"     onClick={() => run('ToggleInlineCode')}><Code size={14} /></FormatButton>
+        <FormatButton title="Link"            onClick={() => {
+          const href = window.prompt('Link URL');
+          if (href) run('ToggleLink', { href, title: '' });
+        }}><LinkIcon size={14} /></FormatButton>
+      </FormatGroup>
+
+      <FormatGroup label="Block">
+        <FormatButton title="Heading 1"       onClick={() => run('WrapInHeading', 1)}><Heading1 size={14} /></FormatButton>
+        <FormatButton title="Heading 2"       onClick={() => run('WrapInHeading', 2)}><Heading2 size={14} /></FormatButton>
+        <FormatButton title="Heading 3"       onClick={() => run('WrapInHeading', 3)}><Heading3 size={14} /></FormatButton>
+        <FormatButton title="Bulleted list"   onClick={() => run('WrapInBulletList')}><List size={14} /></FormatButton>
+        <FormatButton title="Numbered list"   onClick={() => run('WrapInOrderedList')}><ListOrdered size={14} /></FormatButton>
+        <FormatButton title="Quote"           onClick={() => run('WrapInBlockquote')}><Quote size={14} /></FormatButton>
+      </FormatGroup>
+
+      <div>
+        <div className="mb-1 text-[9px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Highlight</div>
+        <div className="grid grid-cols-4 gap-1.5">
+          {HIGHLIGHT_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              title={`Highlight ${color}`}
+              aria-label={`Highlight ${color}`}
+              onClick={() => applyHighlight(color)}
+              className="hl-swatch"
+              style={{ backgroundColor: swatchCssColor(color) }}
+            />
+          ))}
+          <button
+            type="button"
+            title="Remove highlight"
+            aria-label="Remove highlight"
+            onClick={() => applyHighlight(null)}
+            className="hl-swatch hl-swatch--clear"
+          />
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function FormatGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="mb-1 text-[9px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">{label}</div>
+      <div className="grid grid-cols-5 gap-1">{children}</div>
+    </div>
+  );
+}
+
+function FormatButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      className="flex h-7 w-7 items-center justify-center border border-[hsl(var(--border))] bg-[hsl(var(--background))] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--accent))]"
+    >
+      {children}
+    </button>
+  );
+}
+
+function swatchCssColor(color: HighlightColor): string {
+  switch (color) {
+    case 'yellow': return 'rgba(250, 204,  21, 0.65)';
+    case 'green':  return 'rgba( 74, 222, 128, 0.60)';
+    case 'blue':   return 'rgba( 96, 165, 250, 0.65)';
+    case 'pink':   return 'rgba(244, 114, 182, 0.65)';
+    case 'orange': return 'rgba(251, 146,  60, 0.70)';
+    case 'purple': return 'rgba(192, 132, 252, 0.65)';
+    case 'red':    return 'rgba(248, 113, 113, 0.65)';
+  }
+}
+
 // ── Inline node data editor (shown on graph-linked pages) ──
+
 
 const NODE_TYPE_LABELS: Record<string, string> = {
   host: 'Host',
@@ -252,7 +503,11 @@ function HostFields({ data, onChange }: { data: HostData; onChange: (p: Record<s
   };
   return (
     <>
-      <InlineField label="Hostname" value={data.hostname ?? ''} onChange={(v) => onChange({ hostname: v })} />
+      <InlineField
+        label="Hostname"
+        value={data.hostname ?? ''}
+        onChange={(v) => onChange({ hostname: v, __label: v })}
+      />
       <InlineField label="IP Address" value={data.ip ?? ''} onChange={(v) => onChange({ ip: v })} mono />
       <InlineField label="OS" value={data.os ?? ''} onChange={(v) => onChange({ os: v })} />
       <div className="flex items-center gap-3">
@@ -298,7 +553,11 @@ function ServiceFields({ data, onChange }: { data: ServiceData; onChange: (p: Re
 function FindingFields({ data, onChange }: { data: FindingData; onChange: (p: Record<string, unknown>) => void }) {
   const [cvssText, setCvssText] = useState(String(data.cvss ?? 0));
   const [cvssFocused, setCvssFocused] = useState(false);
+  const [hostsText, setHostsText] = useState((data.hosts ?? []).join(', '));
+  const [refsText, setRefsText] = useState((data.references ?? []).join('\n'));
   useEffect(() => { if (!cvssFocused) setCvssText(String(data.cvss ?? 0)); }, [data.cvss, cvssFocused]);
+  useEffect(() => { setHostsText((data.hosts ?? []).join(', ')); }, [data.hosts]);
+  useEffect(() => { setRefsText((data.references ?? []).join('\n')); }, [data.references]);
   const commitCvss = () => {
     setCvssFocused(false);
     let num = parseFloat(cvssText);
@@ -307,23 +566,13 @@ function FindingFields({ data, onChange }: { data: FindingData; onChange: (p: Re
     setCvssText(String(num));
     onChange({ cvss: num });
   };
+  const commitHosts = () => onChange({ hosts: hostsText.split(',').map((s) => s.trim()).filter(Boolean) });
+  const commitRefs = () => onChange({ references: refsText.split('\n').map((s) => s.trim()).filter(Boolean) });
+  const sevOptions: Array<FindingData['severity']> = ['critical', 'high', 'medium', 'low', 'info'];
   return (
     <>
       <InlineField label="Title" value={data.title ?? ''} onChange={(v) => onChange({ title: v })} />
-      <div className="flex items-center gap-3">
-        <label className="w-28 shrink-0 text-xs text-[hsl(var(--muted-foreground))]">Severity</label>
-        <select
-          value={data.severity ?? 'medium'}
-          onChange={(e) => onChange({ severity: e.target.value })}
-          className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none focus:border-[hsl(var(--primary))]"
-        >
-          <option value="critical">Critical</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-          <option value="info">Info</option>
-        </select>
-      </div>
+      <InlineSelect label="Severity" value={data.severity ?? 'medium'} options={sevOptions} onChange={(v) => onChange({ severity: v })} />
       <div className="flex items-center gap-3">
         <label className="w-28 shrink-0 text-xs text-[hsl(var(--muted-foreground))]">CVSS</label>
         <input
@@ -335,7 +584,70 @@ function FindingFields({ data, onChange }: { data: FindingData; onChange: (p: Re
           className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 font-mono text-sm outline-none focus:border-[hsl(var(--primary))]"
         />
       </div>
+      <InlineField label="CVSS Vector" value={data.cvssVector ?? ''} onChange={(v) => onChange({ cvssVector: v })} mono />
+      <InlineSelect label="Likelihood" value={data.likelihood ?? 'info'} options={sevOptions} onChange={(v) => onChange({ likelihood: v })} />
+      <InlineSelect label="Impact" value={data.impact ?? 'info'} options={sevOptions} onChange={(v) => onChange({ impact: v })} />
+      <InlineTextArea label="Description" value={data.description ?? ''} onChange={(v) => onChange({ description: v })} rows={3} />
+      <InlineTextArea label="Business Impact" value={data.businessImpact ?? ''} onChange={(v) => onChange({ businessImpact: v })} rows={2} />
+      <InlineTextArea label="Exploit Steps" value={data.exploitSteps ?? ''} onChange={(v) => onChange({ exploitSteps: v })} rows={4} mono />
+      <InlineField label="MITRE ATT&CK" value={data.mitreAttack ?? ''} onChange={(v) => onChange({ mitreAttack: v })} />
+      <InlineField label="MITRE Mitigation" value={data.mitreMitigation ?? ''} onChange={(v) => onChange({ mitreMitigation: v })} />
+      <InlineTextArea label="Remediation" value={data.remediation ?? ''} onChange={(v) => onChange({ remediation: v })} rows={3} />
+      <div className="flex items-center gap-3">
+        <label className="w-28 shrink-0 text-xs text-[hsl(var(--muted-foreground))]">Hosts</label>
+        <input
+          value={hostsText}
+          onChange={(e) => setHostsText(e.target.value)}
+          onBlur={commitHosts}
+          onKeyDown={(e) => { if (e.key === 'Enter') commitHosts(); }}
+          placeholder="10.0.0.5, web01"
+          className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 font-mono text-sm outline-none focus:border-[hsl(var(--primary))]"
+        />
+      </div>
+      <InlineField label="Service" value={data.service ?? ''} onChange={(v) => onChange({ service: v })} />
+      <div className="flex items-start gap-3">
+        <label className="w-28 shrink-0 pt-1 text-xs text-[hsl(var(--muted-foreground))]">References</label>
+        <textarea
+          value={refsText}
+          onChange={(e) => setRefsText(e.target.value)}
+          onBlur={commitRefs}
+          placeholder="One URL or reference per line"
+          rows={3}
+          className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 font-mono text-sm outline-none focus:border-[hsl(var(--primary))] resize-y"
+        />
+      </div>
     </>
+  );
+}
+
+function InlineSelect<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: readonly T[]; onChange: (v: T) => void }) {
+  return (
+    <div className="flex items-center gap-3">
+      <label className="w-28 shrink-0 text-xs text-[hsl(var(--muted-foreground))]">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as T)}
+        className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none focus:border-[hsl(var(--primary))] capitalize"
+      >
+        {options.map((opt) => (
+          <option key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function InlineTextArea({ label, value, onChange, rows = 3, mono }: { label: string; value: string; onChange: (v: string) => void; rows?: number; mono?: boolean }) {
+  return (
+    <div className="flex items-start gap-3">
+      <label className="w-28 shrink-0 pt-1 text-xs text-[hsl(var(--muted-foreground))]">{label}</label>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        className={`flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none focus:border-[hsl(var(--primary))] resize-y ${mono ? 'font-mono' : ''}`}
+      />
+    </div>
   );
 }
 

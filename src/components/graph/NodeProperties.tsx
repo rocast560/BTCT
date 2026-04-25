@@ -124,7 +124,16 @@ function NodeDataFields({ node, onSave }: { node: GraphNode; onSave: (u: Partial
       const d = localData as unknown as HostData;
       return (
         <div className="space-y-2">
-          <Field label="Hostname" value={d.hostname} onChange={(v) => updateData({ hostname: v })} />
+          <Field
+            label="Hostname"
+            value={d.hostname}
+            onChange={(v) => {
+              // Also sync the node's label (title) to the new hostname so the
+              // graph node and properties header reflect the change.
+              onSave({ label: v });
+              updateData({ hostname: v });
+            }}
+          />
           <Field label="IP" value={d.ip} onChange={(v) => updateData({ ip: v })} />
           <Field label="OS" value={d.os} onChange={(v) => updateData({ os: v })} />
           <Field
@@ -158,24 +167,94 @@ function NodeDataFields({ node, onSave }: { node: GraphNode; onSave: (u: Partial
     }
     case 'finding': {
       const d = localData as unknown as FindingData;
+      const sevOptions: Array<FindingData['severity']> = ['critical', 'high', 'medium', 'low', 'info'];
       return (
         <div className="space-y-2">
           <Field label="Title" value={d.title} onChange={(v) => updateData({ title: v })} />
-          <div>
-            <label className="text-xs text-[hsl(var(--muted-foreground))]">Severity</label>
-            <select
-              value={d.severity}
-              onChange={(e) => updateData({ severity: e.target.value })}
-              className="mt-1 w-full rounded border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none"
-            >
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-              <option value="info">Info</option>
-            </select>
-          </div>
+          <SelectField
+            label="Severity"
+            value={d.severity}
+            options={sevOptions}
+            onChange={(v) => updateData({ severity: v })}
+          />
           <CvssField value={d.cvss} onChange={(v) => updateData({ cvss: v })} />
+          <Field
+            label="CVSS Vector"
+            value={d.cvssVector ?? ''}
+            onChange={(v) => updateData({ cvssVector: v })}
+            placeholder="CVSS:3.1/AV:N/AC:L/..."
+            mono
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <SelectField
+              label="Likelihood"
+              value={d.likelihood ?? 'info'}
+              options={sevOptions}
+              onChange={(v) => updateData({ likelihood: v })}
+            />
+            <SelectField
+              label="Impact"
+              value={d.impact ?? 'info'}
+              options={sevOptions}
+              onChange={(v) => updateData({ impact: v })}
+            />
+          </div>
+          <TextAreaField
+            label="Vulnerability Description"
+            value={d.description ?? ''}
+            onChange={(v) => updateData({ description: v })}
+            rows={3}
+          />
+          <TextAreaField
+            label="Business Impact"
+            value={d.businessImpact ?? ''}
+            onChange={(v) => updateData({ businessImpact: v })}
+            rows={2}
+          />
+          <TextAreaField
+            label="Exploit Steps"
+            value={d.exploitSteps ?? ''}
+            onChange={(v) => updateData({ exploitSteps: v })}
+            rows={4}
+            mono
+          />
+          <Field
+            label="MITRE ATT&CK"
+            value={d.mitreAttack ?? ''}
+            onChange={(v) => updateData({ mitreAttack: v })}
+            placeholder="T1078, T1190"
+          />
+          <Field
+            label="MITRE Mitigation"
+            value={d.mitreMitigation ?? ''}
+            onChange={(v) => updateData({ mitreMitigation: v })}
+            placeholder="M1032, M1050"
+          />
+          <TextAreaField
+            label="Remediation"
+            value={d.remediation ?? ''}
+            onChange={(v) => updateData({ remediation: v })}
+            rows={3}
+          />
+          <Field
+            label="Hosts (comma-separated)"
+            value={(d.hosts ?? []).join(', ')}
+            onChange={(v) => updateData({ hosts: v.split(',').map((s) => s.trim()).filter(Boolean) })}
+            mono
+          />
+          <Field
+            label="Service"
+            value={d.service ?? ''}
+            onChange={(v) => updateData({ service: v })}
+          />
+          <TextAreaField
+            label="References / Resources"
+            value={(d.references ?? []).join('\n')}
+            onChange={(v) => updateData({ references: v.split('\n').map((s) => s.trim()).filter(Boolean) })}
+            rows={3}
+            placeholder={'One URL or reference per line'}
+            mono
+          />
         </div>
       );
     }
@@ -198,15 +277,49 @@ function NodeDataFields({ node, onSave }: { node: GraphNode; onSave: (u: Partial
   }
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function Field({ label, value, onChange, placeholder, mono }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean }) {
   return (
     <div>
       <label className="text-xs text-[hsl(var(--muted-foreground))]">{label}</label>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none"
+        placeholder={placeholder}
+        className={`mt-1 w-full rounded border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none ${mono ? 'font-mono' : ''}`}
       />
+    </div>
+  );
+}
+
+function TextAreaField({ label, value, onChange, rows = 3, placeholder, mono }: { label: string; value: string; onChange: (v: string) => void; rows?: number; placeholder?: string; mono?: boolean }) {
+  return (
+    <div>
+      <label className="text-xs text-[hsl(var(--muted-foreground))]">{label}</label>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => e.stopPropagation()}
+        rows={rows}
+        placeholder={placeholder}
+        className={`mt-1 w-full rounded border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none resize-y ${mono ? 'font-mono' : ''}`}
+      />
+    </div>
+  );
+}
+
+function SelectField<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: readonly T[]; onChange: (v: T) => void }) {
+  return (
+    <div>
+      <label className="text-xs text-[hsl(var(--muted-foreground))]">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as T)}
+        className="mt-1 w-full rounded border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none capitalize"
+      >
+        {options.map((opt) => (
+          <option key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</option>
+        ))}
+      </select>
     </div>
   );
 }

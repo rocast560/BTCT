@@ -62,7 +62,7 @@
 body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Poppins', 'Inter', system-ui, -apple-system, sans-serif;
   font-size: 13px;
   margin: 0;
   overflow: hidden;
@@ -160,14 +160,213 @@ body {
 }
 .node-chain-highlight > *:first-child {
   position: relative;
-  outline: 2px solid #ef4444;
+  outline: 1px solid #ef4444;
   outline-offset: 2px;
   box-shadow:
-    0 0 0 1px rgba(239, 68, 68, 0.9),
     inset 0 0 12px 2px rgba(239, 68, 68, 0.55),
     inset 0 0 32px 8px rgba(239, 68, 68, 0.18);
 }
 @keyframes chain-node-pulse {
   0%, 100% { filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.75)) drop-shadow(0 0 14px rgba(239, 68, 68, 0.35)); }
   50%      { filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.95)) drop-shadow(0 0 22px rgba(239, 68, 68, 0.55)); }
+}
+
+/* ── Milkdown (Crepe) editor: Obsidian-style live-preview markdown ── */
+
+.milkdown-host {
+  width: 100%;
+}
+.milkdown-host .milkdown {
+  background: transparent;
+  color: inherit;
+}
+.milkdown-host .ProseMirror {
+  outline: none;
+  padding: 0;
+  min-height: 400px;
+  background: transparent;
+  color: inherit;
+  font-family: 'Poppins', 'Inter', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+/* Override Crepe theme font variables so the editor uses Poppins */
+.milkdown-host .milkdown,
+.milkdown-host .ProseMirror {
+  --crepe-font-default: 'Poppins', 'Inter', system-ui, -apple-system, sans-serif;
+  --crepe-font-title: 'Poppins', 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ── Text highlight mark ── */
+.milkdown-host .ProseMirror mark[data-hl-color] {
+  background-color: var(--hl-bg, transparent);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.milkdown-host .ProseMirror mark[data-hl-color="yellow"]  { --hl-bg: rgba(250, 204,  21, 0.45); }
+.milkdown-host .ProseMirror mark[data-hl-color="green"]   { --hl-bg: rgba( 74, 222, 128, 0.40); }
+.milkdown-host .ProseMirror mark[data-hl-color="blue"]    { --hl-bg: rgba( 96, 165, 250, 0.45); }
+.milkdown-host .ProseMirror mark[data-hl-color="pink"]    { --hl-bg: rgba(244, 114, 182, 0.45); }
+.milkdown-host .ProseMirror mark[data-hl-color="orange"]  { --hl-bg: rgba(251, 146,  60, 0.50); }
+.milkdown-host .ProseMirror mark[data-hl-color="purple"]  { --hl-bg: rgba(192, 132, 252, 0.45); }
+.milkdown-host .ProseMirror mark[data-hl-color="red"]     { --hl-bg: rgba(248, 113, 113, 0.45); }
+
+/* Floating highlight toolbar — shown above the current text selection */
+.hl-toolbar {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  animation: hl-toolbar-in 0.08s ease-out;
+}
+@keyframes hl-toolbar-in {
+  from { opacity: 0; transform: translate(-50%, 4px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.hl-toolbar__label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+  margin-right: 4px;
+}
+.hl-swatch {
+  width: 18px;
+  height: 18px;
+  border: 1px solid hsl(var(--border));
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.08s ease, border-color 0.08s ease;
+}
+.hl-swatch:hover {
+  transform: scale(1.15);
+  border-color: hsl(var(--foreground));
+}
+.hl-swatch--clear {
+  background:
+    linear-gradient(to top left,
+      transparent 0%,
+      transparent calc(50% - 1px),
+      hsl(var(--destructive)) 50%,
+      transparent calc(50% + 1px),
+      transparent 100%),
+    hsl(var(--background));
+}
+.milkdown-host .ProseMirror > * + * {
+  margin-top: 0.75em;
+}
+.milkdown-host .ProseMirror h1,
+.milkdown-host .ProseMirror h2,
+.milkdown-host .ProseMirror h3,
+.milkdown-host .ProseMirror h4,
+.milkdown-host .ProseMirror h5,
+.milkdown-host .ProseMirror h6 {
+  font-weight: 700;
+  line-height: 1.25;
+  margin-top: 1.2em;
+}
+.milkdown-host .ProseMirror h1 { font-size: 1.9em; }
+.milkdown-host .ProseMirror h2 { font-size: 1.55em; }
+.milkdown-host .ProseMirror h3 { font-size: 1.3em; }
+.milkdown-host .ProseMirror h4 { font-size: 1.1em; }
+.milkdown-host .ProseMirror ul,
+.milkdown-host .ProseMirror ol {
+  padding-left: 1.5em;
+}
+.milkdown-host .ProseMirror ul li { list-style: disc; }
+.milkdown-host .ProseMirror ol li { list-style: decimal; }
+.milkdown-host .ProseMirror blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 0.9em;
+  color: hsl(var(--muted-foreground));
+  margin: 0.5em 0;
+}
+.milkdown-host .ProseMirror hr {
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1.2em 0;
+}
+.milkdown-host .ProseMirror a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.milkdown-host .ProseMirror code {
+  background-color: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+.milkdown-host .ProseMirror pre {
+  background-color: #1a1a1a;
+  color: #e5e5e5;
+  border: 1px solid hsl(var(--border));
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.milkdown-host .ProseMirror pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+/* Milkdown's code-mirror feature renders fenced code blocks as a CodeMirror
+   editor; keep the frame flush with the app's aesthetic. */
+.milkdown-host .milkdown-code-block {
+  background-color: #1a1a1a;
+  color: #e5e5e5;
+  border: 1px solid hsl(var(--border));
+}
+.milkdown-host .milkdown-code-block .cm-editor {
+  background: transparent;
+  color: inherit;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+.milkdown-host .milkdown-code-block .cm-gutters {
+  background: transparent;
+  border-right: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+}
+/* The Crepe code-block language picker renders as a <select> / search popup;
+   dark-mode its chrome. */
+.milkdown-host .milkdown-code-block .language-picker {
+  background: transparent;
+  color: #cfcfcf;
+  font-size: 11px;
+}
+.milkdown-host .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.milkdown-host .ProseMirror th,
+.milkdown-host .ProseMirror td {
+  border: 1px solid hsl(var(--border));
+  padding: 6px 10px;
+  text-align: left;
+}
+.milkdown-host .ProseMirror th {
+  background-color: rgba(255, 255, 255, 0.04);
+  font-weight: 600;
+}
+.milkdown-host .ProseMirror img {
+  max-width: 100%;
+  height: auto;
+}
+.milkdown-host .ProseMirror ul[data-task-list] li,
+.milkdown-host .ProseMirror li[data-task-list-item] {
+  list-style: none;
 }

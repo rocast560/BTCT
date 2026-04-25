@@ -745,8 +745,32 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
+  // ── Cat background toggle (persisted across reloads) ──
+  const [catBgEnabled, setCatBgEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return window.localStorage.getItem('graphCatBg') !== '0';
+  });
+  useEffect(() => {
+    window.localStorage.setItem('graphCatBg', catBgEnabled ? '1' : '0');
+  }, [catBgEnabled]);
+
   return (
-    <div className="h-full w-full">
+    <div className="relative h-full w-full overflow-hidden bg-[hsl(var(--background))]">
+      {/* Looping video background */}
+      {catBgEnabled && (
+        <>
+          <video
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+            src="/alexcatwalk.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+          />
+          {/* Dim overlay so the video doesn't overpower node readability */}
+          <div className="pointer-events-none absolute inset-0 bg-[hsl(var(--background))]/60" />
+        </>
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -773,10 +797,20 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
             setViewport(cached, { duration: 0 });
           }
         }}
-        className="bg-[hsl(var(--background))]"
+        className="!bg-transparent"
       >
-        <Background color="hsl(0 0% 14%)" gap={20} size={1.5} />
+        <Background color="hsl(0 0% 14%)" gap={20} size={1.5} bgColor="transparent" />
         <Controls className="!bg-[hsl(var(--card))] !border-[hsl(var(--border))] !shadow-none [&>button]:!bg-[hsl(var(--card))] [&>button]:!border-[hsl(var(--border))] [&>button]:!fill-[hsl(var(--foreground))]" />
+        <Panel position="top-right">
+          <button
+            type="button"
+            onClick={() => setCatBgEnabled((v) => !v)}
+            title={catBgEnabled ? 'Disable cat background' : 'Enable cat background'}
+            className="border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
+          >
+            {catBgEnabled ? 'Cat: On' : 'Cat: Off'}
+          </button>
+        </Panel>
         <Panel position="top-center">
           <NodePalette onDrop={handleDropNode} />
         </Panel>

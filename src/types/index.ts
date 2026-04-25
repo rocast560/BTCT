@@ -18,6 +18,10 @@ export interface Page {
   slug: string;
   icon: string;
   tags: string[];
+  /** Markdown source for the page body. Legacy BlockNote JSON arrays are
+   *  accepted and auto-converted to markdown at load time (see
+   *  normalizePageContent). At runtime, reads from pageRepo always return a
+   *  string; the array shape exists only for legacy seed/fixture compatibility. */
   content: PartialBlockContent;
   sortOrder: number;
   isGraphPage: boolean; // true = auto-created for a graph node, hidden from page tree
@@ -25,9 +29,10 @@ export interface Page {
   updatedAt: number;
 }
 
-// BlockNote PartialBlock[] — kept opaque for Dexie storage
+// Legacy alias — any code path still passing BlockNote arrays is accepted
+// by pageRepo.create/update and converted to markdown before persistence.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type PartialBlockContent = readonly Record<string, any>[];
+export type PartialBlockContent = string | readonly Record<string, any>[];
 
 // ---- Graph ----
 export interface Graph {
@@ -62,10 +67,25 @@ export interface ServiceData {
   cves: string[];
 }
 
+export type Likelihood = 'critical' | 'high' | 'medium' | 'low' | 'info';
+export type Impact = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
 export interface FindingData {
   title: string;
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
   cvss: number;
+  cvssVector: string;
+  likelihood: Likelihood;
+  impact: Impact;
+  description: string;
+  businessImpact: string;
+  exploitSteps: string;
+  mitreAttack: string;
+  mitreMitigation: string;
+  remediation: string;
+  hosts: string[];
+  service: string;
+  references: string[];
 }
 
 export interface PivotData {
@@ -236,7 +256,23 @@ export function defaultServiceData(): ServiceData {
 }
 
 export function defaultFindingData(): FindingData {
-  return { title: '', severity: 'info', cvss: 0 };
+  return {
+    title: '',
+    severity: 'info',
+    cvss: 0,
+    cvssVector: '',
+    likelihood: 'info',
+    impact: 'info',
+    description: '',
+    businessImpact: '',
+    exploitSteps: '',
+    mitreAttack: '',
+    mitreMitigation: '',
+    remediation: '',
+    hosts: [],
+    service: '',
+    references: [],
+  };
 }
 
 export function defaultPivotData(): PivotData {

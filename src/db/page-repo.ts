@@ -1,28 +1,38 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './database';
 import type { Page, PartialBlockContent } from '@/types';
+import { normalizePageContent } from '@/export/markdown';
+
+function normalize(p: Page): Page {
+  const md = normalizePageContent(p.content);
+  if (md === p.content) return p;
+  return { ...p, content: md };
+}
 
 export const pageRepo = {
   async getByWorkspace(workspaceId: string, includeGraphPages = false): Promise<Page[]> {
     const pages = await db.pages.where('workspaceId').equals(workspaceId).toArray();
-    if (includeGraphPages) return pages;
-    return pages.filter((p) => !p.isGraphPage);
+    const result = includeGraphPages ? pages : pages.filter((p) => !p.isGraphPage);
+    return result.map(normalize);
   },
 
   async getById(id: string): Promise<Page | undefined> {
-    return db.pages.get(id);
+    const p = await db.pages.get(id);
+    return p ? normalize(p) : undefined;
   },
 
   async getChildren(parentId: string): Promise<Page[]> {
-    return db.pages.where('parentId').equals(parentId).sortBy('sortOrder');
+    const rows = await db.pages.where('parentId').equals(parentId).sortBy('sortOrder');
+    return rows.map(normalize);
   },
 
   async getByTag(workspaceId: string, tag: string): Promise<Page[]> {
-    return db.pages
+    const rows = await db.pages
       .where('workspaceId')
       .equals(workspaceId)
       .and((p) => p.tags.includes(tag))
       .toArray();
+    return rows.map(normalize);
   },
 
   async getBacklinks(pageId: string): Promise<{ nodes: import('@/types').GraphNode[]; edges: import('@/types').GraphEdge[] }> {
@@ -61,7 +71,7 @@ export const pageRepo = {
       slug: data.slug ?? data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
       icon: data.icon ?? '📄',
       tags: data.tags ?? [],
-      content: data.content ?? [],
+      content: normalizePageContent(data.content ?? ''),
       sortOrder: data.sortOrder ?? siblings,
       isGraphPage: data.isGraphPage ?? false,
       createdAt: now,
@@ -72,7 +82,11 @@ export const pageRepo = {
   },
 
   async update(id: string, data: Partial<Omit<Page, 'id' | 'workspaceId' | 'createdAt'>>): Promise<void> {
-    await db.pages.update(id, { ...data, updatedAt: Date.now() });
+    const patch: Partial<Page> = { ...data, updatedAt: Date.now() };
+    if ('content' in data) {
+      patch.content = normalizePageContent(data.content);
+    }
+    await db.pages.update(id, patch);
   },
 
   async remove(id: string): Promise<void> {
