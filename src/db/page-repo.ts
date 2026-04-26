@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from './database';
 import type { Page, PartialBlockContent } from '@/types';
 import { normalizePageContent } from '@/export/markdown';
+import { getOrInitYText, textKey } from '@/realtime/shared-doc';
 
 function normalize(p: Page): Page {
   const md = normalizePageContent(p.content);
@@ -78,6 +79,10 @@ export const pageRepo = {
       updatedAt: now,
     };
     await db.pages.add(page);
+    // Pre-seed Y.Text fields so concurrent first-edits on different
+    // machines don't both create their own Y.Text and orphan one.
+    getOrInitYText(textKey('page', page.id, 'title'), page.title);
+    getOrInitYText(textKey('page', page.id, 'slug'), page.slug);
     return page;
   },
 

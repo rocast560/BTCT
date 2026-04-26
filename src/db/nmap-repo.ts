@@ -1,6 +1,7 @@
 import { db } from './database';
 import type { NmapScan, NmapMachine, ID } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { getOrInitYText, textKey } from '@/realtime/shared-doc';
 
 export const nmapScanRepo = {
   /** Create an empty Nmap group (no XML yet). */
@@ -52,6 +53,9 @@ export const nmapMachineRepo = {
       updatedAt: now,
     }));
     await db.nmapMachines.bulkAdd(records);
+    for (const r of records) {
+      getOrInitYText(textKey('nmapMachine', r.id, 'hostname'), r.hostname);
+    }
     return records;
   },
 
@@ -97,7 +101,12 @@ export const nmapMachineRepo = {
       }
     }
 
-    if (toAdd.length > 0) await db.nmapMachines.bulkAdd(toAdd);
+    if (toAdd.length > 0) {
+      await db.nmapMachines.bulkAdd(toAdd);
+      for (const r of toAdd) {
+        getOrInitYText(textKey('nmapMachine', r.id, 'hostname'), r.hostname);
+      }
+    }
     for (const u of toUpdate) {
       await db.nmapMachines.update(u.id, u.data);
     }

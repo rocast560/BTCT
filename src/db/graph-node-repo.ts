@@ -3,6 +3,7 @@ import { db } from './database';
 import { pageRepo } from './page-repo';
 import type { GraphNode, NodeType, AnyNodeData } from '@/types';
 import { defaultNodeData } from '@/types';
+import { getOrInitYText, textKey } from '@/realtime/shared-doc';
 
 export const graphNodeRepo = {
   async getByGraph(graphId: string): Promise<GraphNode[]> {
@@ -53,6 +54,7 @@ export const graphNodeRepo = {
       updatedAt: now,
     };
     await db.graphNodes.add(node);
+    getOrInitYText(textKey('node', node.id, 'label'), node.label);
     return node;
   },
 

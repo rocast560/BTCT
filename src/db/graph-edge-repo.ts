@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './database';
 import type { GraphEdge, EdgeType } from '@/types';
+import { getOrInitYText, textKey } from '@/realtime/shared-doc';
 
 export const graphEdgeRepo = {
   async getByGraph(graphId: string): Promise<GraphEdge[]> {
@@ -31,6 +32,7 @@ export const graphEdgeRepo = {
       updatedAt: now,
     };
     await db.graphEdges.add(edge);
+    getOrInitYText(textKey('edge', edge.id, 'label'), edge.label);
     return edge;
   },
 

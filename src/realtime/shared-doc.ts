@@ -114,6 +114,16 @@ export function getSharedDoc(): SharedDocContext {
   // safely call getSharedDoc().
   mirrorTextsToRecords();
 
+  // Once the doc has fully synced (IDB + WS), seed any missing Y.Texts
+  // for records that were created before the Y.Text registry existed
+  // (or by clients that didn't pre-seed). Without this, those records'
+  // text fields silently fall back to last-writer-wins on the JSON map
+  // and concurrent edits drop characters.
+  void whenReady.then(() => {
+    if (!ctx) return;
+    seedMissingYTexts(ctx);
+  });
+
   return ctx;
 }
 
@@ -252,3 +262,49 @@ function mirrorTextsToRecords() {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Y.Text migration / pre-seeding
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Which JSON fields on each table are collaborative Y.Texts. This drives
+ * both create-time pre-seeding (in repos) and the post-sync migration
+ * pass below.
+ */
+const TEXT_FIELDS_BY_ENTITY: Record<string, { table: TableName; fields: string[] }> = {
+  page:        { table: 'pages',        fields: ['title', 'slug'] },
+  node:        { table: 'graphNodes',   fields: ['label'] },
+  edge:        { table: 'graphEdges',   fields: ['label'] },
+  workspace:   { table: 'workspaces',   fields: ['name'] },
+  graph:       { table: 'graphs',       fields: ['name'] },
+  nmapScan:    { table: 'nmapScans',    fields: ['name'] },
+  nmapMachine: { table: 'nmapMachines', fields: ['hostname'] },
+  attackChain: { table: 'attackChains', fields: ['name'] },
+};
+
+/**
+ * Walk every record in every table and create a Y.Text for any missing
+ * `<entity>:<id>:<field>` slot, seeding it from the JSON snapshot. This
+ * runs once per session after the initial sync completes, ensuring that
+ * records created in older releases (when Y.Text fields didn't exist
+ * yet) get migrated lazily without requiring a server-side rewrite.
+ */
+function seedMissingYTexts(c: SharedDocContext): void {
+  c.doc.transact(() => {
+    for (const [entity, info] of Object.entries(TEXT_FIELDS_BY_ENTITY)) {
+      const map = c.tables[info.table];
+      for (const [id, raw] of map.entries()) {
+        if (!raw || typeof raw !== 'object') continue;
+        const rec = raw as Record<string, unknown>;
+        for (const field of info.fields) {
+          const key = textKey(entity, String(id), field);
+          if (c.texts.has(key)) continue;
+          const val = rec[field];
+          const t = new Y.Text();
+          if (typeof val === 'string' && val.length > 0) t.insert(0, val);
+          c.texts.set(key, t);
+        }
+      }
+    }
+  });
+}

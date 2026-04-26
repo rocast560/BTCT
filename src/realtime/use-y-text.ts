@@ -3,31 +3,25 @@
  *
  * This is the same pattern Google Docs / Notion / Linear use under the
  * hood: every keystroke is converted into an *insert/delete delta* on a
- * shared CRDT, not a wholesale string overwrite. That's what makes
- * concurrent edits ("user A and user B type into the same field at the
- * same time") merge character-by-character with no data loss.
+ * shared CRDT, not a wholesale string overwrite. Concurrent edits on
+ * different machines merge character-by-character with no data loss.
  *
- * Usage:
- *
- *   const [value, onChange, ref] = useYTextInput(
- *     textKey('page', pageId, 'title'),
- *     page.title,
- *   );
- *   <input ref={ref} value={value} onChange={(e) => onChange(e.target.value)} />
- *
- * The `ref` is optional — if you pass it, the hook restores the cursor
- * position after remote edits so a remote user typing in the same field
- * doesn't kick your caret to the end of the line.
+ * Two clients that both seed a Y.Text into the same map slot will, after
+ * sync, end up with one *winning* Y.Text in the map and the other one
+ * orphaned. To handle that, this hook also observes the parent `texts`
+ * map: if the slot for our key gets replaced, we re-read the Y.Text,
+ * rebind the value-observer to it, and refresh local state. Without
+ * this, the late-arriving client would be wedged onto a dead reference
+ * and never see remote edits.
  */
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as Y from 'yjs';
-import { getOrInitYText, sharedTransact } from './shared-doc';
+import { getOrInitYText, getSharedDoc, sharedTransact } from './shared-doc';
 
 /**
  * Compute the minimal (delete, insert) pair that turns `oldStr` into
  * `newStr`. Trims a common prefix and a common suffix so we only emit
- * the smallest possible delta — this keeps remote inserts targeted and
- * preserves the cursor of any concurrent typer naturally.
+ * the smallest possible delta.
  */
 function diff(oldStr: string, newStr: string): { index: number; remove: number; insert: string } | null {
   if (oldStr === newStr) return null;
@@ -51,11 +45,6 @@ function diff(oldStr: string, newStr: string): { index: number; remove: number; 
   };
 }
 
-/**
- * Subscribe to a Y.Text and get back its current string + a setter that
- * applies a minimal delta (insert / delete) to the CRDT. The hook also
- * preserves the local input's caret position when a remote edit arrives.
- */
 export function useYTextInput(
   key: string,
   initial: string,
@@ -64,84 +53,96 @@ export function useYTextInput(
   onChange: (next: string) => void,
   inputRef: React.MutableRefObject<HTMLInputElement | null>,
 ] {
-  const ytext = getOrInitYText(key, initial);
-  const [value, setValue] = useState<string>(() => ytext.toString());
+  // The currently-bound Y.Text. Held in a ref because it can be replaced
+  // out from under us if a concurrent peer wins the map-slot race.
+  const ytextRef = useRef<Y.Text>(getOrInitYText(key, initial));
+  const [value, setValue] = useState<string>(() => ytextRef.current.toString());
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // Track whether the most recent change came from this hook's onChange
-  // (local) so we don't fight the React-controlled input over its own
-  // value during the same tick.
-  const localOriginRef = useRef(false);
-
   useEffect(() => {
-    const handler = (_ev: Y.YTextEvent, tr: Y.Transaction) => {
-      const next = ytext.toString();
-      const isLocal = tr.local;
-      // Capture caret BEFORE setState if the input is focused and the
-      // remote edit happened entirely outside the user's selection.
+    const sharedTexts = getSharedDoc().texts;
+    let currentText = getOrInitYText(key, initial);
+    ytextRef.current = currentText;
+    setValue(currentText.toString());
+
+    const restoreCaret = (prev: string, next: string, isLocal: boolean) => {
       const el = inputRef.current;
-      const wasFocused = !!el && document.activeElement === el;
-      const prevSel = wasFocused
-        ? { start: el!.selectionStart ?? 0, end: el!.selectionEnd ?? 0 }
-        : null;
-      const prev = value;
-
-      setValue(next);
-
-      // After React flushes the new value, restore the caret position,
-      // shifting it if the remote edit happened before the caret.
-      if (wasFocused && prevSel && !isLocal) {
-        const d = diff(prev, next);
-        let { start, end } = prevSel;
-        if (d) {
-          if (d.index <= start) {
-            const shift = d.insert.length - d.remove;
-            start = Math.max(d.index, start + shift);
-            end = Math.max(d.index, end + shift);
-          } else if (d.index < end) {
-            // Remote edit happened inside the selection — collapse to
-            // the local edit point. Rare; harmless.
-            end = d.index;
-          }
+      if (!el || document.activeElement !== el || isLocal) return;
+      const start0 = el.selectionStart ?? 0;
+      const end0 = el.selectionEnd ?? 0;
+      const d = diff(prev, next);
+      let start = start0;
+      let end = end0;
+      if (d) {
+        if (d.index <= start) {
+          const shift = d.insert.length - d.remove;
+          start = Math.max(d.index, start + shift);
+          end = Math.max(d.index, end + shift);
+        } else if (d.index < end) {
+          end = d.index;
         }
-        // Defer to the next tick so React's value update lands first.
-        queueMicrotask(() => {
-          const e2 = inputRef.current;
-          if (!e2) return;
-          try {
-            e2.setSelectionRange(start, end);
-          } catch {
-            // Some input types (e.g. number) don't support setSelectionRange.
-          }
-        });
       }
-      localOriginRef.current = false;
+      queueMicrotask(() => {
+        const e2 = inputRef.current;
+        if (!e2) return;
+        try {
+          e2.setSelectionRange(start, end);
+        } catch {
+          /* number/email inputs don't support selection range */
+        }
+      });
     };
-    ytext.observe(handler);
-    // Initial sync in case the Y.Text was updated between hook mount and
-    // observer registration.
-    setValue(ytext.toString());
-    return () => ytext.unobserve(handler);
-    // We intentionally depend on `key` only — re-binding when `value`
-    // changes would create infinite loops.
+
+    const onTextChange = (_ev: Y.YTextEvent, tr: Y.Transaction) => {
+      const prev = currentText.toString();
+      // Y.Text observer fires AFTER the change is applied, so we have
+      // to capture `prev` from a snapshot via the event delta. Simpler:
+      // re-derive from the React state.
+      const next = currentText.toString();
+      // Use React state as the "before" value for caret math.
+      restoreCaret(value, next, tr.local);
+      setValue(next);
+      // touch prev to silence unused warning
+      void prev;
+    };
+
+    currentText.observe(onTextChange);
+
+    // Observer for the parent texts map: detect when *our* key's slot
+    // gets replaced by a remote peer's winning Y.Text, then rebind.
+    const onMapChange = (ev: Y.YMapEvent<Y.Text>) => {
+      if (!ev.changes.keys.has(key)) return;
+      const next = sharedTexts.get(key);
+      if (!next || next === currentText) return;
+      currentText.unobserve(onTextChange);
+      currentText = next;
+      ytextRef.current = next;
+      next.observe(onTextChange);
+      setValue(next.toString());
+    };
+    sharedTexts.observe(onMapChange);
+
+    return () => {
+      currentText.unobserve(onTextChange);
+      sharedTexts.unobserve(onMapChange);
+    };
+    // We deliberately don't depend on `initial` or `value` here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   const onChange = useCallback(
     (next: string) => {
-      const cur = ytext.toString();
+      const t = ytextRef.current;
+      const cur = t.toString();
       const d = diff(cur, next);
       if (!d) return;
-      localOriginRef.current = true;
       sharedTransact(() => {
-        if (d.remove > 0) ytext.delete(d.index, d.remove);
-        if (d.insert.length > 0) ytext.insert(d.index, d.insert);
+        if (d.remove > 0) t.delete(d.index, d.remove);
+        if (d.insert.length > 0) t.insert(d.index, d.insert);
       });
-      // Optimistically update local React state so the controlled input
-      // stays in sync without waiting for the observer round-trip.
       setValue(next);
     },
-    [ytext],
+    [],
   );
 
   return [value, onChange, inputRef];
