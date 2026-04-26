@@ -1,9 +1,14 @@
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { createRequire } from 'node:module';
 
 import { hashPassword, verifyPassword, signToken, verifyToken } from './auth.mjs';
 import { createUser, getUserByUsername, getUserById, publicUser } from './db.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // y-websocket ships its server helpers as CJS — load via createRequire.
 const require = createRequire(import.meta.url);
@@ -11,12 +16,16 @@ const { setupWSConnection } = require('y-websocket/bin/utils');
 
 const PORT = Number(process.env.PORT || 1234);
 const HOST = process.env.HOST || '127.0.0.1';
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'http://127.0.0.1:5173';
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || ''; // empty = same-origin only
+const STATIC_DIR = process.env.STATIC_DIR
+  ? path.resolve(process.env.STATIC_DIR)
+  : null;
 
 // ─────────────────────────────────────────────────────────────────────────
 // REST helpers
 // ─────────────────────────────────────────────────────────────────────────
 function setCors(res) {
+  if (!ALLOWED_ORIGIN) return; // same-origin deployment: no CORS headers needed
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
