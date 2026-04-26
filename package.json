@@ -18,6 +18,7 @@
     "@milkdown/core": "^7.20.0",
     "@milkdown/crepe": "^7.20.0",
     "@milkdown/ctx": "^7.20.0",
+    "@milkdown/plugin-collab": "^7.20.0",
     "@milkdown/plugin-listener": "^7.20.0",
     "@milkdown/react": "^7.20.0",
     "@radix-ui/react-context-menu": "^2.2.16",
@@ -45,6 +46,11 @@
     "shiki": "^4.0.2",
     "tailwind-merge": "^3.5.0",
     "uuid": "^13.0.0",
+    "y-indexeddb": "^9.0.12",
+    "y-prosemirror": "^1.3.7",
+    "y-protocols": "^1.0.7",
+    "y-websocket": "^2.1.0",
+    "yjs": "^13.6.30",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

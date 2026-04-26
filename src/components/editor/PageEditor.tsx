@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Crepe } from '@milkdown/crepe';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import { listener, listenerCtx } from '@milkdown/plugin-listener';
+import { collab, collabServiceCtx } from '@milkdown/plugin-collab';
 import { callCommand } from '@milkdown/utils';
 import type { Editor } from '@milkdown/core';
 import '@milkdown/crepe/theme/common/style.css';
@@ -21,6 +22,7 @@ import {
 import { useAppStore } from '@/stores';
 import { pageRepo } from '@/db';
 import { normalizePageContent } from '@/export/markdown';
+import { getPageYContext } from '@/realtime/yjs-providers';
 import { graphNodeRepo } from '@/db/graph-node-repo';
 import { graphEdgeRepo } from '@/db/graph-edge-repo';
 import type {
@@ -204,6 +206,7 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
         <MilkdownProvider>
           <MarkdownEditor
             key={page.id}
+            pageId={page.id}
             initialMarkdown={normalizePageContent(page.content)}
             editorRef={editorRef}
             onChange={(md) => {
@@ -229,10 +232,12 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
 // the listener plugin's `markdownUpdated` event to drive persistence.
 // ─────────────────────────────────────────────────────────────────────────
 function MarkdownEditor({
+  pageId,
   initialMarkdown,
   onChange,
   editorRef,
 }: {
+  pageId: string;
   initialMarkdown: string;
   onChange: (markdown: string) => void;
   editorRef: React.MutableRefObject<Editor | null>;
@@ -241,10 +246,17 @@ function MarkdownEditor({
   const onChangeRef = useRef(onChange);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
+  // Resolve (or create) the per-page Y.Doc + IndexedDB persistence + cross-tab
+  // BroadcastChannel sync. Cached so re-mounts don't lose in-memory state.
+  const yctx = useMemo(() => getPageYContext(pageId), [pageId]);
+
   useEditor((root) => {
     const crepe = new Crepe({
       root,
-      defaultValue: initialMarkdown,
+      // When using collab, the Y.Doc is the source of truth. We seed the
+      // doc from `initialMarkdown` via `applyTemplate` below, so Crepe
+      // should start with an empty document.
+      defaultValue: '',
       // Disable the floating bold/italic bubble — we render a side panel
       // on the right of the page instead so the controls don't overlap
       // the text the user is selecting.
@@ -255,14 +267,32 @@ function MarkdownEditor({
     crepe.editor
       .use(listener)
       .use(highlightPlugin)
+      .use(collab)
       .config((ctx) => {
         ctx.get(listenerCtx).markdownUpdated((_, md) => {
           onChangeRef.current(md);
         });
       });
     editorRef.current = crepe.editor;
+
+    // Wire up collaboration once IndexedDB persistence has loaded any
+    // previously-saved state. If the Y.Doc is empty after that, seed it
+    // from the markdown stored in Dexie via `applyTemplate` (the second
+    // argument's default is "doc is empty").
+    void yctx.whenSynced.then(() => {
+      if (editorRef.current !== crepe.editor) return; // editor was replaced
+      crepe.editor.action((ctx) => {
+        const service = ctx.get(collabServiceCtx);
+        service
+          .bindDoc(yctx.doc)
+          .setAwareness(yctx.awareness)
+          .applyTemplate(initialMarkdown)
+          .connect();
+      });
+    });
+
     return crepe;
-  }, []);
+  }, [pageId]);
 
   useEffect(() => {
     return () => { editorRef.current = null; };

@@ -6,8 +6,30 @@ import { TabBar } from '@/components/ui/TabBar';
 import { SplitContainer } from '@/components/ui/SplitContainer';
 import { CommandPalette } from '@/components/ui/CommandPalette';
 import { seedDemoWorkspace } from '@/db/seed';
+import { useAuthStore } from '@/auth/auth-store';
+import { LoginScreen } from '@/auth/LoginScreen';
 
 export function App() {
+  const authStatus = useAuthStore((s) => s.status);
+  const bootstrap = useAuthStore((s) => s.bootstrap);
+
+  // Validate any stored token on first mount.
+  useEffect(() => { void bootstrap(); }, [bootstrap]);
+
+  if (authStatus === 'unknown') {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-[hsl(var(--background))] text-white/60">
+        Loading…
+      </div>
+    );
+  }
+  if (authStatus === 'unauthenticated') {
+    return <LoginScreen />;
+  }
+  return <AuthedApp />;
+}
+
+function AuthedApp() {
   const {
     loadWorkspaces,
     activeWorkspaceId,
@@ -134,6 +156,30 @@ export function App() {
       </div>
       {rightSidebarOpen && <RightSidebar />}
       <CommandPalette />
+      <UserBadge />
+    </div>
+  );
+}
+
+function UserBadge() {
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+  if (!user) return null;
+  return (
+    <div className="pointer-events-auto fixed bottom-3 right-3 z-50 flex items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3 py-1.5 text-xs shadow-lg backdrop-blur">
+      <span
+        className="inline-block h-2.5 w-2.5 rounded-full"
+        style={{ backgroundColor: user.color }}
+        aria-hidden="true"
+      />
+      <span className="font-medium">{user.username}</span>
+      <button
+        type="button"
+        onClick={logout}
+        className="text-white/60 hover:text-white"
+      >
+        Log out
+      </button>
     </div>
   );
 }

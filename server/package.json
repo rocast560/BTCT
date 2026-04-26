@@ -1,0 +1,17 @@
+{
+  "name": "alysa-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun run index.mjs",
+    "dev": "bun --watch run index.mjs"
+  },
+  "dependencies": {
+    "lib0": "^0.2.99",
+    "ws": "^8.18.0",
+    "y-protocols": "^1.0.7",
+    "y-websocket": "^2.1.0",
+    "yjs": "^13.6.30"
+  }
+}

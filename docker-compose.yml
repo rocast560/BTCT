@@ -1,0 +1,29 @@
+services:
+  alysa:
+    build: .
+    image: alysa:latest
+    container_name: alysa
+    restart: unless-stopped
+    ports:
+      # Host:container. Change the left side to whatever port you want
+      # users to hit, e.g. "80:8080" to serve on the standard HTTP port.
+      - "8080:8080"
+    environment:
+      # Required in production. Generate once with:  openssl rand -hex 32
+      AUTH_SECRET: "${AUTH_SECRET:?set AUTH_SECRET in .env or your shell}"
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      STATIC_DIR: "/app/dist"
+      DB_PATH: "/data/data.sqlite"
+      # Leave ALLOWED_ORIGIN unset for same-origin deployment (recommended).
+      # Set it only if the API will be accessed from a different origin.
+    volumes:
+      - alysa-data:/data
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  alysa-data:
