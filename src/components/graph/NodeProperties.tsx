@@ -1,4 +1,4 @@
-import { useEffect, useState, memo, useCallback } from 'react';
+import { useEffect, useState, memo } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/shallow';
 import type { GraphNode, HostData, CredentialData, ServiceData, FindingData, PivotData } from '@/types';
@@ -12,29 +12,21 @@ export const NodeProperties = memo(function NodeProperties({ nodeId }: { nodeId:
   const nmapMachines = useAppStore((s) => s.nmapMachines);
   const nmapScans = useAppStore((s) => s.nmapScans);
   const openTab = useAppStore((s) => s.openTab);
-  const [localNode, setLocalNode] = useState<GraphNode | null>(null);
 
-  useEffect(() => {
-    if (node) setLocalNode({ ...node });
-  }, [node]);
+  if (!node) return <p className="text-sm text-[hsl(var(--muted-foreground))]">Node not found.</p>;
 
-  if (!localNode) return <p className="text-sm text-[hsl(var(--muted-foreground))]">Node not found.</p>;
-
-  const save = useCallback((updates: Partial<Omit<GraphNode, 'id' | 'graphId' | 'createdAt'>>) => {
+  const save = (updates: Partial<Omit<GraphNode, 'id' | 'graphId' | 'createdAt'>>) => {
     void updateGraphNode(nodeId, updates);
-  }, [nodeId, updateGraphNode]);
+  };
 
   const updateLabel = (label: string) => {
-    setLocalNode((prev) => prev ? { ...prev, label } : prev);
+    // Per-keystroke write to the shared doc — other users see typing live.
     save({ label });
   };
 
   const updateDiscoveredAt = (dateStr: string) => {
     const ts = new Date(dateStr).getTime();
-    if (!isNaN(ts)) {
-      setLocalNode((prev) => prev ? { ...prev, discoveredAt: ts } : prev);
-      save({ discoveredAt: ts });
-    }
+    if (!isNaN(ts)) save({ discoveredAt: ts });
   };
 
   return (
@@ -42,7 +34,7 @@ export const NodeProperties = memo(function NodeProperties({ nodeId }: { nodeId:
       <div>
         <label className="text-xs text-[hsl(var(--muted-foreground))]">Label</label>
         <input
-          value={localNode.label}
+          value={node.label}
           onChange={(e) => updateLabel(e.target.value)}
           className="mt-1 w-full rounded border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none"
         />
@@ -50,14 +42,14 @@ export const NodeProperties = memo(function NodeProperties({ nodeId }: { nodeId:
 
       <div>
         <label className="text-xs text-[hsl(var(--muted-foreground))]">Type</label>
-        <div className="mt-1 rounded bg-[hsl(var(--muted))] px-2 py-1 text-sm capitalize">{localNode.type}</div>
+        <div className="mt-1 rounded bg-[hsl(var(--muted))] px-2 py-1 text-sm capitalize">{node.type}</div>
       </div>
 
       <div>
         <label className="text-xs text-[hsl(var(--muted-foreground))]">Discovered At</label>
         <input
           type="datetime-local"
-          value={format(new Date(localNode.discoveredAt), "yyyy-MM-dd'T'HH:mm")}
+          value={format(new Date(node.discoveredAt), "yyyy-MM-dd'T'HH:mm")}
           onChange={(e) => updateDiscoveredAt(e.target.value)}
           className="mt-1 w-full rounded border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none"
         />
@@ -65,12 +57,12 @@ export const NodeProperties = memo(function NodeProperties({ nodeId }: { nodeId:
 
       <div className="border-t border-[hsl(var(--border))] pt-3">
         <h4 className="mb-2 text-xs font-semibold uppercase text-[hsl(var(--muted-foreground))]">Data</h4>
-        <NodeDataFields node={localNode} onSave={save} />
+        <NodeDataFields node={node} onSave={save} />
       </div>
 
       {/* Show linked nmap machine for host nodes */}
-      {localNode.type === 'host' && (() => {
-        const linkedMachine = nmapMachines.find((m) => m.linkedNodeId === localNode.id);
+      {node.type === 'host' && (() => {
+        const linkedMachine = nmapMachines.find((m) => m.linkedNodeId === node.id);
         if (!linkedMachine) return (
           <div className="border-t border-[hsl(var(--border))] pt-3">
             <h4 className="mb-2 text-xs font-semibold uppercase text-[hsl(var(--muted-foreground))]">Nmap Link</h4>

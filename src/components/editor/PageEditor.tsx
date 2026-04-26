@@ -20,7 +20,6 @@ import {
   type HighlightColor,
 } from '@/lib/highlight-plugin';
 import { useAppStore } from '@/stores';
-import { pageRepo } from '@/db';
 import { normalizePageContent } from '@/export/markdown';
 import { getPageYContext } from '@/realtime/yjs-providers';
 import { graphNodeRepo } from '@/db/graph-node-repo';
@@ -33,40 +32,60 @@ import { Monitor, Key, Cog, Bug, ArrowRightLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 export function PageEditor({ pageId }: { pageId: string }) {
-  const [page, setPage] = useState<Page | null>(null);
-  const [linkedNode, setLinkedNode] = useState<GraphNode | null>(null);
+  // Read the page reactively from the shared store so remote edits
+  // (title, slug, tags, icon, content) propagate to this view in real time.
+  const page = useAppStore((s) => s.pages.find((p) => p.id === pageId) ?? null);
+  const graphNodes = useAppStore((s) => s.graphNodes);
+  const linkedNode = useMemo<GraphNode | null>(() => {
+    if (!page || !page.isGraphPage) return null;
+    return graphNodes.find((n) => n.linkedPageId === page.id) ?? null;
+  }, [page, graphNodes]);
 
+  // Fallback for graph nodes that haven't been loaded into the store yet
+  // (e.g. opening a page tab before its graph tab). Hit the repo once and
+  // hydrate via setLinkedNode-style local state only as a fallback.
+  const [fallbackNode, setFallbackNode] = useState<GraphNode | null>(null);
   useEffect(() => {
-    void pageRepo.getById(pageId).then((p) => {
-      if (p) {
-        setPage(p);
-        // If this is a graph page, find the linked node
-        if (p.isGraphPage) {
-          void graphNodeRepo.getByLinkedPage(p.id).then((nodes) => {
-            if (nodes.length > 0) setLinkedNode(nodes[0]!);
-          });
-        } else {
-          setLinkedNode(null);
-        }
-      }
+    if (!page || !page.isGraphPage || linkedNode) {
+      setFallbackNode(null);
+      return;
+    }
+    let cancelled = false;
+    void graphNodeRepo.getByLinkedPage(page.id).then((nodes) => {
+      if (!cancelled && nodes.length > 0) setFallbackNode(nodes[0]!);
     });
-  }, [pageId]);
+    return () => { cancelled = true; };
+  }, [page, linkedNode]);
 
   if (!page) return <div className="flex-1 p-4">Loading...</div>;
 
-  return <PageEditorInner page={page} linkedNode={linkedNode} setLinkedNode={setLinkedNode} />;
+  return <PageEditorInner page={page} linkedNode={linkedNode ?? fallbackNode} />;
 }
 
-function PageEditorInner({ page, linkedNode, setLinkedNode }: {
+function PageEditorInner({ page, linkedNode }: {
   page: Page;
   linkedNode: GraphNode | null;
-  setLinkedNode: React.Dispatch<React.SetStateAction<GraphNode | null>>;
 }) {
   const updatePage = useAppStore((s) => s.updatePage);
   const updateGraphNode = useAppStore((s) => s.updateGraphNode);
-  const [titleValue, setTitleValue] = useState(page.title);
-  const [slugValue, setSlugValue] = useState(page.slug ?? '');
   const [editingSlug, setEditingSlug] = useState(false);
+
+  // Track whether this user is actively typing in the title/slug inputs so
+  // we don't overwrite their in-flight keystrokes with the value just
+  // round-tripping back from the shared doc. When the input is NOT focused,
+  // the input simply renders the live store value (so remote edits show up).
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const slugInputRef = useRef<HTMLInputElement>(null);
+
+  // Local "in-flight" buffer for the slug edit-mode input only; for the
+  // title we bind directly to page.title so remote keystrokes appear
+  // character-by-character.
+  const [slugDraft, setSlugDraft] = useState(page.slug ?? '');
+  useEffect(() => {
+    if (slugInputRef.current !== document.activeElement) {
+      setSlugDraft(page.slug ?? '');
+    }
+  }, [page.slug]);
 
   // Keep a ref to the live markdown so the debounced persister always sees
   // the latest value without re-subscribing the Milkdown listener.
@@ -103,11 +122,10 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
   }, [page]);
 
   const handleTitleChange = (value: string) => {
-    setTitleValue(value);
+    // Per-keystroke write to the shared doc so other users see typing live.
     void updatePage(page.id, { title: value });
     if (linkedNode) {
       void updateGraphNode(linkedNode.id, { label: value });
-      setLinkedNode((prev) => prev ? { ...prev, label: value } : prev);
     }
   };
 
@@ -120,22 +138,22 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
     const updates: Partial<GraphNode> = { data: newData };
     if (typeof __label === 'string') {
       updates.label = __label;
-      setTitleValue(__label);
       void updatePage(page.id, { title: __label });
     }
     void updateGraphNode(linkedNode.id, updates);
-    setLinkedNode((prev) => prev ? { ...prev, ...updates, data: newData } : prev);
-  }, [linkedNode, updateGraphNode, updatePage, page.id, setLinkedNode]);
+  }, [linkedNode, updateGraphNode, updatePage, page.id]);
 
   const handleSlugChange = (value: string) => {
     const sanitized = value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
-    setSlugValue(sanitized);
+    setSlugDraft(sanitized);
+    // Live-sync each keystroke (post-sanitization) so remote viewers see it.
+    void updatePage(page.id, { slug: sanitized });
   };
 
   const commitSlug = () => {
     setEditingSlug(false);
-    const trimmed = slugValue.replace(/(^-|-$)/g, '');
-    setSlugValue(trimmed);
+    const trimmed = slugDraft.replace(/(^-|-$)/g, '');
+    setSlugDraft(trimmed);
     void updatePage(page.id, { slug: trimmed });
   };
 
@@ -146,7 +164,8 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
         <div className="mb-1 flex items-center gap-2">
           <span className="text-2xl">{page.icon}</span>
           <input
-            value={titleValue}
+            ref={titleInputRef}
+            value={page.title}
             onChange={(e) => handleTitleChange(e.target.value)}
             className="flex-1 bg-transparent text-3xl font-bold outline-none placeholder:text-[hsl(var(--muted-foreground))]"
             placeholder="Untitled"
@@ -158,8 +177,9 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
           <span className="select-none opacity-60">/</span>
           {editingSlug ? (
             <input
+              ref={slugInputRef}
               autoFocus
-              value={slugValue}
+              value={slugDraft}
               onChange={(e) => handleSlugChange(e.target.value)}
               onBlur={commitSlug}
               onKeyDown={(e) => { if (e.key === 'Enter') commitSlug(); }}
@@ -171,7 +191,7 @@ function PageEditorInner({ page, linkedNode, setLinkedNode }: {
               className="rounded-sm px-0.5 font-mono hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
               title="Click to edit path"
             >
-              {slugValue || 'untitled'}
+              {(page.slug ?? '') || 'untitled'}
             </button>
           )}
         </div>

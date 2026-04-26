@@ -307,6 +307,15 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
     setHostname(initialMachine.hostname);
     setOs(initialMachine.os);
   }, [initialMachine.id]);
+  // Pull remote hostname/os edits into the inputs whenever the live record
+  // changes — but only when this user isn't actively typing in those inputs.
+  const hostnameInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (hostnameInputRef.current !== document.activeElement) {
+      setHostname(liveMachine.hostname);
+    }
+    setOs(liveMachine.os);
+  }, [liveMachine.hostname, liveMachine.os]);
   const [osDropdownOpen, setOsDropdownOpen] = useState(false);
   const [connectDialog, setConnectDialog] = useState(false);
   const [alreadyConnectedWarning, setAlreadyConnectedWarning] = useState(false);
@@ -331,6 +340,12 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
 
   const commitHostname = () => {
     void updateNmapMachine(initialMachine.id, { hostname: hostname.trim() });
+  };
+
+  // Per-keystroke sync so other users see hostname edits live (not just on blur).
+  const handleHostnameChange = (value: string) => {
+    setHostname(value);
+    void updateNmapMachine(initialMachine.id, { hostname: value });
   };
 
   const changeOS = (newOs: MachineOS) => {
@@ -430,8 +445,9 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
               <div className="flex items-center gap-1.5">
                 <label className="text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Hostname</label>
                 <input
+                  ref={hostnameInputRef}
                   value={hostname}
-                  onChange={(e) => setHostname(e.target.value)}
+                  onChange={(e) => handleHostnameChange(e.target.value)}
                   onBlur={commitHostname}
                   onKeyDown={(e) => { if (e.key === 'Enter') commitHostname(); }}
                   placeholder="Set hostname..."
