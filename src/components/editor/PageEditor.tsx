@@ -22,6 +22,8 @@ import {
 import { useAppStore } from '@/stores';
 import { normalizePageContent } from '@/export/markdown';
 import { getPageYContext } from '@/realtime/yjs-providers';
+import { textKey } from '@/realtime/shared-doc';
+import { useYTextInput } from '@/realtime/use-y-text';
 import { graphNodeRepo } from '@/db/graph-node-repo';
 import { graphEdgeRepo } from '@/db/graph-edge-repo';
 import type {
@@ -70,22 +72,44 @@ function PageEditorInner({ page, linkedNode }: {
   const updateGraphNode = useAppStore((s) => s.updateGraphNode);
   const [editingSlug, setEditingSlug] = useState(false);
 
-  // Track whether this user is actively typing in the title/slug inputs so
-  // we don't overwrite their in-flight keystrokes with the value just
-  // round-tripping back from the shared doc. When the input is NOT focused,
-  // the input simply renders the live store value (so remote edits show up).
-  const titleInputRef = useRef<HTMLInputElement>(null);
-  const slugInputRef = useRef<HTMLInputElement>(null);
+  // Bind the title and slug inputs to Y.Text CRDTs so concurrent edits
+  // from multiple users merge character-by-character (insert/delete
+  // deltas), exactly how Google Docs / Notion do it. The `mirrorTextsToRecords`
+  // observer in shared-doc keeps page.title / page.slug in the JSON
+  // snapshot in sync for sidebar / tab-label / search consumers.
+  const [titleValue, setTitleValue, titleInputRef] = useYTextInput(
+    textKey('page', page.id, 'title'),
+    page.title,
+  );
+  const [slugYValue, setSlugYValue, slugInputRef] = useYTextInput(
+    textKey('page', page.id, 'slug'),
+    page.slug ?? '',
+  );
 
-  // Local "in-flight" buffer for the slug edit-mode input only; for the
-  // title we bind directly to page.title so remote keystrokes appear
-  // character-by-character.
-  const [slugDraft, setSlugDraft] = useState(page.slug ?? '');
-  useEffect(() => {
-    if (slugInputRef.current !== document.activeElement) {
-      setSlugDraft(page.slug ?? '');
+  // The slug input also runs a sanitizer (lowercase, hyphens) over the
+  // user's typed value before committing it to the CRDT.
+  const handleTitleChange = (value: string) => {
+    setTitleValue(value);
+    // Mirror the new title onto the linked graph node's label Y.Text so
+    // both stay in sync collaboratively.
+    if (linkedNode) {
+      // We do NOT have a Y.Text handle here — fall back to a straight
+      // record patch for the linked node's label; users almost never
+      // type into the page-title and the node-label simultaneously, and
+      // the linked node also has its own Y.Text in NodeProperties.
+      void updateGraphNode(linkedNode.id, { label: value });
     }
-  }, [page.slug]);
+  };
+
+  const handleSlugInputChange = (raw: string) => {
+    const sanitized = raw.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
+    setSlugYValue(sanitized);
+  };
+  const commitSlug = () => {
+    setEditingSlug(false);
+    const trimmed = slugYValue.replace(/(^-|-$)/g, '');
+    if (trimmed !== slugYValue) setSlugYValue(trimmed);
+  };
 
   // Keep a ref to the live markdown so the debounced persister always sees
   // the latest value without re-subscribing the Milkdown listener.
@@ -121,14 +145,6 @@ function PageEditorInner({ page, linkedNode }: {
     return null;
   }, [page]);
 
-  const handleTitleChange = (value: string) => {
-    // Per-keystroke write to the shared doc so other users see typing live.
-    void updatePage(page.id, { title: value });
-    if (linkedNode) {
-      void updateGraphNode(linkedNode.id, { label: value });
-    }
-  };
-
   const handleNodeDataChange = useCallback((patch: Record<string, unknown>) => {
     if (!linkedNode) return;
     // Allow nested fields (e.g. host "Hostname") to also bump the node label
@@ -143,20 +159,6 @@ function PageEditorInner({ page, linkedNode }: {
     void updateGraphNode(linkedNode.id, updates);
   }, [linkedNode, updateGraphNode, updatePage, page.id]);
 
-  const handleSlugChange = (value: string) => {
-    const sanitized = value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
-    setSlugDraft(sanitized);
-    // Live-sync each keystroke (post-sanitization) so remote viewers see it.
-    void updatePage(page.id, { slug: sanitized });
-  };
-
-  const commitSlug = () => {
-    setEditingSlug(false);
-    const trimmed = slugDraft.replace(/(^-|-$)/g, '');
-    setSlugDraft(trimmed);
-    void updatePage(page.id, { slug: trimmed });
-  };
-
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-6 py-8">
@@ -165,7 +167,7 @@ function PageEditorInner({ page, linkedNode }: {
           <span className="text-2xl">{page.icon}</span>
           <input
             ref={titleInputRef}
-            value={page.title}
+            value={titleValue}
             onChange={(e) => handleTitleChange(e.target.value)}
             className="flex-1 bg-transparent text-3xl font-bold outline-none placeholder:text-[hsl(var(--muted-foreground))]"
             placeholder="Untitled"
@@ -179,8 +181,8 @@ function PageEditorInner({ page, linkedNode }: {
             <input
               ref={slugInputRef}
               autoFocus
-              value={slugDraft}
-              onChange={(e) => handleSlugChange(e.target.value)}
+              value={slugYValue}
+              onChange={(e) => handleSlugInputChange(e.target.value)}
               onBlur={commitSlug}
               onKeyDown={(e) => { if (e.key === 'Enter') commitSlug(); }}
               className="border-b border-[hsl(var(--border))] bg-transparent px-0.5 font-mono text-xs outline-none"
@@ -191,7 +193,7 @@ function PageEditorInner({ page, linkedNode }: {
               className="rounded-sm px-0.5 font-mono hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
               title="Click to edit path"
             >
-              {(page.slug ?? '') || 'untitled'}
+              {slugYValue || 'untitled'}
             </button>
           )}
         </div>

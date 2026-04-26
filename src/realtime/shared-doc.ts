@@ -3,22 +3,35 @@
  * (workspaces, pages, graphs, graph nodes, graph edges, attack chains,
  * change logs, nmap scans, nmap machines).
  *
- * This is the source of truth for *the entire app state visible in the
- * sidebar*. Per-page note contents continue to live in their own per-page
- * Y.Doc (see getPageYContext) so they get fine-grained CRDT merges.
+ * Real-time editing model
+ * ───────────────────────
+ * This is the source of truth for the entire app state visible in the
+ * sidebar AND for every collaboratively-edited text field.
+ *
+ *   • Sidebar/list metadata (icons, types, parents, timestamps, …) lives
+ *     in Y.Map<id, JSON-record> per table. These rows are coarse-grained
+ *     last-writer-wins, which is correct for non-textual fields.
+ *
+ *   • Every collaboratively-edited text field — page title, page slug,
+ *     graph node label, graph edge label, nmap hostname, etc. — lives as
+ *     a Y.Text inside the `texts` Y.Map keyed `<entity>:<id>:<field>`.
+ *     The UI binds inputs to these Y.Texts using diff-based deltas
+ *     (insert / delete) so two users can type into the same field at
+ *     the same time without losing characters — exactly how Google Docs,
+ *     Notion, Linear, etc. handle text. A central observer (see
+ *     `mirrorTextsToRecords`) writes the resulting string back into the
+ *     JSON record snapshot so read-only consumers (sidebar, tab title,
+ *     search) keep working without changes.
+ *
+ *   • Long-form note bodies (Milkdown markdown) use a *separate* per-page
+ *     Y.Doc with the existing collab plugin. See realtime/yjs-providers.ts.
  *
  * Networking:
  *   - WebsocketProvider connects to the Bun collab server, room name
- *     "alysa-shared". The auth token is appended as a query param so the
- *     server can reject unauthenticated clients.
+ *     "alysa-shared". Auth token is sent as a query param so the server
+ *     can reject unauthenticated clients.
  *   - IndexedDB persistence keeps a local cache so the UI can render
- *     instantly while the WS catches up (and so brief disconnects don't
- *     lose work).
- *
- * Concurrency model: each "table" is a Y.Map<id, JSON-record>. Records
- * are stored as plain JSON objects and replaced wholesale on update —
- * this is last-writer-wins per record, which is fine for metadata. Real
- * collaborative editing of long text fields happens in the per-page Y.Doc.
+ *     instantly while the WS catches up.
  */
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -45,6 +58,8 @@ export interface SharedDocContext {
   persistence: IndexeddbPersistence;
   provider: WebsocketProvider;
   tables: Record<TableName, Y.Map<unknown>>;
+  /** Y.Map<key, Y.Text> — collaborative text fields. Key is `<entity>:<id>:<field>`. */
+  texts: Y.Map<Y.Text>;
   whenReady: Promise<void>;
 }
 
@@ -60,6 +75,7 @@ export function getSharedDoc(): SharedDocContext {
   for (const name of TABLE_NAMES) {
     tables[name] = doc.getMap(name);
   }
+  const texts = doc.getMap<Y.Text>('texts');
 
   const token = useAuthStore.getState().token ?? '';
   const provider = new WebsocketProvider(`${WS_URL}/yjs`, SHARED_ROOM, doc, {
@@ -90,8 +106,54 @@ export function getSharedDoc(): SharedDocContext {
 
   const whenReady = Promise.all([whenIdb, whenWs]).then(() => undefined);
 
-  ctx = { doc, persistence, provider, tables, whenReady };
+  ctx = { doc, persistence, provider, tables, texts, whenReady };
+
+  // Wire the Y.Text -> JSON snapshot mirror so sidebar/tab labels/search
+  // see authoritative text values without each consumer having to know
+  // about Y.Text. Done lazily after `ctx` is assigned so the helper can
+  // safely call getSharedDoc().
+  mirrorTextsToRecords();
+
   return ctx;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Y.Text registry
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build the canonical key for a collaborative text field. We use a flat
+ * namespace (`page:<id>:title`) rather than nested Y.Maps so it's cheap
+ * to enumerate and reason about, and so individual Y.Texts can be created
+ * lazily without restructuring the parent record.
+ */
+export function textKey(entity: string, id: string, field: string): string {
+  return `${entity}:${id}:${field}`;
+}
+
+/**
+ * Get-or-create the Y.Text for a given key. If the Y.Text doesn't exist
+ * yet, it's seeded with `initial`. The init is wrapped in a transaction
+ * and double-checks the map to avoid the common "two clients race to
+ * create" footgun (last-writer wins on the map slot, but at least the
+ * losing client's reference is then re-read so its observers fire on
+ * the surviving Y.Text).
+ */
+export function getOrInitYText(key: string, initial: string): Y.Text {
+  const c = getSharedDoc();
+  let t = c.texts.get(key);
+  if (t) return t;
+  sharedTransact(() => {
+    t = c.texts.get(key);
+    if (!t) {
+      t = new Y.Text();
+      if (initial) t.insert(0, initial);
+      c.texts.set(key, t);
+    }
+  });
+  // After the transaction, re-fetch — another peer may have set a
+  // different Y.Text into the slot.
+  return c.texts.get(key) ?? t!;
 }
 
 /**
@@ -117,3 +179,76 @@ export function sharedTransact<T>(fn: () => T): T {
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   return result!;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Y.Text -> JSON record mirror
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Maps "<entity>:<id>:<field>" → which JSON table the snapshot lives in.
+ * Add new collaborative text fields here.
+ */
+const TEXT_FIELD_TO_TABLE: Record<string, TableName> = {
+  page: 'pages',
+  node: 'graphNodes',
+  edge: 'graphEdges',
+  workspace: 'workspaces',
+  graph: 'graphs',
+  nmapScan: 'nmapScans',
+  nmapMachine: 'nmapMachines',
+  attackChain: 'attackChains',
+};
+
+let mirrorBound = false;
+
+/**
+ * Watch every Y.Text in the `texts` map (deeply, so we catch insert/delete
+ * deltas too) and write the resulting plain string back into the matching
+ * JSON record snapshot. This keeps `pages.title`, `graphNodes.label`,
+ * `nmapMachines.hostname`, etc. consistent with the authoritative Y.Text
+ * for any code that just reads those strings (sidebar tree, tab labels,
+ * search index, exports).
+ */
+function mirrorTextsToRecords() {
+  if (mirrorBound) return;
+  mirrorBound = true;
+  const c = ctx;
+  if (!c) return;
+
+  const writeBack = (key: string) => {
+    const t = c.texts.get(key);
+    if (!t) return;
+    const [entity, id, field] = key.split(':');
+    if (!entity || !id || !field) return;
+    const table = TEXT_FIELD_TO_TABLE[entity];
+    if (!table) return;
+    const map = c.tables[table];
+    const cur = map.get(id) as Record<string, unknown> | undefined;
+    if (!cur) return;
+    const value = t.toString();
+    if (cur[field] === value) return;
+    sharedTransact(() => {
+      map.set(id, { ...cur, [field]: value, updatedAt: Date.now() });
+    });
+  };
+
+  // observeDeep fires for any nested Y.Text change (insert/delete) AND
+  // for additions/removals of Y.Texts in the parent map.
+  c.texts.observeDeep((events) => {
+    const touched = new Set<string>();
+    for (const ev of events) {
+      // For changes inside a Y.Text, ev.target is that Y.Text; its key in
+      // the parent map is `ev.path[0]`.
+      const path = ev.path;
+      if (path.length > 0 && typeof path[0] === 'string') {
+        touched.add(path[0]);
+      }
+      // For top-level adds/removes on the texts map, ev.changes.keys has the keys.
+      if ('keys' in ev.changes) {
+        for (const k of ev.changes.keys.keys()) touched.add(k);
+      }
+    }
+    for (const key of touched) writeBack(key);
+  });
+}
+

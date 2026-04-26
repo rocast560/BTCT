@@ -5,6 +5,8 @@ import type { GraphNode, HostData, CredentialData, ServiceData, FindingData, Piv
 import { format } from 'date-fns';
 import { Link2, Radar, ExternalLink } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import { textKey } from '@/realtime/shared-doc';
+import { useYTextInput } from '@/realtime/use-y-text';
 
 export const NodeProperties = memo(function NodeProperties({ nodeId }: { nodeId: string }) {
   const updateGraphNode = useAppStore((s) => s.updateGraphNode);
@@ -13,15 +15,20 @@ export const NodeProperties = memo(function NodeProperties({ nodeId }: { nodeId:
   const nmapScans = useAppStore((s) => s.nmapScans);
   const openTab = useAppStore((s) => s.openTab);
 
+  // Bind label to a Y.Text CRDT — concurrent typers merge cleanly.
+  // Hooks must be called unconditionally so we always invoke this even
+  // when `node` hasn't loaded yet; the hook will lazily seed the Y.Text
+  // with `''` and pick up the real initial value on the first remote
+  // sync, which is harmless.
+  const [labelValue, setLabelValue, labelRef] = useYTextInput(
+    textKey('node', nodeId, 'label'),
+    node?.label ?? '',
+  );
+
   if (!node) return <p className="text-sm text-[hsl(var(--muted-foreground))]">Node not found.</p>;
 
   const save = (updates: Partial<Omit<GraphNode, 'id' | 'graphId' | 'createdAt'>>) => {
     void updateGraphNode(nodeId, updates);
-  };
-
-  const updateLabel = (label: string) => {
-    // Per-keystroke write to the shared doc — other users see typing live.
-    save({ label });
   };
 
   const updateDiscoveredAt = (dateStr: string) => {
@@ -34,8 +41,9 @@ export const NodeProperties = memo(function NodeProperties({ nodeId }: { nodeId:
       <div>
         <label className="text-xs text-[hsl(var(--muted-foreground))]">Label</label>
         <input
-          value={node.label}
-          onChange={(e) => updateLabel(e.target.value)}
+          ref={labelRef}
+          value={labelValue}
+          onChange={(e) => setLabelValue(e.target.value)}
           className="mt-1 w-full rounded border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none"
         />
       </div>

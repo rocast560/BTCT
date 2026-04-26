@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { nmapMachineRepo } from '@/db/nmap-repo';
 import { graphNodeRepo } from '@/db/graph-node-repo';
+import { textKey } from '@/realtime/shared-doc';
+import { useYTextInput } from '@/realtime/use-y-text';
 
 // ── OS icons (inline SVG for Windows / Linux / Attacker) ──
 
@@ -299,23 +301,21 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
   // Get the live version of this machine from the store (so linkedNodeId stays current)
   const liveMachine = nmapMachines.find((m) => m.id === initialMachine.id) ?? initialMachine;
 
-  const [hostname, setHostname] = useState(initialMachine.hostname);
   const [os, setOs] = useState<MachineOS>(initialMachine.os);
 
   // Reset local state when the underlying machine changes (e.g. switching tabs in the same pane)
   useEffect(() => {
-    setHostname(initialMachine.hostname);
     setOs(initialMachine.os);
   }, [initialMachine.id]);
-  // Pull remote hostname/os edits into the inputs whenever the live record
-  // changes — but only when this user isn't actively typing in those inputs.
-  const hostnameInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (hostnameInputRef.current !== document.activeElement) {
-      setHostname(liveMachine.hostname);
-    }
     setOs(liveMachine.os);
-  }, [liveMachine.hostname, liveMachine.os]);
+  }, [liveMachine.os]);
+
+  // Hostname is a CRDT Y.Text so two users can type into it concurrently.
+  const [hostnameY, setHostnameY, hostnameYRef] = useYTextInput(
+    textKey('nmapMachine', initialMachine.id, 'hostname'),
+    initialMachine.hostname,
+  );
   const [osDropdownOpen, setOsDropdownOpen] = useState(false);
   const [connectDialog, setConnectDialog] = useState(false);
   const [alreadyConnectedWarning, setAlreadyConnectedWarning] = useState(false);
@@ -339,13 +339,8 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
   }, [liveMachine.linkedNodeId, graphNodes]);
 
   const commitHostname = () => {
-    void updateNmapMachine(initialMachine.id, { hostname: hostname.trim() });
-  };
-
-  // Per-keystroke sync so other users see hostname edits live (not just on blur).
-  const handleHostnameChange = (value: string) => {
-    setHostname(value);
-    void updateNmapMachine(initialMachine.id, { hostname: value });
+    const trimmed = hostnameY.trim();
+    if (trimmed !== hostnameY) setHostnameY(trimmed);
   };
 
   const changeOS = (newOs: MachineOS) => {
@@ -445,9 +440,9 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
               <div className="flex items-center gap-1.5">
                 <label className="text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Hostname</label>
                 <input
-                  ref={hostnameInputRef}
-                  value={hostname}
-                  onChange={(e) => handleHostnameChange(e.target.value)}
+                  ref={hostnameYRef}
+                  value={hostnameY}
+                  onChange={(e) => setHostnameY(e.target.value)}
                   onBlur={commitHostname}
                   onKeyDown={(e) => { if (e.key === 'Enter') commitHostname(); }}
                   placeholder="Set hostname..."
