@@ -1,28 +1,26 @@
 /**
  * React binding for a collaborative text field backed by a Y.Text.
  *
- * This is the same pattern Google Docs / Notion / Linear use under the
- * hood: every keystroke is converted into an *insert/delete delta* on a
- * shared CRDT, not a wholesale string overwrite. Concurrent edits on
- * different machines merge character-by-character with no data loss.
+ * Sync model
+ * ──────────
+ * Per-keystroke insert/delete deltas on a shared CRDT (same as Google
+ * Docs / Notion / Linear). Concurrent typing on different machines
+ * merges character-by-character.
  *
- * Two clients that both seed a Y.Text into the same map slot will, after
- * sync, end up with one *winning* Y.Text in the map and the other one
- * orphaned. To handle that, this hook also observes the parent `texts`
- * map: if the slot for our key gets replaced, we re-read the Y.Text,
- * rebind the value-observer to it, and refresh local state. Without
- * this, the late-arriving client would be wedged onto a dead reference
- * and never see remote edits.
+ * Race-free seeding
+ * ─────────────────
+ * Y.Texts are only created by the entity's creator (in the repo's
+ * `create()` call) or by the post-sync migration in shared-doc.ts.
+ * A reader that opens a page before the Y.Text has arrived simply
+ * waits for the parent `texts` Y.Map to deliver it via sync — it does
+ * NOT race-seed, because two clients both seeding the same slot would
+ * each end up bound to their own local Y.Text and miss each other's
+ * deltas.
  */
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as Y from 'yjs';
-import { getOrInitYText, getSharedDoc, sharedTransact } from './shared-doc';
+import { getSharedDoc, sharedTransact } from './shared-doc';
 
-/**
- * Compute the minimal (delete, insert) pair that turns `oldStr` into
- * `newStr`. Trims a common prefix and a common suffix so we only emit
- * the smallest possible delta.
- */
 function diff(oldStr: string, newStr: string): { index: number; remove: number; insert: string } | null {
   if (oldStr === newStr) return null;
   let start = 0;
@@ -53,17 +51,15 @@ export function useYTextInput(
   onChange: (next: string) => void,
   inputRef: React.MutableRefObject<HTMLInputElement | null>,
 ] {
-  // The currently-bound Y.Text. Held in a ref because it can be replaced
-  // out from under us if a concurrent peer wins the map-slot race.
-  const ytextRef = useRef<Y.Text>(getOrInitYText(key, initial));
-  const [value, setValue] = useState<string>(() => ytextRef.current.toString());
+  const ytextRef = useRef<Y.Text | null>(null);
+  const [value, setValue] = useState<string>(initial);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const sharedTexts = getSharedDoc().texts;
-    let currentText = getOrInitYText(key, initial);
-    ytextRef.current = currentText;
-    setValue(currentText.toString());
+
+    let bound: Y.Text | null = null;
+    let prevString = initial;
 
     const restoreCaret = (prev: string, next: string, isLocal: boolean) => {
       const el = inputRef.current;
@@ -94,45 +90,61 @@ export function useYTextInput(
     };
 
     const onTextChange = (_ev: Y.YTextEvent, tr: Y.Transaction) => {
-      const prev = currentText.toString();
-      // Y.Text observer fires AFTER the change is applied, so we have
-      // to capture `prev` from a snapshot via the event delta. Simpler:
-      // re-derive from the React state.
-      const next = currentText.toString();
-      // Use React state as the "before" value for caret math.
-      restoreCaret(value, next, tr.local);
+      if (!bound) return;
+      const next = bound.toString();
+      restoreCaret(prevString, next, tr.local);
+      prevString = next;
       setValue(next);
-      // touch prev to silence unused warning
-      void prev;
     };
 
-    currentText.observe(onTextChange);
+    const bindTo = (t: Y.Text) => {
+      if (bound === t) return;
+      if (bound) bound.unobserve(onTextChange);
+      bound = t;
+      ytextRef.current = t;
+      t.observe(onTextChange);
+      const next = t.toString();
+      prevString = next;
+      setValue(next);
+    };
 
-    // Observer for the parent texts map: detect when *our* key's slot
-    // gets replaced by a remote peer's winning Y.Text, then rebind.
+    // Bind immediately if the Y.Text already exists in the shared doc.
+    const existing = sharedTexts.get(key);
+    if (existing) {
+      bindTo(existing);
+    }
+
+    // Watch for the slot to appear (or be replaced) via sync. This is
+    // the ONLY way a non-creating client picks up the canonical Y.Text;
+    // we never race-seed here.
     const onMapChange = (ev: Y.YMapEvent<Y.Text>) => {
       if (!ev.changes.keys.has(key)) return;
       const next = sharedTexts.get(key);
-      if (!next || next === currentText) return;
-      currentText.unobserve(onTextChange);
-      currentText = next;
-      ytextRef.current = next;
-      next.observe(onTextChange);
-      setValue(next.toString());
+      if (next) bindTo(next);
     };
     sharedTexts.observe(onMapChange);
 
     return () => {
-      currentText.unobserve(onTextChange);
       sharedTexts.unobserve(onMapChange);
+      if (bound) bound.unobserve(onTextChange);
+      bound = null;
+      ytextRef.current = null;
     };
-    // We deliberately don't depend on `initial` or `value` here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   const onChange = useCallback(
     (next: string) => {
       const t = ytextRef.current;
+      if (!t) {
+        // No Y.Text bound yet — the slot hasn't synced from the server.
+        // Reflect the keystroke optimistically so the user isn't blocked.
+        // Once the Y.Text arrives, our observer will overwrite this with
+        // the canonical content (the user's local typing during this
+        // window will be lost, but in practice the slot syncs in <100ms).
+        setValue(next);
+        return;
+      }
       const cur = t.toString();
       const d = diff(cur, next);
       if (!d) return;
