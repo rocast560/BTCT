@@ -370,3 +370,70 @@ body {
 .milkdown-host .ProseMirror li[data-task-list-item] {
   list-style: none;
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   Remote collaborator cursors (y-prosemirror) — Google-Docs style.
+
+   y-prosemirror renders, for each remote user with a caret in the
+   document:
+
+     <span class="ProseMirror-yjs-cursor" style="border-color: <color>">
+       \u2060
+       <div style="background-color: <color>"><userName></div>
+       \u2060
+     </span>
+
+   We turn that into a thin vertical caret in the user's color, with
+   their name floating in a small rounded rectangle just above it.
+   ───────────────────────────────────────────────────────────────── */
+.milkdown-host .ProseMirror-yjs-cursor {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  /* The caret is drawn by the left border so it's exactly 2px wide
+     and inherits the user's color from the inline `border-color`. */
+  border-left-width: 2px;
+  border-left-style: solid;
+  /* Make the caret span the full line height and overflow slightly
+     above/below so it reads as a real text cursor, not a glyph. */
+  margin-left: -1px;
+  margin-right: -1px;
+  height: 1.2em;
+  vertical-align: text-bottom;
+  pointer-events: none;
+  /* Subtle blink to mimic a native caret. */
+  animation: alysa-yjs-caret-blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes alysa-yjs-caret-blink {
+  to { border-left-color: transparent; }
+}
+
+/* Name tag floating above the caret. y-prosemirror gives the inner
+   <div> only an inline `background-color` style — everything else
+   we control here. */
+.milkdown-host .ProseMirror-yjs-cursor > div {
+  position: absolute;
+  top: -1.35em;
+  left: -1px;
+  padding: 1px 5px;
+  border-radius: 3px 3px 3px 0;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 500;
+  color: white;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+  /* Ensure readability on light user-colors. */
+  text-shadow: 0 0 1px rgba(0, 0, 0, 0.45);
+  /* Don't get clipped by overflow:hidden on parents like list items. */
+  z-index: 5;
+}
+
+/* Remote selection range: a soft tint in the user's color. */
+.milkdown-host .ProseMirror-yjs-selection {
+  /* y-prosemirror sets background-color inline with 70 alpha; we just
+     make sure it doesn't bleed past line bounds. */
+  border-radius: 1px;
+}
