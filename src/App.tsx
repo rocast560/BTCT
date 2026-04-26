@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '@/stores';
 import { LeftSidebar } from '@/components/sidebar/LeftSidebar';
 import { RightSidebar } from '@/components/sidebar/RightSidebar';
@@ -8,6 +8,8 @@ import { CommandPalette } from '@/components/ui/CommandPalette';
 import { seedDemoWorkspace } from '@/db/seed';
 import { useAuthStore } from '@/auth/auth-store';
 import { LoginScreen } from '@/auth/LoginScreen';
+import { getSharedDoc } from '@/realtime/shared-doc';
+import { bindSharedSubscriptions } from '@/stores/shared-bindings';
 
 export function App() {
   const authStatus = useAuthStore((s) => s.status);
@@ -45,12 +47,27 @@ function AuthedApp() {
     workspaces,
   } = useAppStore();
 
+  // Wait for the shared Yjs doc to load (IndexedDB cache + initial WS sync)
+  // before populating the store. Otherwise we'd flash an empty sidebar and
+  // potentially seed demo data on top of someone else's workspace.
+  const [ready, setReady] = useState(false);
   useEffect(() => {
-    const init = async () => {
-      await loadWorkspaces();
+    const c = getSharedDoc();
+    let cancelled = false;
+    const unsubscribe = bindSharedSubscriptions();
+    void c.whenReady.then(() => {
+      if (!cancelled) setReady(true);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
     };
-    void init();
-  }, [loadWorkspaces]);
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    void loadWorkspaces();
+  }, [ready, loadWorkspaces]);
 
   useEffect(() => {
     if (activeWorkspaceId) {
@@ -140,12 +157,22 @@ function AuthedApp() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Auto-seed if no workspaces
+  // Auto-seed if no workspaces (only after the shared doc has loaded so
+  // we don't race with another user's data and create duplicates).
   useEffect(() => {
+    if (!ready) return;
     if (workspaces.length === 0) {
       void seedDemoWorkspace().then(() => loadWorkspaces());
     }
-  }, [workspaces.length, loadWorkspaces]);
+  }, [ready, workspaces.length, loadWorkspaces]);
+
+  if (!ready) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-[hsl(var(--background))] text-white/60">
+        Connecting…
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">

@@ -3,9 +3,6 @@ import { db } from './database';
 import type { Workspace, Page, Graph, GraphNode, GraphEdge, EdgeType } from '@/types';
 import { defaultFindingData } from '@/types';
 
-// Bump this when the demo data shape changes to force a re-seed on next load.
-const SEED_VERSION = 3;
-const SEED_VERSION_KEY = 'synote:seedVersion';
 const DEMO_WORKSPACE_NAME = 'ACME Corp Engagement';
 
 /**
@@ -16,51 +13,41 @@ function t(day: number, hour: number, minute = 0): number {
   return new Date(2026, 3, 13 + day, hour, minute, 0).getTime();
 }
 
-async function wipeDemoWorkspace(): Promise<void> {
+async function _wipeDemoWorkspace(): Promise<void> {
   const demo = await db.workspaces.where('name').equals(DEMO_WORKSPACE_NAME).first();
   if (!demo) return;
   const graphs = await db.graphs.where('workspaceId').equals(demo.id).toArray();
   const graphIds = graphs.map((g) => g.id);
-  await db.transaction('rw',
-    [db.workspaces, db.pages, db.graphs, db.graphNodes, db.graphEdges, db.changeLogs, db.nmapScans, db.nmapMachines],
-    async () => {
-      for (const gid of graphIds) {
-        await db.graphNodes.where('graphId').equals(gid).delete();
-        await db.graphEdges.where('graphId').equals(gid).delete();
-      }
-      await db.graphs.where('workspaceId').equals(demo.id).delete();
-      await db.pages.where('workspaceId').equals(demo.id).delete();
-      await db.changeLogs.where('workspaceId').equals(demo.id).delete();
-      const scans = await db.nmapScans.where('workspaceId').equals(demo.id).toArray();
-      for (const s of scans) {
-        await db.nmapMachines.where('scanId').equals(s.id).delete();
-      }
-      await db.nmapScans.where('workspaceId').equals(demo.id).delete();
-      await db.workspaces.delete(demo.id);
-    },
-  );
+  for (const gid of graphIds) {
+    await db.graphNodes.where('graphId').equals(gid).delete();
+    await db.graphEdges.where('graphId').equals(gid).delete();
+  }
+  await db.graphs.where('workspaceId').equals(demo.id).delete();
+  await db.pages.where('workspaceId').equals(demo.id).delete();
+  await db.changeLogs.where('workspaceId').equals(demo.id).delete();
+  const scans = await db.nmapScans.where('workspaceId').equals(demo.id).toArray();
+  for (const s of scans) {
+    await db.nmapMachines.where('scanId').equals(s.id).delete();
+  }
+  await db.nmapScans.where('workspaceId').equals(demo.id).delete();
+  await db.workspaces.delete(demo.id);
 }
+// Suppress unused-function warning while keeping the wipe routine available
+// for future "Reset demo data" actions if the team wants to bring it back.
+void _wipeDemoWorkspace;
 
 /**
  * Seeds a realistic 5-day pentest engagement with two attack narratives and 20 findings.
- * Re-seeds automatically when SEED_VERSION is bumped.
+ *
+ * In multi-user mode the shared doc is the source of truth: only seed when
+ * it is completely empty. Otherwise we'd overwrite real engagement data
+ * the moment a fresh client connects. The old per-browser version-bump
+ * re-seed is intentionally disabled here — it'd be destructive when other
+ * users are already collaborating.
  */
 export async function seedDemoWorkspace(): Promise<void> {
-  const storedVersion = Number(localStorage.getItem(SEED_VERSION_KEY) ?? 0);
   const existing = await db.workspaces.count();
-
-  if (storedVersion < SEED_VERSION) {
-    await wipeDemoWorkspace();
-  } else if (existing > 0) {
-    return;
-  }
-
-  // After wipe, bail out if the user still has other (non-demo) workspaces — don't overwrite their data.
-  const remaining = await db.workspaces.count();
-  if (remaining > 0) {
-    localStorage.setItem(SEED_VERSION_KEY, String(SEED_VERSION));
-    return;
-  }
+  if (existing > 0) return;
 
   const now = t(4, 17, 0); // Friday end-of-day — treated as "now" for the demo
   const createdAt = now;
@@ -636,6 +623,4 @@ export async function seedDemoWorkspace(): Promise<void> {
     await db.graphNodes.bulkAdd([...allInternalNodes, ...allExternalNodes]);
     await db.graphEdges.bulkAdd([...internalEdges, ...externalEdges]);
   });
-
-  localStorage.setItem(SEED_VERSION_KEY, String(SEED_VERSION));
 }
