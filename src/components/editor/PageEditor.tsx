@@ -26,6 +26,7 @@ import { textKey } from '@/realtime/shared-doc';
 import { useYTextInput } from '@/realtime/use-y-text';
 import { graphNodeRepo } from '@/db/graph-node-repo';
 import { graphEdgeRepo } from '@/db/graph-edge-repo';
+import { pageRepo } from '@/db/page-repo';
 import type {
   Page, GraphNode, GraphEdge,
   HostData, ServiceData, FindingData, PivotData,
@@ -36,8 +37,32 @@ import { v4 as uuidv4 } from 'uuid';
 export function PageEditor({ pageId }: { pageId: string }) {
   // Read the page reactively from the shared store so remote edits
   // (title, slug, tags, icon, content) propagate to this view in real time.
-  const page = useAppStore((s) => s.pages.find((p) => p.id === pageId) ?? null);
+  const storePage = useAppStore((s) => s.pages.find((p) => p.id === pageId) ?? null);
   const graphNodes = useAppStore((s) => s.graphNodes);
+
+  // Graph node pages are deliberately excluded from `loadPages()` so they
+  // don't clutter the sidebar tree, which means double-clicking a graph
+  // node opens a tab whose page id isn't in the store. Fetch it from the
+  // repo so the editor can render. Subscribe to shared-doc page events
+  // so remote edits to a graph page also flow into this fallback copy.
+  const [fallbackPage, setFallbackPage] = useState<Page | null>(null);
+  useEffect(() => {
+    if (storePage) { setFallbackPage(null); return; }
+    let cancelled = false;
+    const refetch = () => {
+      void pageRepo.getById(pageId).then((p) => {
+        if (!cancelled) setFallbackPage(p ?? null);
+      });
+    };
+    refetch();
+    // Re-fetch when any page in the shared doc changes — the graph page
+    // we're showing might be one of them.
+    const unsub = useAppStore.subscribe(refetch);
+    return () => { cancelled = true; unsub(); };
+  }, [pageId, storePage]);
+
+  const page = storePage ?? fallbackPage;
+
   const linkedNode = useMemo<GraphNode | null>(() => {
     if (!page || !page.isGraphPage) return null;
     return graphNodes.find((n) => n.linkedPageId === page.id) ?? null;

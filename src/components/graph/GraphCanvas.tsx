@@ -233,15 +233,6 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
   // ── Undo stack for node moves ──
   const undoStack = useRef<{ nodeId: string; position: { x: number; y: number } }[]>([]);
   const dragStartPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
-  // While the local user is dragging nodes, suppress the store→local
-  // rebuild effect so a re-render triggered by our own per-frame writes
-  // (or by an unrelated store change) doesn't snap the cursor's grip.
-  const isDraggingRef = useRef(false);
-  // Throttle per-frame position writes so we send at most one update
-  // per animation frame per node (~60Hz) — plenty for smooth remote
-  // playback without flooding the WebSocket.
-  const dragRafScheduled = useRef(false);
-  const dragLatestPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
 
   // Refs for stable callbacks
   const graphNodesRef = useRef(graphNodes);
@@ -272,13 +263,7 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
     () => buildNodes(graphNodes, graphId, highlightedPath, flashNodeId, highlightedChainNodes),
     [graphNodes, graphId, highlightedPath, flashNodeId, highlightedChainNodes],
   );
-  useEffect(() => {
-    // Don't clobber an in-progress local drag with the rebuilt list —
-    // React Flow's gesture state lives in our `nodes` state and would
-    // jump if we replaced positions mid-gesture.
-    if (isDraggingRef.current) return;
-    setNodes(memoNodes);
-  }, [memoNodes]);
+  useEffect(() => { setNodes(memoNodes); }, [memoNodes]);
 
   const memoEdges = useMemo(
     () => buildEdges(graphEdges, graphId, highlightedPath, highlightChainMode),
@@ -322,7 +307,6 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
   // Persist position to DB only on drag stop
   const onNodeDragStart: OnNodeDrag = useCallback(
     (_event, node, draggedNodes) => {
-      isDraggingRef.current = true;
       dragStartPositions.current.clear();
       const all = draggedNodes.length > 0 ? draggedNodes : [node];
       for (const n of all) {
@@ -330,31 +314,6 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
       }
     },
     []
-  );
-
-  // Stream the current position(s) to the shared doc on every frame so
-  // collaborators on other machines see the move live (Google-Docs / Figma
-  // style). We coalesce all positions touched during a frame into a single
-  // requestAnimationFrame callback to avoid spamming the WebSocket.
-  const onNodeDrag: OnNodeDrag = useCallback(
-    (_event, node, draggedNodes) => {
-      const all = draggedNodes.length > 0 ? draggedNodes : [node];
-      for (const n of all) {
-        dragLatestPositions.current.set(n.id, { x: n.position.x, y: n.position.y });
-      }
-      if (dragRafScheduled.current) return;
-      dragRafScheduled.current = true;
-      requestAnimationFrame(() => {
-        dragRafScheduled.current = false;
-        const batch = dragLatestPositions.current;
-        if (batch.size === 0) return;
-        for (const [id, pos] of batch) {
-          void updateGraphNode(id, { position: pos });
-        }
-        batch.clear();
-      });
-    },
-    [updateGraphNode]
   );
 
   const onNodeDragStop: OnNodeDrag = useCallback(
@@ -368,9 +327,6 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
         void updateGraphNode(n.id, { position: n.position });
       }
       dragStartPositions.current.clear();
-      dragLatestPositions.current.clear();
-      dragRafScheduled.current = false;
-      isDraggingRef.current = false;
     },
     [updateGraphNode]
   );
@@ -824,7 +780,6 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
         onNodeDragStart={onNodeDragStart}
-        onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
