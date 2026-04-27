@@ -31,7 +31,7 @@ import type {
   Page, GraphNode, GraphEdge,
   HostData, ServiceData, FindingData, PivotData,
 } from '@/types';
-import { Monitor, Key, Cog, Bug, ArrowRightLeft } from 'lucide-react';
+import { Monitor, Key, Cog, Bug, ArrowRightLeft, ArrowLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 export function PageEditor({ pageId }: { pageId: string }) {
@@ -95,6 +95,9 @@ function PageEditorInner({ page, linkedNode }: {
 }) {
   const updatePage = useAppStore((s) => s.updatePage);
   const updateGraphNode = useAppStore((s) => s.updateGraphNode);
+  const openTab = useAppStore((s) => s.openTab);
+  const graphs = useAppStore((s) => s.graphs);
+  const setPendingFocusNodeId = useAppStore((s) => s.setPendingFocusNodeId);
   const [editingSlug, setEditingSlug] = useState(false);
 
   // Bind the title and slug inputs to Y.Text CRDTs so concurrent edits
@@ -189,6 +192,23 @@ function PageEditorInner({ page, linkedNode }: {
       <div className="mx-auto w-full max-w-3xl px-6 py-8">
         {/* Title */}
         <div className="mb-1 flex items-center gap-2">
+          {linkedNode && (() => {
+            const graph = graphs.find((g) => g.id === linkedNode.graphId);
+            if (!graph) return null;
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingFocusNodeId(linkedNode.id);
+                  openTab({ id: uuidv4(), kind: 'graph', entityId: graph.id, title: graph.name });
+                }}
+                title={`Back to ${graph.name}`}
+                className="flex shrink-0 items-center gap-1 border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
+              >
+                <ArrowLeft size={12} /> Narrative
+              </button>
+            );
+          })()}
           <span className="text-2xl">{page.icon}</span>
           <input
             ref={titleInputRef}
