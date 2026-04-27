@@ -146,6 +146,10 @@ export function NmapScanView({ scanId }: { scanId: string }) {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
             {nmapMachines.map((machine) => {
+              // Attached state is driven by the machine's own linkedNodeId so
+              // the icon flips red→green even when the linked host node lives
+              // in a graph that isn't currently loaded into `graphNodes`.
+              const isAttached = !!machine.linkedNodeId;
               const linkedNode = machine.linkedNodeId ? graphNodes.find((n) => n.id === machine.linkedNodeId) : null;
               const linkedGraph = linkedNode ? graphs.find((g) => g.id === linkedNode.graphId) : null;
               const linkedLabel = linkedNode
@@ -157,6 +161,7 @@ export function NmapScanView({ scanId }: { scanId: string }) {
                 <MachineCard
                   key={machine.id}
                   machine={machine}
+                  isAttached={isAttached}
                   linkedLabel={linkedLabel}
                   onClick={() => openMachine(machine)}
                   onOpenTab={() => openMachineInTab(machine)}
@@ -174,7 +179,7 @@ export function NmapScanView({ scanId }: { scanId: string }) {
 
 // ── Machine card ──
 
-function MachineCard({ machine, linkedLabel, onClick, onOpenTab, onDelete, onGoToNode }: { machine: NmapMachine; linkedLabel: string | null; onClick: () => void; onOpenTab: () => void; onDelete: () => void; onGoToNode?: () => void }) {
+function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onDelete, onGoToNode }: { machine: NmapMachine; isAttached: boolean; linkedLabel: string | null; onClick: () => void; onOpenTab: () => void; onDelete: () => void; onGoToNode?: () => void }) {
   const openPortCount = machine.ports.filter((p) => p.state === 'open').length;
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -220,7 +225,7 @@ function MachineCard({ machine, linkedLabel, onClick, onOpenTab, onDelete, onGoT
         onContextMenu={handleContext}
         className={cn(
           'relative flex w-full flex-col items-center gap-2 border bg-[hsl(var(--card))] p-4 text-center transition-colors hover:bg-[hsl(var(--accent))]',
-          linkedLabel
+          isAttached
             ? 'border-[hsl(var(--primary))]/60 hover:border-[hsl(var(--primary))]'
             : 'border-[hsl(var(--border))] hover:border-[hsl(var(--primary))]',
         )}
@@ -230,12 +235,12 @@ function MachineCard({ machine, linkedLabel, onClick, onOpenTab, onDelete, onGoT
         <div
           className={cn(
             'absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border',
-            linkedLabel
+            isAttached
               ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-400'
               : 'border-red-500/60 bg-red-500/15 text-red-400',
           )}
-          title={linkedLabel ? `Attached to ${linkedLabel}` : 'Not attached to a host'}
-          aria-label={linkedLabel ? `Attached to ${linkedLabel}` : 'Not attached to a host'}
+          title={isAttached ? (linkedLabel ? `Attached to ${linkedLabel}` : 'Attached to a host') : 'Not attached to a host'}
+          aria-label={isAttached ? (linkedLabel ? `Attached to ${linkedLabel}` : 'Attached to a host') : 'Not attached to a host'}
         >
           <Server size={11} />
         </div>
