@@ -69,3 +69,18 @@ export function getPageYContext(pageId: string): PageYContext {
   cache.set(pageId, ctx);
   return ctx;
 }
+
+/**
+ * Tear down every per-page Yjs context. Called on logout (and defensively
+ * on login) so the next session opens fresh providers with the current
+ * auth token instead of reusing connections built from the old token.
+ */
+export function disposeAllPageDocs(): void {
+  for (const ctx of cache.values()) {
+    try { ctx.provider.disconnect(); } catch { /* ignore */ }
+    try { ctx.provider.destroy(); } catch { /* ignore */ }
+    try { ctx.persistence.destroy(); } catch { /* ignore */ }
+    try { ctx.doc.destroy(); } catch { /* ignore */ }
+  }
+  cache.clear();
+}

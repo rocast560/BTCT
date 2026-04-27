@@ -127,6 +127,24 @@ export function getSharedDoc(): SharedDocContext {
   return ctx;
 }
 
+/**
+ * Tear down the shared Y.Doc and its providers. Call this on logout (and
+ * defensively on login) so the next session rebuilds everything with the
+ * current auth token. Without this, the WebsocketProvider keeps the old
+ * token baked into its query string and the new session's edits never
+ * propagate to other peers.
+ */
+export function disposeSharedDoc(): void {
+  if (!ctx) return;
+  const c = ctx;
+  ctx = null;
+  mirrorBound = false;
+  try { c.provider.disconnect(); } catch { /* ignore */ }
+  try { c.provider.destroy(); } catch { /* ignore */ }
+  try { c.persistence.destroy(); } catch { /* ignore */ }
+  try { c.doc.destroy(); } catch { /* ignore */ }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Y.Text registry
 // ─────────────────────────────────────────────────────────────────────────

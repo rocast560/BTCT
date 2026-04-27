@@ -4,6 +4,8 @@
  * page reload doesn't drop you back to the login screen.
  */
 import { create } from 'zustand';
+import { disposeSharedDoc } from '@/realtime/shared-doc';
+import { disposeAllPageDocs } from '@/realtime/yjs-providers';
 
 // Default to same-origin so the same build works on any host. Set
 // VITE_API_URL / VITE_WS_URL only when the API lives on a different host.
@@ -144,6 +146,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   login: async (username, password) => {
     set({ error: null });
+    // Defensive cleanup: if a previous session's Yjs providers were left
+    // around (token-expiry path, or a stale singleton from before this
+    // tab's reload), tear them down so the new session rebuilds them
+    // with the current token instead of reconnecting under the old one.
+    disposeAllPageDocs();
+    disposeSharedDoc();
     const data = await postJson<AuthResponse>('/api/login', { username, password });
     localStorage.setItem(TOKEN_KEY, data.token);
     localStorage.setItem(USER_KEY, JSON.stringify(data.user));
@@ -151,6 +159,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
+    // Tear down every Yjs provider before clearing the token so the next
+    // session always builds fresh providers tied to the current auth
+    // token. Without this the WebsocketProvider keeps the old token in
+    // its query string and the new session's edits never propagate.
+    disposeAllPageDocs();
+    disposeSharedDoc();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     set({ token: null, user: null, status: 'unauthenticated' });
