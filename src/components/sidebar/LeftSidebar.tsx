@@ -157,7 +157,7 @@ export function LeftSidebar() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-widest text-white">Alysa Framework</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-white">SYNote</span>
         </div>
         <div className="flex items-center gap-1">
           <button onClick={toggleDarkMode} className="p-1 hover:bg-[hsl(var(--accent))]" title="Toggle theme">

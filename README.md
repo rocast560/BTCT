@@ -1,4 +1,4 @@
-# Alysa Framework
+# SYNote
 
 A LAN-hosted, multi-user, real-time collaborative note-taking and attack-path
 graphing app for penetration testing engagements. Notion-style pages, an
