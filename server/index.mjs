@@ -15,6 +15,8 @@ import {
   deleteUser,
   setUserAdmin,
   updateUserPassword,
+  updateUserColor,
+  updateUserAvatar,
   adminCount,
 } from './db.mjs';
 
@@ -234,6 +236,46 @@ const httpServer = http.createServer(async (req, res) => {
       const user = getUserById(claims.uid);
       if (!user) return sendJson(res, 401, { error: 'unauthorized' });
       return sendJson(res, 200, { user: publicUser(user) });
+    }
+
+    // Self-service profile update: any authenticated user can change
+    // their own display color and avatar. Avatar is a small data URL
+    // (PNG / JPEG / WebP / GIF) capped at ~96 KB encoded so a couple of
+    // hundred users in the DB don't bloat it. Pass `avatar: null` to
+    // clear an existing avatar.
+    if (req.method === 'POST' && req.url === '/api/me/profile') {
+      const claims = authFromHeader(req);
+      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
+      const user = getUserById(claims.uid);
+      if (!user) return sendJson(res, 401, { error: 'unauthorized' });
+      // 128 KB ceiling — base64 of a 32x32 PNG is well under 4 KB, but
+      // we leave headroom for slightly larger custom uploads.
+      const body = await readJsonBody(req, 128 * 1024);
+      if (typeof body.color === 'string') {
+        const color = body.color.trim();
+        if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+          return sendJson(res, 400, { error: 'color must be a #RRGGBB hex value' });
+        }
+        updateUserColor(user.id, color);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'avatar')) {
+        const avatar = body.avatar;
+        if (avatar === null || avatar === '') {
+          updateUserAvatar(user.id, null);
+        } else if (typeof avatar === 'string') {
+          if (!/^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(avatar)) {
+            return sendJson(res, 400, { error: 'avatar must be a base64 image data URL' });
+          }
+          if (avatar.length > 96 * 1024) {
+            return sendJson(res, 413, { error: 'avatar too large (max ~96 KB encoded)' });
+          }
+          updateUserAvatar(user.id, avatar);
+        } else {
+          return sendJson(res, 400, { error: 'avatar must be a string or null' });
+        }
+      }
+      const fresh = getUserById(user.id);
+      return sendJson(res, 200, { user: publicUser(fresh) });
     }
 
     if (tryServeStatic(req, res)) return;

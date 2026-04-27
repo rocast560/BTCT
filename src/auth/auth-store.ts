@@ -34,6 +34,7 @@ export interface AuthUser {
   id: number;
   username: string;
   color: string;
+  avatar: string | null;
   isAdmin: boolean;
 }
 
@@ -41,6 +42,7 @@ export interface AdminUserRow {
   id: number;
   username: string;
   color: string;
+  avatar: string | null;
   isAdmin: boolean;
   createdAt: number;
 }
@@ -54,6 +56,8 @@ function loadStoredUser(): AuthUser | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.id === 'number' && typeof parsed.username === 'string') {
+      // Older builds didn't persist `avatar` — fill it in defensively.
+      if (typeof parsed.avatar === 'undefined') parsed.avatar = null;
       return parsed as AuthUser;
     }
   } catch { /* fallthrough */ }
@@ -113,6 +117,8 @@ interface AuthState {
   adminCreateUser: (username: string, password: string, isAdmin: boolean) => Promise<AdminUserRow>;
   adminDeleteUser: (id: number) => Promise<void>;
   adminResetPassword: (id: number, password: string) => Promise<void>;
+  // Self-service profile editing for any authenticated user.
+  updateProfile: (changes: { color?: string; avatar?: string | null }) => Promise<AuthUser>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -194,5 +200,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   adminResetPassword: async (id, password) => {
     const token = get().token;
     await postJson<{ ok: true }>(`/api/admin/users/${id}/password`, { password }, token);
+  },
+
+  updateProfile: async (changes) => {
+    const token = get().token;
+    const data = await postJson<{ user: AuthUser }>('/api/me/profile', changes, token);
+    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+    set({ user: data.user });
+    return data.user;
   },
 }));

@@ -16,6 +16,7 @@ db.exec(`
     hash        TEXT NOT NULL,
     iter        INTEGER NOT NULL,
     color       TEXT NOT NULL,
+    avatar      TEXT,
     is_admin    INTEGER NOT NULL DEFAULT 0,
     created_at  INTEGER NOT NULL
   );
@@ -27,8 +28,11 @@ try {
   if (!cols.some((c) => c.name === 'is_admin')) {
     db.exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!cols.some((c) => c.name === 'avatar')) {
+    db.exec(`ALTER TABLE users ADD COLUMN avatar TEXT`);
+  }
 } catch (err) {
-  console.warn('[db] is_admin migration check failed:', err?.message || err);
+  console.warn('[db] migration check failed:', err?.message || err);
 }
 
 const insertUser = db.prepare(
@@ -40,13 +44,15 @@ const findByUsername = db.prepare(
 );
 const findFullById = db.prepare(`SELECT * FROM users WHERE id = ?`);
 const listAllUsers = db.prepare(
-  `SELECT id, username, color, is_admin, created_at FROM users ORDER BY id ASC`,
+  `SELECT id, username, color, avatar, is_admin, created_at FROM users ORDER BY id ASC`,
 );
 const deleteUserById = db.prepare(`DELETE FROM users WHERE id = ?`);
 const setAdminById = db.prepare(`UPDATE users SET is_admin = ? WHERE id = ?`);
 const updatePasswordById = db.prepare(
   `UPDATE users SET salt = $salt, hash = $hash, iter = $iter WHERE id = $id`,
 );
+const setColorById = db.prepare(`UPDATE users SET color = ? WHERE id = ?`);
+const setAvatarById = db.prepare(`UPDATE users SET avatar = ? WHERE id = ?`);
 const countAdmins = db.prepare(
   `SELECT COUNT(*) AS n FROM users WHERE is_admin = 1`,
 );
@@ -83,6 +89,7 @@ export function listUsers() {
     id: row.id,
     username: row.username,
     color: row.color,
+    avatar: row.avatar || null,
     isAdmin: !!row.is_admin,
     createdAt: row.created_at,
   }));
@@ -100,6 +107,14 @@ export function updateUserPassword(id, { salt, hash, iter }) {
   updatePasswordById.run({ $id: id, $salt: salt, $hash: hash, $iter: iter });
 }
 
+export function updateUserColor(id, color) {
+  setColorById.run(color, id);
+}
+
+export function updateUserAvatar(id, avatar) {
+  setAvatarById.run(avatar ?? null, id);
+}
+
 export function adminCount() {
   return Number(countAdmins.get()?.n || 0);
 }
@@ -110,6 +125,7 @@ export function publicUser(row) {
     id: row.id,
     username: row.username,
     color: row.color,
+    avatar: row.avatar || null,
     isAdmin: !!row.is_admin,
   };
 }

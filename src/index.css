@@ -441,12 +441,17 @@ body {
 
 /* Name tag floating above the caret. y-prosemirror gives the inner
    <div> only an inline `background-color` style — everything else
-   we control here. */
+   we control here. Our custom cursor builder may also drop a tiny
+   <img class="alysa-yjs-avatar"> at the start so collaborators can
+   see who is typing at a glance. */
 .milkdown-host .ProseMirror-yjs-cursor > div {
   position: absolute;
   top: -1.35em;
   left: -1px;
-  padding: 1px 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px 1px 3px;
   border-radius: 3px 3px 3px 0;
   font-size: 10px;
   line-height: 1.2;
@@ -459,6 +464,16 @@ body {
   text-shadow: 0 0 1px rgba(0, 0, 0, 0.45);
   /* Don't get clipped by overflow:hidden on parents like list items. */
   z-index: 5;
+}
+.milkdown-host .ProseMirror-yjs-cursor > div > img.alysa-yjs-avatar {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6);
 }
 
 /* Remote selection range: a soft tint in the user's color. */

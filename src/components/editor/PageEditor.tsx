@@ -351,6 +351,37 @@ function MarkdownEditor({
           const service = ctx.get(collabServiceCtx);
           service.bindDoc(yctx.doc).setAwareness(yctx.awareness);
 
+          // Custom remote-cursor renderer: matches the default y-prosemirror
+          // structure (caret span + name tag div) but prepends a tiny avatar
+          // so other collaborators can see who is typing at a glance. The
+          // `user` argument is exactly what we set in awareness over in
+          // src/realtime/yjs-providers.ts (`{ id, name, color, avatar }`).
+          service.setOptions({
+            yCursorOpts: {
+              cursorBuilder: (user: { name?: string; color?: string; avatar?: string | null }) => {
+                const color = user.color || '#ffa500';
+                const name = user.name || 'Anonymous';
+                const cursor = document.createElement('span');
+                cursor.classList.add('ProseMirror-yjs-cursor');
+                cursor.setAttribute('style', `border-color: ${color}`);
+                const tag = document.createElement('div');
+                tag.setAttribute('style', `background-color: ${color}`);
+                if (user.avatar) {
+                  const img = document.createElement('img');
+                  img.src = user.avatar;
+                  img.alt = '';
+                  img.className = 'alysa-yjs-avatar';
+                  tag.appendChild(img);
+                }
+                tag.appendChild(document.createTextNode(name));
+                cursor.appendChild(document.createTextNode('\u2060'));
+                cursor.appendChild(tag);
+                cursor.appendChild(document.createTextNode('\u2060'));
+                return cursor;
+              },
+            },
+          });
+
           // Only seed the Y.Doc the very first time we ever connect to this
           // fragment. Use an explicit fragment-length check rather than
           // Milkdown's default `textContent.length === 0` predicate, which

@@ -3,6 +3,7 @@ import { useAppStore } from '@/stores';
 import { useAuthStore } from '@/auth/auth-store';
 import { WorkspaceSelector } from '@/components/ui/WorkspaceSelector';
 import { AdminPanel } from '@/components/sidebar/AdminPanel';
+import { ProfileEditor } from '@/components/sidebar/ProfileEditor';
 import {
   ChevronDown,
   ChevronRight,
@@ -63,6 +64,7 @@ export function LeftSidebar() {
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const authUser = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
 
@@ -349,19 +351,41 @@ export function LeftSidebar() {
 
         {authUser && (
           <div className="flex items-center justify-between gap-2 rounded border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5">
-            <div className="flex min-w-0 items-center gap-2">
-              <span
-                className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: authUser.color }}
-                aria-hidden="true"
-              />
+            <button
+              onClick={() => setProfileEditorOpen(true)}
+              title="Edit profile"
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            >
+              {authUser.avatar ? (
+                <img
+                  src={authUser.avatar}
+                  alt=""
+                  className="h-5 w-5 shrink-0 rounded-full object-cover"
+                  style={{ boxShadow: `0 0 0 1.5px ${authUser.color}` }}
+                />
+              ) : (
+                <span
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+                  style={{ backgroundColor: authUser.color }}
+                  aria-hidden="true"
+                >
+                  {authUser.username.charAt(0).toUpperCase()}
+                </span>
+              )}
               <div className="flex min-w-0 flex-col leading-tight">
                 <span className="truncate text-[11px] font-medium">{authUser.username}</span>
                 <span className="text-[9px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
                   {authUser.isAdmin ? 'administrator' : 'signed in'}
                 </span>
               </div>
-            </div>
+            </button>
+            <button
+              onClick={() => setProfileEditorOpen(true)}
+              title="Edit profile"
+              className="rounded p-1 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
+            >
+              <Pencil size={11} />
+            </button>
             <button
               onClick={logout}
               title="Log out"
@@ -384,6 +408,7 @@ export function LeftSidebar() {
       </div>
 
       {adminPanelOpen && <AdminPanel onClose={() => setAdminPanelOpen(false)} />}
+      {profileEditorOpen && <ProfileEditor onClose={() => setProfileEditorOpen(false)} />}
     </div>
   );
 }
