@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/stores';
 import type { NmapMachine, NmapPort, MachineOS, GraphNode, HostData } from '@/types';
-import { Upload, ArrowLeft, Monitor, Skull, ChevronDown, ChevronRight, X, Link2, Unlink, Check, ExternalLink } from 'lucide-react';
+import { Upload, ArrowLeft, Monitor, Skull, ChevronDown, ChevronRight, X, Link2, Unlink, Check, ExternalLink, Server } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { nmapMachineRepo } from '@/db/nmap-repo';
@@ -225,15 +225,20 @@ function MachineCard({ machine, linkedLabel, onClick, onOpenTab, onDelete, onGoT
             : 'border-[hsl(var(--border))] hover:border-[hsl(var(--primary))]',
         )}
       >
-        {linkedLabel && (
-          <div
-            className="absolute right-1.5 top-1.5 flex items-center gap-1 rounded bg-[hsl(var(--primary))]/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-[hsl(var(--primary))]"
-            title={`Linked to ${linkedLabel}`}
-          >
-            <Link2 size={9} />
-            <span className="max-w-[80px] truncate">{linkedLabel}</span>
-          </div>
-        )}
+        {/* Top-left status icon: green host = attached to a graph node,
+            red host = not attached. Hover/title shows the linked node name. */}
+        <div
+          className={cn(
+            'absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border',
+            linkedLabel
+              ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-400'
+              : 'border-red-500/60 bg-red-500/15 text-red-400',
+          )}
+          title={linkedLabel ? `Attached to ${linkedLabel}` : 'Not attached to a host'}
+          aria-label={linkedLabel ? `Attached to ${linkedLabel}` : 'Not attached to a host'}
+        >
+          <Server size={11} />
+        </div>
         <div className={cn(
           'flex h-10 w-10 items-center justify-center',
           machine.os === 'windows' && 'text-blue-400',

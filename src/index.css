@@ -446,15 +446,15 @@ body {
    see who is typing at a glance. */
 .milkdown-host .ProseMirror-yjs-cursor > div {
   position: absolute;
-  top: -1.35em;
-  left: -1px;
+  top: -1.55em;
+  left: -2px;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 5px 1px 3px;
-  border-radius: 3px 3px 3px 0;
+  gap: 5px;
+  padding: 2px 7px 2px 2px;
+  border-radius: 4px 4px 4px 0;
   font-size: 10px;
-  line-height: 1.2;
+  line-height: 1;
   font-weight: 500;
   color: white;
   white-space: nowrap;
@@ -466,14 +466,14 @@ body {
   z-index: 5;
 }
 .milkdown-host .ProseMirror-yjs-cursor > div > img.alysa-yjs-avatar {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   object-fit: cover;
   display: block;
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
 }
 
 /* Remote selection range: a soft tint in the user's color. */
