@@ -348,10 +348,10 @@ export function LeftSidebar() {
                   />
                 </div>
               )}
-              {nmapScans.map((scan) => (
+              {nmapScans.filter((scan) => scan.workspaceId === activeWorkspaceId).map((scan) => (
                 <NmapScanItem key={scan.id} scan={scan} openScan={openScan} deleteNmapScan={deleteNmapScan} renameNmapScan={renameNmapScan} />
               ))}
-              {nmapScans.length === 0 && !creatingGroup && (
+              {nmapScans.filter((scan) => scan.workspaceId === activeWorkspaceId).length === 0 && !creatingGroup && (
                 <span className="px-2 py-1 text-xs text-[hsl(var(--muted-foreground))]">No groups yet</span>
               )}
             </div>

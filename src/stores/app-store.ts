@@ -191,7 +191,12 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   setActiveWorkspace: (id) => {
-    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], graphs: [], graphNodes: [], graphEdges: [], attackChains: [] });
+    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], graphs: [], graphNodes: [], graphEdges: [], attackChains: [], nmapScans: [], nmapMachines: [] });
+    // Reload workspace-scoped lists for the newly-active workspace so stale
+    // entries from the previous workspace don't appear before the per-view
+    // useEffects fire (and so newly-created scans never inherit the prior
+    // workspace's list in state).
+    void get().loadNmapScans();
   },
 
   createWorkspace: async (name, description) => {
