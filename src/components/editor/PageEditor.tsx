@@ -323,18 +323,43 @@ function MarkdownEditor({
     editorRef.current = crepe.editor;
 
     // Wire up collaboration once IndexedDB persistence has loaded any
-    // previously-saved state. If the Y.Doc is empty after that, seed it
-    // from the markdown stored in Dexie via `applyTemplate` (the second
-    // argument's default is "doc is empty").
+    // previously-saved state.
+    //
+    // CRITICAL: We must NOT use Milkdown's default `applyTemplate(md)`
+    // contract here. Its default predicate is
+    //   `yDocNode.textContent.length === 0`
+    // and on a positive match it calls `fragment.delete(0, fragment.length)`
+    // — i.e. it WIPES the Y.Doc fragment and re-seeds from `initialMarkdown`.
+    //
+    // That's a footgun on every revisit: a page whose typed content has
+    // structural-only nodes (image, empty heading, partially-typed
+    // checklist) or whose text content the predicate considers "empty"
+    // would have its live Y.Doc state silently destroyed, the deletion
+    // would be broadcast over the websocket to every peer, and the
+    // y-prosemirror cursor binding would invalidate. That's the source
+    // of "notes are deleted on revisit and the cursor stops syncing".
+    //
+    // Fix: only seed the Y.Doc the very first time we ever connect to
+    // this fragment, and gate that on the fragment actually being empty
+    // (no children) rather than its textContent. After that, the Y.Doc
+    // is the authoritative source — connect() will populate the editor
+    // from it via ySyncPlugin.
     void yctx.whenSynced.then(() => {
       if (editorRef.current !== crepe.editor) return; // editor was replaced
       crepe.editor.action((ctx) => {
         const service = ctx.get(collabServiceCtx);
-        service
-          .bindDoc(yctx.doc)
-          .setAwareness(yctx.awareness)
-          .applyTemplate(initialMarkdown)
-          .connect();
+        service.bindDoc(yctx.doc).setAwareness(yctx.awareness);
+
+        const fragment = yctx.doc.getXmlFragment('prosemirror');
+        if (fragment.length === 0) {
+          // Truly empty (first ever connect for this Y.Doc) — seed from
+          // the markdown snapshot. The custom condition makes the
+          // decision explicit instead of relying on the textContent
+          // default that wipes structural content.
+          service.applyTemplate(initialMarkdown, () => true);
+        }
+
+        service.connect();
       });
     });
 
