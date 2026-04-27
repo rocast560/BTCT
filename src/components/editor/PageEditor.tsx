@@ -298,11 +298,25 @@ function MarkdownEditor({
   const yctx = useMemo(() => getPageYContext(pageId), [pageId]);
 
   useEditor((root) => {
+    // Gate save events until collab has populated the editor from the Y.Doc.
+    //
+    // Crepe boots with `defaultValue: ''`, so the listener plugin fires
+    // `markdownUpdated('')` *before* `service.connect()` has had a chance
+    // to repopulate the editor from the cached Y.Doc. If we let that empty
+    // markdown reach `updatePage`, the JSON snapshot of `page.content`
+    // gets clobbered with `''` and broadcast over the shared doc — which
+    // then becomes the next session's `initialMarkdown`, leaving the page
+    // looking empty on revisit. The Y.Doc itself still has the prose, but
+    // until ySyncPlugin re-populates the editor view there's a window
+    // where every keystroke (or just the mount itself) reports empty.
+    let collabReady = false;
+
     const crepe = new Crepe({
       root,
-      // When using collab, the Y.Doc is the source of truth. We seed the
-      // doc from `initialMarkdown` via `applyTemplate` below, so Crepe
-      // should start with an empty document.
+      // The Y.Doc is the source of truth once collab is connected. We
+      // intentionally start the editor empty and wait for ySyncPlugin to
+      // populate it from the cached Y.XmlFragment (or from applyTemplate
+      // on a fresh page).
       defaultValue: '',
       // Disable the floating bold/italic bubble — we render a side panel
       // on the right of the page instead so the controls don't overlap
@@ -317,6 +331,9 @@ function MarkdownEditor({
       .use(collab)
       .config((ctx) => {
         ctx.get(listenerCtx).markdownUpdated((_, md) => {
+          // Drop pre-connect events — they reflect Crepe's empty
+          // defaultValue, not user input.
+          if (!collabReady) return;
           onChangeRef.current(md);
         });
       });
@@ -336,8 +353,7 @@ function MarkdownEditor({
     // checklist) or whose text content the predicate considers "empty"
     // would have its live Y.Doc state silently destroyed, the deletion
     // would be broadcast over the websocket to every peer, and the
-    // y-prosemirror cursor binding would invalidate. That's the source
-    // of "notes are deleted on revisit and the cursor stops syncing".
+    // y-prosemirror cursor binding would invalidate.
     //
     // Fix: only seed the Y.Doc the very first time we ever connect to
     // this fragment, and gate that on the fragment actually being empty
@@ -360,6 +376,12 @@ function MarkdownEditor({
         }
 
         service.connect();
+
+        // Now ySyncPlugin owns the editor state. Any markdownUpdated
+        // events from this point forward reflect either ySync's initial
+        // populate (which still matches what we want to persist) or
+        // genuine user edits — both safe to forward to the JSON save.
+        collabReady = true;
       });
     });
 
