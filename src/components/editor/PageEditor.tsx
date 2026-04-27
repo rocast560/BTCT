@@ -352,13 +352,11 @@ function MarkdownEditor({
           service.bindDoc(yctx.doc).setAwareness(yctx.awareness);
 
           // Custom remote-cursor renderer: matches the default y-prosemirror
-          // structure (caret span + name tag div) but prepends a tiny avatar
-          // so other collaborators can see who is typing at a glance. The
-          // `user` argument is exactly what we set in awareness over in
-          // src/realtime/yjs-providers.ts (`{ id, name, color, avatar }`).
+          // structure (caret span + name tag div) — just the user's name in
+          // their color, no avatar.
           service.setOptions({
             yCursorOpts: {
-              cursorBuilder: (user: { name?: string; color?: string; avatar?: string | null }) => {
+              cursorBuilder: (user: { name?: string; color?: string }) => {
                 const color = user.color || '#ffa500';
                 const name = user.name || 'Anonymous';
                 const cursor = document.createElement('span');
@@ -366,13 +364,6 @@ function MarkdownEditor({
                 cursor.setAttribute('style', `border-color: ${color}`);
                 const tag = document.createElement('div');
                 tag.setAttribute('style', `background-color: ${color}`);
-                if (user.avatar) {
-                  const img = document.createElement('img');
-                  img.src = user.avatar;
-                  img.alt = '';
-                  img.className = 'alysa-yjs-avatar';
-                  tag.appendChild(img);
-                }
                 tag.appendChild(document.createTextNode(name));
                 cursor.appendChild(document.createTextNode('\u2060'));
                 cursor.appendChild(tag);
