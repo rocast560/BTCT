@@ -6,7 +6,17 @@ import { WebSocketServer } from 'ws';
 import { createRequire } from 'node:module';
 
 import { hashPassword, verifyPassword, signToken, verifyToken } from './auth.mjs';
-import { createUser, getUserByUsername, getUserById, publicUser } from './db.mjs';
+import {
+  createUser,
+  getUserByUsername,
+  getUserById,
+  publicUser,
+  listUsers,
+  deleteUser,
+  setUserAdmin,
+  updateUserPassword,
+  adminCount,
+} from './db.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,6 +30,41 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || ''; // empty = same-origin 
 const STATIC_DIR = process.env.STATIC_DIR
   ? path.resolve(process.env.STATIC_DIR)
   : null;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Admin bootstrap. On first launch (or whenever no admin exists) ensure a
+// default admin account is present. Credentials come from environment
+// variables when set, falling back to a documented default so a fresh
+// deployment is immediately usable. The default credentials MUST be
+// changed on first login in any non-trivial deployment.
+// ─────────────────────────────────────────────────────────────────────────
+const DEFAULT_ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme!';
+
+function ensureBootstrapAdmin() {
+  if (adminCount() > 0) return;
+  const existing = getUserByUsername(DEFAULT_ADMIN_USERNAME);
+  if (existing) {
+    // Account exists but isn't admin — promote it rather than failing.
+    setUserAdmin(existing.id, true);
+    console.warn(
+      `[alysa-server] promoted existing user '${DEFAULT_ADMIN_USERNAME}' to admin`,
+    );
+    return;
+  }
+  const hashRecord = hashPassword(DEFAULT_ADMIN_PASSWORD);
+  createUser({
+    username: DEFAULT_ADMIN_USERNAME,
+    salt: hashRecord.salt,
+    hash: hashRecord.hash,
+    iter: hashRecord.iter,
+    isAdmin: true,
+  });
+  console.warn(
+    `[alysa-server] created bootstrap admin '${DEFAULT_ADMIN_USERNAME}' / '${DEFAULT_ADMIN_PASSWORD}' — change this password immediately`,
+  );
+}
+ensureBootstrapAdmin();
 
 // ─────────────────────────────────────────────────────────────────────────
 // REST helpers
@@ -66,6 +111,15 @@ function authFromHeader(req) {
   return verifyToken(h.slice(7).trim());
 }
 
+function requireAdmin(req) {
+  const claims = authFromHeader(req);
+  if (!claims) return { error: 'unauthorized', status: 401 };
+  const user = getUserById(claims.uid);
+  if (!user) return { error: 'unauthorized', status: 401 };
+  if (!user.is_admin) return { error: 'forbidden', status: 403 };
+  return { user };
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // HTTP routes
 // ─────────────────────────────────────────────────────────────────────────
@@ -84,10 +138,16 @@ const httpServer = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
-    if (req.method === 'POST' && req.url === '/api/register') {
+    // User creation is admin-only. The bootstrap admin is the seed account;
+    // every subsequent account must be created from an authenticated admin
+    // session via POST /api/admin/users.
+    if (req.method === 'POST' && req.url === '/api/admin/users') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
       const body = await readJsonBody(req);
       const username = String(body.username || '').trim();
       const password = String(body.password || '');
+      const isAdmin = !!body.isAdmin;
       if (!VALID_USERNAME.test(username)) {
         return sendJson(res, 400, { error: 'invalid username (3-32 chars: letters, numbers, . _ -)' });
       }
@@ -103,9 +163,56 @@ const httpServer = http.createServer(async (req, res) => {
         salt: hashRecord.salt,
         hash: hashRecord.hash,
         iter: hashRecord.iter,
+        isAdmin,
       });
-      const token = signToken({ uid: user.id, username: user.username });
-      return sendJson(res, 201, { token, user: publicUser(user) });
+      return sendJson(res, 201, { user: publicUser(user) });
+    }
+
+    if (req.method === 'GET' && req.url === '/api/admin/users') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      return sendJson(res, 200, { users: listUsers() });
+    }
+
+    if (req.method === 'DELETE' && req.url?.startsWith('/api/admin/users/')) {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      const idStr = req.url.slice('/api/admin/users/'.length);
+      const id = Number(idStr);
+      if (!Number.isInteger(id) || id <= 0) {
+        return sendJson(res, 400, { error: 'invalid user id' });
+      }
+      if (id === gate.user.id) {
+        return sendJson(res, 400, { error: 'cannot delete your own account' });
+      }
+      const target = getUserById(id);
+      if (!target) return sendJson(res, 404, { error: 'user not found' });
+      // Prevent removing the last admin so the system never locks itself out.
+      if (target.is_admin && adminCount() <= 1) {
+        return sendJson(res, 400, { error: 'cannot delete the last admin' });
+      }
+      deleteUser(id);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (req.method === 'POST' && req.url?.startsWith('/api/admin/users/') && req.url.endsWith('/password')) {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      const idStr = req.url.slice('/api/admin/users/'.length, req.url.length - '/password'.length);
+      const id = Number(idStr);
+      if (!Number.isInteger(id) || id <= 0) {
+        return sendJson(res, 400, { error: 'invalid user id' });
+      }
+      const target = getUserById(id);
+      if (!target) return sendJson(res, 404, { error: 'user not found' });
+      const body = await readJsonBody(req);
+      const password = String(body.password || '');
+      if (password.length < 8) {
+        return sendJson(res, 400, { error: 'password must be at least 8 characters' });
+      }
+      const hashRecord = hashPassword(password);
+      updateUserPassword(id, hashRecord);
+      return sendJson(res, 200, { ok: true });
     }
 
     if (req.method === 'POST' && req.url === '/api/login') {
@@ -117,7 +224,7 @@ const httpServer = http.createServer(async (req, res) => {
         // Same response for both cases to avoid username enumeration.
         return sendJson(res, 401, { error: 'invalid username or password' });
       }
-      const token = signToken({ uid: row.id, username: row.username });
+      const token = signToken({ uid: row.id, username: row.username, admin: !!row.is_admin });
       return sendJson(res, 200, { token, user: publicUser(row) });
     }
 

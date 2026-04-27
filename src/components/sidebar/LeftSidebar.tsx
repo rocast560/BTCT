@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/stores';
+import { useAuthStore } from '@/auth/auth-store';
 import { WorkspaceSelector } from '@/components/ui/WorkspaceSelector';
+import { AdminPanel } from '@/components/sidebar/AdminPanel';
 import {
   ChevronDown,
   ChevronRight,
@@ -17,6 +19,8 @@ import {
   FileText,
   Clock,
   Link2,
+  Shield,
+  LogOut,
 } from 'lucide-react';
 import type { Page, Graph, NmapScan, AttackChain } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -58,6 +62,9 @@ export function LeftSidebar() {
   const [chainsExpanded, setChainsExpanded] = useState(true);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
+  const [adminPanelOpen, setAdminPanelOpen] = useState(false);
+  const authUser = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
 
   const rootPages = pages.filter((p) => p.parentId === null && !p.isGraphPage);
 
@@ -336,10 +343,47 @@ export function LeftSidebar() {
         </div>
       </div>
 
-      {/* Footer: Workspace selector */}
-      <div className="border-t border-[hsl(var(--border))] p-3">
+      {/* Footer: Workspace selector + signed-in user + admin panel */}
+      <div className="flex flex-col gap-2 border-t border-[hsl(var(--border))] p-3">
         <WorkspaceSelector />
+
+        {authUser && (
+          <div className="flex items-center justify-between gap-2 rounded border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: authUser.color }}
+                aria-hidden="true"
+              />
+              <div className="flex min-w-0 flex-col leading-tight">
+                <span className="truncate text-[11px] font-medium">{authUser.username}</span>
+                <span className="text-[9px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+                  {authUser.isAdmin ? 'administrator' : 'signed in'}
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={logout}
+              title="Log out"
+              className="rounded p-1 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
+            >
+              <LogOut size={12} />
+            </button>
+          </div>
+        )}
+
+        {authUser?.isAdmin && (
+          <button
+            onClick={() => setAdminPanelOpen(true)}
+            className="flex items-center justify-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] font-medium text-amber-300 hover:bg-amber-500/20"
+          >
+            <Shield size={12} />
+            <span>Admin Panel</span>
+          </button>
+        )}
       </div>
+
+      {adminPanelOpen && <AdminPanel onClose={() => setAdminPanelOpen(false)} />}
     </div>
   );
 }

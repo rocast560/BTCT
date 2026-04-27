@@ -183,30 +183,6 @@ function AuthedApp() {
       </div>
       {rightSidebarOpen && <RightSidebar />}
       <CommandPalette />
-      <UserBadge />
-    </div>
-  );
-}
-
-function UserBadge() {
-  const user = useAuthStore((s) => s.user);
-  const logout = useAuthStore((s) => s.logout);
-  if (!user) return null;
-  return (
-    <div className="pointer-events-auto fixed bottom-3 right-3 z-50 flex items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3 py-1.5 text-xs shadow-lg backdrop-blur">
-      <span
-        className="inline-block h-2.5 w-2.5 rounded-full"
-        style={{ backgroundColor: user.color }}
-        aria-hidden="true"
-      />
-      <span className="font-medium">{user.username}</span>
-      <button
-        type="button"
-        onClick={logout}
-        className="text-white/60 hover:text-white"
-      >
-        Log out
-      </button>
     </div>
   );
 }

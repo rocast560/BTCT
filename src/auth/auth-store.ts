@@ -32,6 +32,15 @@ export interface AuthUser {
   id: number;
   username: string;
   color: string;
+  isAdmin: boolean;
+}
+
+export interface AdminUserRow {
+  id: number;
+  username: string;
+  color: string;
+  isAdmin: boolean;
+  createdAt: number;
 }
 
 function loadStoredToken(): string | null {
@@ -65,6 +74,25 @@ async function postJson<T>(path: string, body: unknown, token?: string | null): 
   return data as T;
 }
 
+async function getJson<T>(path: string, token?: string | null): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string } & Record<string, unknown>;
+  if (!res.ok) throw new Error(data.error || `request failed (${res.status})`);
+  return data as T;
+}
+
+async function deleteJson<T>(path: string, token?: string | null): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'DELETE',
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string } & Record<string, unknown>;
+  if (!res.ok) throw new Error(data.error || `request failed (${res.status})`);
+  return data as T;
+}
+
 interface AuthResponse {
   token: string;
   user: AuthUser;
@@ -77,8 +105,12 @@ interface AuthState {
   error: string | null;
   bootstrap: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  // Admin-only operations (will fail with 403 for non-admin tokens).
+  adminListUsers: () => Promise<AdminUserRow[]>;
+  adminCreateUser: (username: string, password: string, isAdmin: boolean) => Promise<AdminUserRow>;
+  adminDeleteUser: (id: number) => Promise<void>;
+  adminResetPassword: (id: number, password: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -118,17 +150,35 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ token: data.token, user: data.user, status: 'authenticated' });
   },
 
-  register: async (username, password) => {
-    set({ error: null });
-    const data = await postJson<AuthResponse>('/api/register', { username, password });
-    localStorage.setItem(TOKEN_KEY, data.token);
-    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    set({ token: data.token, user: data.user, status: 'authenticated' });
-  },
-
   logout: () => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     set({ token: null, user: null, status: 'unauthenticated' });
+  },
+
+  adminListUsers: async () => {
+    const token = get().token;
+    const data = await getJson<{ users: AdminUserRow[] }>('/api/admin/users', token);
+    return data.users;
+  },
+
+  adminCreateUser: async (username, password, isAdmin) => {
+    const token = get().token;
+    const data = await postJson<{ user: AdminUserRow }>(
+      '/api/admin/users',
+      { username, password, isAdmin },
+      token,
+    );
+    return data.user;
+  },
+
+  adminDeleteUser: async (id) => {
+    const token = get().token;
+    await deleteJson<{ ok: true }>(`/api/admin/users/${id}`, token);
+  },
+
+  adminResetPassword: async (id, password) => {
+    const token = get().token;
+    await postJson<{ ok: true }>(`/api/admin/users/${id}/password`, { password }, token);
   },
 }));
