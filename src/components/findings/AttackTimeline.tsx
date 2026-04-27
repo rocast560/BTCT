@@ -136,11 +136,16 @@ export function AttackTimeline() {
       setLoading(true);
       const types: TypeKey[] = ['host', 'service', 'credential', 'pivot', 'finding'];
       const lists = await Promise.all(types.map((tp) => graphNodeRepo.getAllByType(tp)));
-      const nodes = lists.flat();
+      // Restrict to the current workspace: `graphs` in the store is already
+      // scoped to the active workspace, so any node whose graphId isn't in
+      // the current `graphs` list belongs to a different workspace and must
+      // be excluded from the timeline.
+      const graphIds = new Set(graphs.map((g) => g.id));
+      const nodes = lists.flat().filter((n) => graphIds.has(n.graphId));
 
-      // fetch edges per graph (dedupe)
-      const graphIds = Array.from(new Set(nodes.map((n) => n.graphId)));
-      const edgeLists = await Promise.all(graphIds.map((gid) => graphEdgeRepo.getByGraph(gid)));
+      // fetch edges per graph (dedupe), restricted to the current workspace
+      const nodeGraphIds = Array.from(new Set(nodes.map((n) => n.graphId)));
+      const edgeLists = await Promise.all(nodeGraphIds.map((gid) => graphEdgeRepo.getByGraph(gid)));
       setAllNodes(nodes);
       setAllEdges(edgeLists.flat());
       setLoading(false);

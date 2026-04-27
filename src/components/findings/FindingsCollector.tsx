@@ -35,7 +35,12 @@ export function FindingsCollector() {
   const loadAllFindings = async () => {
     setLoading(true);
     const allNodes = await graphNodeRepo.getAllByType('finding');
-    const withGraph: FindingWithGraph[] = allNodes.map((n) => ({
+    // Restrict to the current workspace: graphs in the store are already
+    // scoped to the active workspace, so any node whose graphId isn't in
+    // the current `graphs` list belongs to a different workspace.
+    const graphIds = new Set(graphs.map((g) => g.id));
+    const scoped = allNodes.filter((n) => graphIds.has(n.graphId));
+    const withGraph: FindingWithGraph[] = scoped.map((n) => ({
       ...n,
       graphName: graphs.find((g) => g.id === n.graphId)?.name ?? 'Unknown',
     }));
