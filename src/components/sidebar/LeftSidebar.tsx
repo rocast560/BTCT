@@ -350,22 +350,22 @@ export function LeftSidebar() {
         <WorkspaceSelector />
 
         {authUser && (
-          <div className="flex items-center justify-between gap-2 rounded border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5">
+          <div className="flex items-center gap-2.5 rounded border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2.5 py-2">
             <button
               onClick={() => setProfileEditorOpen(true)}
               title="Edit profile"
-              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
             >
               {authUser.avatar ? (
                 <img
                   src={authUser.avatar}
                   alt=""
-                  className="h-5 w-5 shrink-0 rounded-full object-cover"
-                  style={{ boxShadow: `0 0 0 1.5px ${authUser.color}` }}
+                  className="h-9 w-9 shrink-0 rounded-full object-cover"
+                  style={{ boxShadow: `0 0 0 2px ${authUser.color}` }}
                 />
               ) : (
                 <span
-                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
                   style={{ backgroundColor: authUser.color }}
                   aria-hidden="true"
                 >
@@ -373,25 +373,18 @@ export function LeftSidebar() {
                 </span>
               )}
               <div className="flex min-w-0 flex-col leading-tight">
-                <span className="truncate text-[11px] font-medium">{authUser.username}</span>
-                <span className="text-[9px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+                <span className="truncate text-[12px] font-medium">{authUser.username}</span>
+                <span className="truncate text-[9px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
                   {authUser.isAdmin ? 'administrator' : 'signed in'}
                 </span>
               </div>
             </button>
             <button
-              onClick={() => setProfileEditorOpen(true)}
-              title="Edit profile"
-              className="rounded p-1 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
-            >
-              <Pencil size={11} />
-            </button>
-            <button
               onClick={logout}
               title="Log out"
-              className="rounded p-1 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
+              className="shrink-0 rounded p-1.5 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
             >
-              <LogOut size={12} />
+              <LogOut size={14} />
             </button>
           </div>
         )}

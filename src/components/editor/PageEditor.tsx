@@ -344,7 +344,7 @@ function MarkdownEditor({
     editorRef.current = editor;
     let cancelled = false;
 
-    void yctx.whenSynced.then(() => {
+    void yctx.whenFullySynced.then(() => {
       if (cancelled || editorRef.current !== editor) return;
       try {
         editor.action((ctx) => {

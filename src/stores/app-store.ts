@@ -4,6 +4,45 @@ import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, chang
 import { db } from '@/db/database';
 import { createLeaf, findLeafContainingTab, firstLeaf, addTabToPane, removeTab as removeTabFromLayout, collapse, moveTab, removeTabsWhere, setActiveInPane, updateRatio } from '@/lib/pane-layout';
 
+// ─────────────────────────────────────────────────────────────────────────
+// UI persistence: keep tabs / active tab / pane layout / active workspace
+// across page refreshes so the user lands back on the page they left off.
+// Stored as a single JSON blob in localStorage.
+// ─────────────────────────────────────────────────────────────────────────
+const UI_PERSIST_KEY = 'alysa.ui.v1';
+
+interface PersistedUi {
+  activeWorkspaceId: ID | null;
+  tabs: TabItem[];
+  activeTabId: string | null;
+  paneLayout: PaneNode;
+  activePaneId: string | null;
+}
+
+function loadPersistedUi(): Partial<PersistedUi> {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(UI_PERSIST_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<PersistedUi>;
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function savePersistedUi(snapshot: PersistedUi): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(UI_PERSIST_KEY, JSON.stringify(snapshot));
+  } catch {
+    /* quota / serialization errors — non-fatal */
+  }
+}
+
+const persistedUi = loadPersistedUi();
+
 interface AppState {
   // Workspace
   workspaces: Workspace[];
@@ -128,14 +167,25 @@ export const useAppStore = create<AppState>((set, get) => {
   return ({
   // Workspace
   workspaces: [],
-  activeWorkspaceId: null,
+  activeWorkspaceId: persistedUi.activeWorkspaceId ?? null,
 
   loadWorkspaces: async () => {
     const workspaces = await workspaceRepo.getAll();
     set({ workspaces });
-    if (workspaces.length > 0 && !get().activeWorkspaceId) {
+    // Validate the (possibly persisted) active workspace still exists.
+    const current = get().activeWorkspaceId;
+    const stillValid = current ? workspaces.some((w) => w.id === current) : false;
+    if (!stillValid) {
+      // Persisted workspace is gone — clear stale tabs/pane layout that
+      // referenced it so we don't render dead tabs from a deleted workspace.
       const first = workspaces[0];
-      if (first) set({ activeWorkspaceId: first.id });
+      set({
+        activeWorkspaceId: first ? first.id : null,
+        tabs: [],
+        activeTabId: null,
+        paneLayout: createLeaf(),
+        activePaneId: null,
+      });
     }
   },
 
@@ -350,10 +400,10 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   // Tabs & Panes
-  tabs: [],
-  activeTabId: null,
-  paneLayout: createLeaf(),
-  activePaneId: null,
+  tabs: persistedUi.tabs ?? [],
+  activeTabId: persistedUi.activeTabId ?? null,
+  paneLayout: persistedUi.paneLayout ?? createLeaf(),
+  activePaneId: persistedUi.activePaneId ?? null,
 
   openTab: (tab) => {
     set((s) => {
@@ -577,7 +627,14 @@ export const useAppStore = create<AppState>((set, get) => {
   },
   loadNmapMachines: async (scanId: ID) => {
     const machines = await nmapMachineRepo.getByScan(scanId);
-    set({ nmapMachines: machines });
+    // Merge: keep machines from other scans, replace this scan's slice.
+    // (Observer-driven reloads call this for every scan in series; a naive
+    // `set({ nmapMachines: machines })` would leave only the last scan's
+    // machines in memory and break the live attach UI.)
+    set((s) => {
+      const others = s.nmapMachines.filter((m) => m.scanId !== scanId);
+      return { nmapMachines: [...others, ...machines] };
+    });
   },
   updateNmapMachine: async (id: ID, data: Partial<Pick<NmapMachine, 'hostname' | 'os'>>) => {
     await nmapMachineRepo.update(id, data);
@@ -762,4 +819,24 @@ export const useAppStore = create<AppState>((set, get) => {
     });
   },
 });
+});
+
+// Persist UI state (tabs, panes, active workspace) on every relevant change.
+// Lives outside `create()` so it can subscribe to the store after creation.
+useAppStore.subscribe((state, prev) => {
+  if (
+    state.tabs !== prev.tabs ||
+    state.activeTabId !== prev.activeTabId ||
+    state.paneLayout !== prev.paneLayout ||
+    state.activePaneId !== prev.activePaneId ||
+    state.activeWorkspaceId !== prev.activeWorkspaceId
+  ) {
+    savePersistedUi({
+      activeWorkspaceId: state.activeWorkspaceId,
+      tabs: state.tabs,
+      activeTabId: state.activeTabId,
+      paneLayout: state.paneLayout,
+      activePaneId: state.activePaneId,
+    });
+  }
 });

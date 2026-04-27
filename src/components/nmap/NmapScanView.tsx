@@ -148,10 +148,16 @@ export function NmapScanView({ scanId }: { scanId: string }) {
             {nmapMachines.map((machine) => {
               const linkedNode = machine.linkedNodeId ? graphNodes.find((n) => n.id === machine.linkedNodeId) : null;
               const linkedGraph = linkedNode ? graphs.find((g) => g.id === linkedNode.graphId) : null;
+              const linkedLabel = linkedNode
+                ? (linkedNode.type === 'host'
+                    ? ((linkedNode.data as { hostname?: string; ip?: string }).hostname || (linkedNode.data as { ip?: string }).ip || 'host')
+                    : linkedNode.type)
+                : null;
               return (
                 <MachineCard
                   key={machine.id}
                   machine={machine}
+                  linkedLabel={linkedLabel}
                   onClick={() => openMachine(machine)}
                   onOpenTab={() => openMachineInTab(machine)}
                   onDelete={() => void handleDeleteMachine(machine.id)}
@@ -168,7 +174,7 @@ export function NmapScanView({ scanId }: { scanId: string }) {
 
 // ── Machine card ──
 
-function MachineCard({ machine, onClick, onOpenTab, onDelete, onGoToNode }: { machine: NmapMachine; onClick: () => void; onOpenTab: () => void; onDelete: () => void; onGoToNode?: () => void }) {
+function MachineCard({ machine, linkedLabel, onClick, onOpenTab, onDelete, onGoToNode }: { machine: NmapMachine; linkedLabel: string | null; onClick: () => void; onOpenTab: () => void; onDelete: () => void; onGoToNode?: () => void }) {
   const openPortCount = machine.ports.filter((p) => p.state === 'open').length;
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -212,8 +218,22 @@ function MachineCard({ machine, onClick, onOpenTab, onDelete, onGoToNode }: { ma
       <button
         onClick={handleClick}
         onContextMenu={handleContext}
-        className="flex w-full flex-col items-center gap-2 border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 text-center hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--accent))] transition-colors"
+        className={cn(
+          'relative flex w-full flex-col items-center gap-2 border bg-[hsl(var(--card))] p-4 text-center transition-colors hover:bg-[hsl(var(--accent))]',
+          linkedLabel
+            ? 'border-[hsl(var(--primary))]/60 hover:border-[hsl(var(--primary))]'
+            : 'border-[hsl(var(--border))] hover:border-[hsl(var(--primary))]',
+        )}
       >
+        {linkedLabel && (
+          <div
+            className="absolute right-1.5 top-1.5 flex items-center gap-1 rounded bg-[hsl(var(--primary))]/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-[hsl(var(--primary))]"
+            title={`Linked to ${linkedLabel}`}
+          >
+            <Link2 size={9} />
+            <span className="max-w-[80px] truncate">{linkedLabel}</span>
+          </div>
+        )}
         <div className={cn(
           'flex h-10 w-10 items-center justify-center',
           machine.os === 'windows' && 'text-blue-400',

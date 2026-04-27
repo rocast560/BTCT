@@ -22,7 +22,16 @@ export interface PageYContext {
   persistence: IndexeddbPersistence;
   provider: WebsocketProvider;
   awareness: Awareness;
+  /** Resolves once the IndexedDB cache has loaded. Does NOT wait for the
+   *  websocket. Use `whenFullySynced` before seeding initial content. */
   whenSynced: Promise<void>;
+  /** Resolves once BOTH the IndexedDB cache and the websocket sync have
+   *  settled (or after a short offline-fallback timeout if the server is
+   *  unreachable). Awaiting this before applying an initial template
+   *  prevents duplicate content when joining a page that already has
+   *  remote state — the remote state would otherwise arrive after the
+   *  template seed and merge with it via CRDT, doubling the text. */
+  whenFullySynced: Promise<void>;
 }
 
 const cache = new Map<string, PageYContext>();
@@ -66,7 +75,26 @@ export function getPageYContext(pageId: string): PageYContext {
 
   const whenSynced = persistence.whenSynced.then(() => undefined);
 
-  const ctx: PageYContext = { doc, persistence, provider, awareness, whenSynced };
+  // Wait for the websocket to report its first 'sync' event so we know
+  // whether any remote state exists for this page. Falls back to a 3s
+  // timeout when the server is offline so editing still works.
+  const whenWsSynced = new Promise<void>((resolve) => {
+    if (provider.synced) { resolve(); return; }
+    const onSync = (synced: boolean) => {
+      if (!synced) return;
+      provider.off('sync', onSync);
+      resolve();
+    };
+    provider.on('sync', onSync);
+    setTimeout(() => {
+      provider.off('sync', onSync);
+      resolve();
+    }, 3000);
+  });
+
+  const whenFullySynced = Promise.all([persistence.whenSynced, whenWsSynced]).then(() => undefined);
+
+  const ctx: PageYContext = { doc, persistence, provider, awareness, whenSynced, whenFullySynced };
   cache.set(pageId, ctx);
   return ctx;
 }
