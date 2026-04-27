@@ -218,26 +218,15 @@ export interface NmapScan {
 // Ordered sequence of GraphNode IDs (all within the same Graph) that the user
 // has marked as belonging to a named attack chain. When the chain is selected
 // it is highlighted on the canvas using the red "chain" path style.
+// `linkedPageId` points at a hidden Page (isGraphPage: true) that holds the
+// editable narrative / step-by-step writeup for the chain.
 export interface AttackChain {
   id: ID;
   workspaceId: ID;
   graphId: ID;
   name: string;
   nodeIds: ID[];
-  createdAt: number;
-  updatedAt: number;
-}
-
-// ---- Attack Chain ----
-// Ordered sequence of GraphNode IDs (all within the same Graph) that the user
-// has marked as belonging to a named attack chain. When the chain is selected
-// it is highlighted on the canvas using the red "chain" path style.
-export interface AttackChain {
-  id: ID;
-  workspaceId: ID;
-  graphId: ID;
-  name: string;
-  nodeIds: ID[];
+  linkedPageId: ID | null;
   createdAt: number;
   updatedAt: number;
 }

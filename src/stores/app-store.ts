@@ -148,6 +148,7 @@ interface AppState {
   updateAttackChain: (id: ID, data: Partial<Pick<AttackChain, 'name' | 'nodeIds'>>) => Promise<void>;
   deleteAttackChain: (id: ID) => Promise<void>;
   addNodesToAttackChain: (id: ID, nodeIds: ID[]) => Promise<void>;
+  ensureAttackChainPage: (id: ID) => Promise<ID | null>;
   pendingHighlightChainId: ID | null;
   setPendingHighlightChainId: (id: ID | null) => void;
 
@@ -797,6 +798,17 @@ export const useAppStore = create<AppState>((set, get) => {
     set((s) => ({
       attackChains: s.attackChains.map((c) => c.id === id ? { ...c, nodeIds: merged, updatedAt: Date.now() } : c),
     }));
+  },
+  ensureAttackChainPage: async (id) => {
+    const pageId = await attackChainRepo.ensurePage(id);
+    if (pageId) {
+      set((s) => ({
+        attackChains: s.attackChains.map((c) => c.id === id ? { ...c, linkedPageId: pageId, updatedAt: Date.now() } : c),
+      }));
+      // Refresh the page list so the new linked page is queryable.
+      void get().loadPages();
+    }
+    return pageId;
   },
   pendingHighlightChainId: null,
   setPendingHighlightChainId: (id) => set({ pendingHighlightChainId: id }),

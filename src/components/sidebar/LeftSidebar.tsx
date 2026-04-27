@@ -54,6 +54,7 @@ export function LeftSidebar() {
     attackChains,
     updateAttackChain,
     deleteAttackChain,
+    ensureAttackChainPage,
     setPendingHighlightChainId,
   } = useAppStore();
 
@@ -120,7 +121,19 @@ export function LeftSidebar() {
     openTab({ id: uuidv4(), kind: 'timeline', entityId: 'timeline', title: 'Attack Timeline' });
   };
 
-  const openChain = (chain: AttackChain) => {
+  const openChain = async (chain: AttackChain) => {
+    // Left-click opens (or lazily creates) the chain's writeup page so the
+    // user can document the attack steps. Highlighting on the graph is now
+    // an explicit right-click action — see `highlightChain`.
+    let pageId = chain.linkedPageId;
+    if (!pageId) {
+      pageId = await ensureAttackChainPage(chain.id);
+    }
+    if (!pageId) return;
+    openTab({ id: uuidv4(), kind: 'page', entityId: pageId, title: chain.name });
+  };
+
+  const highlightChain = (chain: AttackChain) => {
     const graph = graphs.find((g) => g.id === chain.graphId);
     if (!graph) return;
     setPendingHighlightChainId(chain.id);
@@ -290,6 +303,7 @@ export function LeftSidebar() {
                     chain={chain}
                     graphName={graph?.name ?? 'Unknown narrative'}
                     openChain={openChain}
+                    highlightChain={highlightChain}
                     renameChain={(id, name) => updateAttackChain(id, { name })}
                     deleteChain={deleteAttackChain}
                   />
@@ -824,12 +838,14 @@ function AttackChainItem({
   chain,
   graphName,
   openChain,
+  highlightChain,
   renameChain,
   deleteChain,
 }: {
   chain: AttackChain;
   graphName: string;
   openChain: (c: AttackChain) => void;
+  highlightChain: (c: AttackChain) => void;
   renameChain: (id: string, name: string) => Promise<void>;
   deleteChain: (id: string) => Promise<void>;
 }) {
@@ -917,6 +933,12 @@ function AttackChainItem({
         >
           <button
             onClick={() => { setCtxMenu(null); openChain(chain); }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
+          >
+            Open writeup
+          </button>
+          <button
+            onClick={() => { setCtxMenu(null); highlightChain(chain); }}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
           >
             Highlight on Narrative
