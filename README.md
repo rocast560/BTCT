@@ -63,7 +63,7 @@ Auth and admin actions go through normal REST.
 - **Docker** + **docker compose** (multi-stage `Dockerfile`)
 - Single image serves API + WebSocket + static client on one port
 - Persistent SQLite volume at `/data`
-- `Publish-Alysa.ps1` (Windows) → tags + pushes to GitHub
+- `Publish-Synote.ps1` (Windows) → tags + pushes to GitHub
 - `update-synote` (Linux) → fetches the tag, rebuilds the container
 
 ---
@@ -94,7 +94,7 @@ server/
   db.mjs              bun:sqlite user table
 Dockerfile            Multi-stage build (client → server-deps → runtime)
 docker-compose.yml    Single-container deployment
-Publish-Alysa.ps1     Windows release script
+Publish-Synote.ps1    Windows release script
 ```
 
 ---
@@ -183,11 +183,11 @@ Then open http://127.0.0.1:5173.
 
 ## Push a release to GitHub (Windows)
 
-The `Publish-Alysa.ps1` script handles staging, committing, pushing, and
+The `Publish-Synote.ps1` script handles staging, committing, pushing, and
 tagging in one go.
 
 ```powershell
-.\Publish-Alysa.ps1 -Tag v0.3.5 -Message "Add foo and fix bar"
+.\Publish-Synote.ps1 -Tag v0.3.5 -Message "Add foo and fix bar"
 ```
 
 What it does:
@@ -286,7 +286,7 @@ sudo chmod +x /usr/local/bin/update-synote
 
 On Windows:
 ```powershell
-.\Publish-Alysa.ps1 -Tag v0.3.6 -Message "Whatever changed"
+.\Publish-Synote.ps1 -Tag v0.3.6 -Message "Whatever changed"
 ```
 
 On Linux:

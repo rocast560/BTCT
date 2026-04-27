@@ -17,13 +17,13 @@ try {
     if (git diff --cached --name-only) {
         git commit -m $Message
     } else {
-        Write-Host "[Publish-Alysa] no staged changes; skipping commit"
+        Write-Host "[Publish-Synote] no staged changes; skipping commit"
     }
     git push origin main
     git tag -fa $Tag -m $Message
     git push origin $Tag --force
-    Write-Host "[Publish-Alysa] released $Tag"                 -ForegroundColor Green
-    Write-Host "[Publish-Alysa] on Kali run:   update-alysa $Tag" -ForegroundColor Cyan
+    Write-Host "[Publish-Synote] released $Tag"                 -ForegroundColor Green
+    Write-Host "[Publish-Synote] on Linux run:  update-synote $Tag" -ForegroundColor Cyan
 } finally {
     Pop-Location
 }
