@@ -356,22 +356,13 @@ export function LeftSidebar() {
               title="Edit profile"
               className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
             >
-              {authUser.avatar ? (
-                <img
-                  src={authUser.avatar}
-                  alt=""
-                  className="h-9 w-9 shrink-0 rounded-full object-cover"
-                  style={{ boxShadow: `0 0 0 2px ${authUser.color}` }}
-                />
-              ) : (
-                <span
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
-                  style={{ backgroundColor: authUser.color }}
-                  aria-hidden="true"
-                >
-                  {authUser.username.charAt(0).toUpperCase()}
-                </span>
-              )}
+              <span
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+                style={{ backgroundColor: authUser.color }}
+                aria-hidden="true"
+              >
+                {authUser.username.charAt(0).toUpperCase()}
+              </span>
               <div className="flex min-w-0 flex-col leading-tight">
                 <span className="truncate text-[12px] font-medium">{authUser.username}</span>
                 <span className="truncate text-[9px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">

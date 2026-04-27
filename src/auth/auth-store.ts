@@ -34,7 +34,6 @@ export interface AuthUser {
   id: number;
   username: string;
   color: string;
-  avatar: string | null;
   isAdmin: boolean;
 }
 
@@ -42,7 +41,6 @@ export interface AdminUserRow {
   id: number;
   username: string;
   color: string;
-  avatar: string | null;
   isAdmin: boolean;
   createdAt: number;
 }
@@ -56,8 +54,8 @@ function loadStoredUser(): AuthUser | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.id === 'number' && typeof parsed.username === 'string') {
-      // Older builds didn't persist `avatar` — fill it in defensively.
-      if (typeof parsed.avatar === 'undefined') parsed.avatar = null;
+      // Older builds may have a stale `avatar` field — strip it.
+      if ('avatar' in parsed) delete parsed.avatar;
       return parsed as AuthUser;
     }
   } catch { /* fallthrough */ }
@@ -118,7 +116,7 @@ interface AuthState {
   adminDeleteUser: (id: number) => Promise<void>;
   adminResetPassword: (id: number, password: string) => Promise<void>;
   // Self-service profile editing for any authenticated user.
-  updateProfile: (changes: { color?: string; avatar?: string | null }) => Promise<AuthUser>;
+  updateProfile: (changes: { color?: string }) => Promise<AuthUser>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({

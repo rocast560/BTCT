@@ -441,9 +441,7 @@ body {
 
 /* Name tag floating above the caret. y-prosemirror gives the inner
    <div> only an inline `background-color` style — everything else
-   we control here. Our custom cursor builder may also drop a tiny
-   <img class="alysa-yjs-avatar"> at the start so collaborators can
-   see who is typing at a glance. */
+   we control here. */
 .milkdown-host .ProseMirror-yjs-cursor > div {
   position: absolute;
   top: -1.55em;

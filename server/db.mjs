@@ -52,7 +52,6 @@ const updatePasswordById = db.prepare(
   `UPDATE users SET salt = $salt, hash = $hash, iter = $iter WHERE id = $id`,
 );
 const setColorById = db.prepare(`UPDATE users SET color = ? WHERE id = ?`);
-const setAvatarById = db.prepare(`UPDATE users SET avatar = ? WHERE id = ?`);
 const countAdmins = db.prepare(
   `SELECT COUNT(*) AS n FROM users WHERE is_admin = 1`,
 );
@@ -89,7 +88,6 @@ export function listUsers() {
     id: row.id,
     username: row.username,
     color: row.color,
-    avatar: row.avatar || null,
     isAdmin: !!row.is_admin,
     createdAt: row.created_at,
   }));
@@ -111,10 +109,6 @@ export function updateUserColor(id, color) {
   setColorById.run(color, id);
 }
 
-export function updateUserAvatar(id, avatar) {
-  setAvatarById.run(avatar ?? null, id);
-}
-
 export function adminCount() {
   return Number(countAdmins.get()?.n || 0);
 }
@@ -125,7 +119,6 @@ export function publicUser(row) {
     id: row.id,
     username: row.username,
     color: row.color,
-    avatar: row.avatar || null,
     isAdmin: !!row.is_admin,
   };
 }

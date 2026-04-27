@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { X, Upload, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { X } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '@/auth/auth-store';
 
 const COLOR_PRESETS = [
@@ -10,60 +10,15 @@ const COLOR_PRESETS = [
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
-/** Resize an image File to a square PNG data URL via canvas. */
-async function fileToAvatarDataUrl(file: File, size = 64): Promise<string> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error('read failed'));
-    reader.readAsDataURL(file);
-  });
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new Image();
-    i.onload = () => resolve(i);
-    i.onerror = () => reject(new Error('invalid image'));
-    i.src = dataUrl;
-  });
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('canvas unavailable');
-  // Cover-style crop
-  const ratio = Math.max(size / img.width, size / img.height);
-  const w = img.width * ratio;
-  const h = img.height * ratio;
-  const x = (size - w) / 2;
-  const y = (size - h) / 2;
-  ctx.drawImage(img, x, y, w, h);
-  return canvas.toDataURL('image/png');
-}
-
 export function ProfileEditor({ onClose }: { onClose: () => void }) {
   const user = useAuthStore((s) => s.user) as AuthUser;
   const updateProfile = useAuthStore((s) => s.updateProfile);
 
   const [color, setColor] = useState(user.color);
-  const [avatar, setAvatar] = useState<string | null>(user.avatar);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const dirty = color !== user.color || avatar !== user.avatar;
-
-  const handleFile = async (file: File) => {
-    setError(null);
-    if (!file.type.startsWith('image/')) {
-      setError('please choose an image file');
-      return;
-    }
-    try {
-      const dataUrl = await fileToAvatarDataUrl(file);
-      setAvatar(dataUrl);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'could not read image');
-    }
-  };
+  const dirty = color !== user.color;
 
   const handleSave = async () => {
     if (!HEX_RE.test(color)) {
@@ -73,7 +28,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await updateProfile({ color, avatar });
+      await updateProfile({ color });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'save failed');
@@ -107,61 +62,6 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
             <div className="border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1.5 text-xs text-[hsl(var(--muted-foreground))]">
               {user.username}
             </div>
-          </div>
-
-          {/* Avatar */}
-          <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-              Avatar
-            </label>
-            <div className="flex items-center gap-3">
-              <div
-                className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[hsl(var(--border))]"
-                style={{ backgroundColor: color }}
-              >
-                {avatar ? (
-                  <img src={avatar} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <span className="text-base font-semibold text-white">
-                    {user.username.charAt(0).toUpperCase()}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-1 flex-col gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center justify-center gap-1.5 border border-[hsl(var(--border))] px-2 py-1.5 text-[11px] hover:bg-[hsl(var(--accent))]"
-                >
-                  <Upload size={11} />
-                  <span>{avatar ? 'Replace image' : 'Upload image'}</span>
-                </button>
-                {avatar && (
-                  <button
-                    type="button"
-                    onClick={() => setAvatar(null)}
-                    className="flex items-center justify-center gap-1.5 border border-[hsl(var(--border))] px-2 py-1.5 text-[11px] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
-                  >
-                    <Trash2 size={11} />
-                    <span>Remove</span>
-                  </button>
-                )}
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void handleFile(f);
-                  e.target.value = '';
-                }}
-              />
-            </div>
-            <p className="mt-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
-              Images are scaled to 64×64 PNG. Shows next to your live cursor.
-            </p>
           </div>
 
           {/* Color */}

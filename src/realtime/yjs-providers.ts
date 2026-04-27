@@ -43,7 +43,6 @@ function applyAwarenessUser(awareness: Awareness): void {
     id: user.id,
     name: user.username,
     color: user.color,
-    avatar: user.avatar ?? null,
   });
 }
 
