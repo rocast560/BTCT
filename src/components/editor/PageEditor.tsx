@@ -297,30 +297,25 @@ function MarkdownEditor({
   // BroadcastChannel sync. Cached so re-mounts don't lose in-memory state.
   const yctx = useMemo(() => getPageYContext(pageId), [pageId]);
 
-  useEditor((root) => {
-    // Gate save events until collab has populated the editor from the Y.Doc.
-    //
-    // Crepe boots with `defaultValue: ''`, so the listener plugin fires
-    // `markdownUpdated('')` *before* `service.connect()` has had a chance
-    // to repopulate the editor from the cached Y.Doc. If we let that empty
-    // markdown reach `updatePage`, the JSON snapshot of `page.content`
-    // gets clobbered with `''` and broadcast over the shared doc — which
-    // then becomes the next session's `initialMarkdown`, leaving the page
-    // looking empty on revisit. The Y.Doc itself still has the prose, but
-    // until ySyncPlugin re-populates the editor view there's a window
-    // where every keystroke (or just the mount itself) reports empty.
-    let collabReady = false;
-
+  // The Crepe factory is intentionally synchronous — NO collab binding work
+  // happens in here. The factory function runs every mount, but `crepe.create()`
+  // (the call that actually builds the ProseMirror view) is async and Milkdown
+  // does not give us its promise. If we tried to bind the Y.Doc inside the
+  // factory we'd race against `create()` and on subsequent page revisits
+  // (when `yctx.whenSynced` is already resolved) our binding would land on a
+  // half-built editor and then `create()` would overwrite it with `defaultValue:
+  // ''`. That's the source of "notes vanish and cursor stops syncing on revisit".
+  //
+  // Instead, we attach to the collab service from a useEffect that runs
+  // strictly after `useEditor` reports `loading === false` — i.e. after the
+  // editor is fully created.
+  const { get, loading } = useEditor((root) => {
     const crepe = new Crepe({
       root,
-      // The Y.Doc is the source of truth once collab is connected. We
-      // intentionally start the editor empty and wait for ySyncPlugin to
-      // populate it from the cached Y.XmlFragment (or from applyTemplate
-      // on a fresh page).
+      // When using collab the Y.Doc is the source of truth. Seeding only
+      // happens once via applyTemplate in the effect below, so the editor
+      // starts empty here.
       defaultValue: '',
-      // Disable the floating bold/italic bubble — we render a side panel
-      // on the right of the page instead so the controls don't overlap
-      // the text the user is selecting.
       features: {
         [Crepe.Feature.Toolbar]: false,
       },
@@ -331,62 +326,68 @@ function MarkdownEditor({
       .use(collab)
       .config((ctx) => {
         ctx.get(listenerCtx).markdownUpdated((_, md) => {
-          // Drop pre-connect events — they reflect Crepe's empty
-          // defaultValue, not user input.
-          if (!collabReady) return;
           onChangeRef.current(md);
         });
       });
-    editorRef.current = crepe.editor;
-
-    // Wire up collaboration once IndexedDB persistence has loaded any
-    // previously-saved state.
-    //
-    // CRITICAL: We must NOT use Milkdown's default `applyTemplate(md)`
-    // contract here. Its default predicate is
-    //   `yDocNode.textContent.length === 0`
-    // and on a positive match it calls `fragment.delete(0, fragment.length)`
-    // — i.e. it WIPES the Y.Doc fragment and re-seeds from `initialMarkdown`.
-    //
-    // That's a footgun on every revisit: a page whose typed content has
-    // structural-only nodes (image, empty heading, partially-typed
-    // checklist) or whose text content the predicate considers "empty"
-    // would have its live Y.Doc state silently destroyed, the deletion
-    // would be broadcast over the websocket to every peer, and the
-    // y-prosemirror cursor binding would invalidate.
-    //
-    // Fix: only seed the Y.Doc the very first time we ever connect to
-    // this fragment, and gate that on the fragment actually being empty
-    // (no children) rather than its textContent. After that, the Y.Doc
-    // is the authoritative source — connect() will populate the editor
-    // from it via ySyncPlugin.
-    void yctx.whenSynced.then(() => {
-      if (editorRef.current !== crepe.editor) return; // editor was replaced
-      crepe.editor.action((ctx) => {
-        const service = ctx.get(collabServiceCtx);
-        service.bindDoc(yctx.doc).setAwareness(yctx.awareness);
-
-        const fragment = yctx.doc.getXmlFragment('prosemirror');
-        if (fragment.length === 0) {
-          // Truly empty (first ever connect for this Y.Doc) — seed from
-          // the markdown snapshot. The custom condition makes the
-          // decision explicit instead of relying on the textContent
-          // default that wipes structural content.
-          service.applyTemplate(initialMarkdown, () => true);
-        }
-
-        service.connect();
-
-        // Now ySyncPlugin owns the editor state. Any markdownUpdated
-        // events from this point forward reflect either ySync's initial
-        // populate (which still matches what we want to persist) or
-        // genuine user edits — both safe to forward to the JSON save.
-        collabReady = true;
-      });
-    });
-
     return crepe;
   }, [pageId]);
+
+  // Once the editor is fully created AND the IndexedDB cache has loaded,
+  // bind the Y.Doc and connect the collab service. On unmount, disconnect
+  // cleanly so the awareness / cursor plugin handlers don't leak across
+  // re-mounts (which would also break cursor sync for the next visit).
+  useEffect(() => {
+    if (loading) return;
+    const editor = get();
+    if (!editor) return;
+
+    editorRef.current = editor;
+    let cancelled = false;
+
+    void yctx.whenSynced.then(() => {
+      if (cancelled || editorRef.current !== editor) return;
+      try {
+        editor.action((ctx) => {
+          const service = ctx.get(collabServiceCtx);
+          service.bindDoc(yctx.doc).setAwareness(yctx.awareness);
+
+          // Only seed the Y.Doc the very first time we ever connect to this
+          // fragment. Use an explicit fragment-length check rather than
+          // Milkdown's default `textContent.length === 0` predicate, which
+          // would wipe structural content (images, empty headings, partially-
+          // typed checklists) on every revisit.
+          const fragment = yctx.doc.getXmlFragment('prosemirror');
+          if (fragment.length === 0) {
+            service.applyTemplate(initialMarkdown, () => true);
+          }
+
+          service.connect();
+        });
+      } catch (err) {
+        // Editor was destroyed mid-await; safe to ignore.
+        if (import.meta.env.DEV) console.warn('[PageEditor] collab connect aborted:', err);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      try {
+        editor.action((ctx) => {
+          const service = ctx.get(collabServiceCtx);
+          service.disconnect();
+        });
+      } catch {
+        /* editor already destroyed */
+      }
+      if (editorRef.current === editor) editorRef.current = null;
+    };
+    // initialMarkdown is intentionally NOT in the deps: it would re-run this
+    // effect on every keystroke (each save updates page.content → re-renders
+    // PageEditorInner with a new initialMarkdown) which would tear down and
+    // re-create the collab connection mid-typing. We only need the value
+    // captured at first bind; the Y.Doc is authoritative after that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, pageId, yctx]);
 
   useEffect(() => {
     return () => { editorRef.current = null; };
