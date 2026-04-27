@@ -143,6 +143,7 @@ function buildNodes(
   highlighted: Set<string>,
   flashId?: string | null,
   chainNodeIds?: Set<string>,
+  pathNodeIds?: Set<string>,
 ): Node[] {
   return graphNodes
     .filter((n) => n.graphId === graphId)
@@ -150,6 +151,11 @@ function buildNodes(
       const classes: string[] = [];
       if (n.id === flashId) classes.push('node-flash-highlight');
       if (chainNodeIds?.has(n.id)) classes.push('node-chain-highlight');
+      // Path highlight uses the same kind of pulsing glow as the chain
+      // highlight, just in gold so the two are visually distinguishable.
+      // Suppress when the node is already part of an active chain so we
+      // don't double-stack the effects.
+      else if (pathNodeIds?.has(n.id)) classes.push('node-path-highlight');
       return {
         id: n.id,
         type: n.type,
@@ -170,6 +176,9 @@ function buildEdges(
     .filter((e) => e.graphId === graphId)
     .map((e) => {
       const isHighlighted = highlighted.has(e.id);
+      const className = isHighlighted
+        ? (chainMode ? 'chain-edge' : 'path-edge')
+        : undefined;
       return {
         id: e.id,
         source: e.sourceNodeId,
@@ -178,7 +187,7 @@ function buildEdges(
         data: { label: e.label, edgeType: e.edgeType, highlighted: isHighlighted },
         markerEnd: ARROW_MARKER,
         animated: isHighlighted,
-        className: isHighlighted && chainMode ? 'chain-edge' : undefined,
+        className,
         style: isHighlighted
           ? (chainMode ? CHAIN_HIGHLIGHT_STYLE : HIGHLIGHT_STYLE)
           : DEFAULT_EDGE_STYLE,
@@ -234,6 +243,12 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
   const undoStack = useRef<{ nodeId: string; position: { x: number; y: number } }[]>([]);
   const dragStartPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
 
+  // After we persist a drag we don't need to re-apply the freshly built
+  // memo arrays — React Flow's local state already has the new positions
+  // and replacing the whole nodes array causes a visible flicker (and
+  // resets per-node React Flow internal state).
+  const skipNextNodesSync = useRef(false);
+
   // Refs for stable callbacks
   const graphNodesRef = useRef(graphNodes);
   graphNodesRef.current = graphNodes;
@@ -259,11 +274,32 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
   }, [graphId, loadGraphData]);
 
   // Sync store → local state (only when DB data changes, NOT during drag)
+  // Derive the set of nodes that participate in the highlighted path
+  // (endpoints of every highlighted edge) so they can pick up the same
+  // pulsing glow as chain nodes.
+  const highlightedPathNodes = useMemo(() => {
+    if (highlightedPath.size === 0) return new Set<string>();
+    const ids = new Set<string>();
+    for (const e of graphEdges) {
+      if (e.graphId !== graphId) continue;
+      if (!highlightedPath.has(e.id)) continue;
+      ids.add(e.sourceNodeId);
+      ids.add(e.targetNodeId);
+    }
+    return ids;
+  }, [graphEdges, graphId, highlightedPath]);
+
   const memoNodes = useMemo(
-    () => buildNodes(graphNodes, graphId, highlightedPath, flashNodeId, highlightedChainNodes),
-    [graphNodes, graphId, highlightedPath, flashNodeId, highlightedChainNodes],
+    () => buildNodes(graphNodes, graphId, highlightedPath, flashNodeId, highlightedChainNodes, highlightedPathNodes),
+    [graphNodes, graphId, highlightedPath, flashNodeId, highlightedChainNodes, highlightedPathNodes],
   );
-  useEffect(() => { setNodes(memoNodes); }, [memoNodes]);
+  useEffect(() => {
+    if (skipNextNodesSync.current) {
+      skipNextNodesSync.current = false;
+      return;
+    }
+    setNodes(memoNodes);
+  }, [memoNodes]);
 
   const memoEdges = useMemo(
     () => buildEdges(graphEdges, graphId, highlightedPath, highlightChainMode),
@@ -319,14 +355,21 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
   const onNodeDragStop: OnNodeDrag = useCallback(
     (_event, node, draggedNodes) => {
       const all = draggedNodes.length > 0 ? draggedNodes : [node];
+      let movedAny = false;
       for (const n of all) {
         const prev = dragStartPositions.current.get(n.id);
-        if (prev) {
+        if (prev && (prev.x !== n.position.x || prev.y !== n.position.y)) {
           undoStack.current.push({ nodeId: n.id, position: prev });
+          movedAny = true;
         }
         void updateGraphNode(n.id, { position: n.position });
       }
       dragStartPositions.current.clear();
+      // The store update will produce a new graphNodes array and rebuild
+      // memoNodes — but React Flow's local state already has the correct
+      // positions, so swallow that one round-trip to avoid a visible
+      // flicker / view jump on drop.
+      if (movedAny) skipNextNodesSync.current = true;
     },
     [updateGraphNode]
   );

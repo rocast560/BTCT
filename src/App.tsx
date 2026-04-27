@@ -47,6 +47,20 @@ function AuthedApp() {
     workspaces,
   } = useAppStore();
 
+  // On initial mount, auto-collapse the right Properties sidebar when the
+  // viewport is narrow so the main editor stays readable. Runs once —
+  // after the user opens it manually we leave their preference alone.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const NARROW_BREAKPOINT = 1280;
+    if (window.innerWidth < NARROW_BREAKPOINT) {
+      const st = useAppStore.getState();
+      if (st.rightSidebarOpen) st.toggleRightSidebar();
+    }
+    // Intentionally empty deps — only run once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Wait for the shared Yjs doc to load (IndexedDB cache + initial WS sync)
   // before populating the store. Otherwise we'd flash an empty sidebar and
   // potentially seed demo data on top of someone else's workspace.

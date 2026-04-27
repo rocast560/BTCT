@@ -171,6 +171,36 @@ body {
   50%      { filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.95)) drop-shadow(0 0 22px rgba(239, 68, 68, 0.55)); }
 }
 
+/* ── Highlight Path (Dijkstra) ── */
+/* Same glow + marching-ants treatment as the attack chain highlight, in
+   gold so a manually highlighted path stays visually distinct from a
+   saved attack chain. */
+.react-flow__edge.path-edge .react-flow__edge-path,
+.react-flow__edge.animated.path-edge .react-flow__edge-path {
+  stroke: #d4a017 !important;
+  stroke-width: 3 !important;
+  stroke-dasharray: 8 4 !important;
+  animation: chain-flow 0.7s linear infinite !important;
+  filter: drop-shadow(0 0 4px rgba(212, 160, 23, 0.65));
+}
+
+.node-path-highlight {
+  filter: drop-shadow(0 0 6px rgba(212, 160, 23, 0.8)) drop-shadow(0 0 14px rgba(212, 160, 23, 0.4));
+  animation: path-node-pulse 2s ease-in-out infinite;
+}
+.node-path-highlight > *:first-child {
+  position: relative;
+  outline: 1px solid #d4a017;
+  outline-offset: 2px;
+  box-shadow:
+    inset 0 0 12px 2px rgba(212, 160, 23, 0.55),
+    inset 0 0 32px 8px rgba(212, 160, 23, 0.20);
+}
+@keyframes path-node-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(212, 160, 23, 0.8)) drop-shadow(0 0 14px rgba(212, 160, 23, 0.4)); }
+  50%      { filter: drop-shadow(0 0 10px rgba(212, 160, 23, 1)) drop-shadow(0 0 22px rgba(212, 160, 23, 0.6)); }
+}
+
 /* ── Milkdown (Crepe) editor: Obsidian-style live-preview markdown ── */
 
 .milkdown-host {
