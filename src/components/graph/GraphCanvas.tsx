@@ -845,14 +845,29 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
         <Background color="hsl(0 0% 14%)" gap={20} size={1.5} bgColor="transparent" />
         <Controls className="!bg-[hsl(var(--card))] !border-[hsl(var(--border))] !shadow-none [&>button]:!bg-[hsl(var(--card))] [&>button]:!border-[hsl(var(--border))] [&>button]:!fill-[hsl(var(--foreground))]" />
         <Panel position="top-right">
-          <button
-            type="button"
-            onClick={() => setCatBgEnabled((v) => !v)}
-            title={catBgEnabled ? 'Disable cat background' : 'Enable cat background'}
-            className="border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
-          >
-            {catBgEnabled ? 'Cat: On' : 'Cat: Off'}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                const visible = nodesRef.current;
+                if (visible.length === 0) return;
+                void fitView({ nodes: visible, padding: 0.2, duration: 400, includeHiddenNodes: false });
+              }}
+              disabled={nodes.length === 0}
+              title="Center view on node cluster"
+              className="border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-1.5 hover:bg-[hsl(var(--accent))] disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCatBgEnabled((v) => !v)}
+              title={catBgEnabled ? 'Disable cat background' : 'Enable cat background'}
+              className="border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
+            >
+              {catBgEnabled ? 'Cat: On' : 'Cat: Off'}
+            </button>
+          </div>
         </Panel>
         <Panel position="top-center">
           <NodePalette onDrop={handleDropNode} />

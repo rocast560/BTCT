@@ -320,7 +320,15 @@ export const useAppStore = create<AppState>((set, get) => {
       graphNodeRepo.getByGraph(graphId),
       graphEdgeRepo.getByGraph(graphId),
     ]);
-    set({ graphNodes: nodes, graphEdges: edges });
+    // Merge per-graph: keep nodes/edges belonging to OTHER graphs, replace
+    // the slice for this graphId. Replacing the whole array races with
+    // concurrent loadGraphData() calls for other open graph tabs (and
+    // with optimistic in-flight updates), which manifested as nodes
+    // briefly disappearing when dropping after a drag.
+    set((s) => ({
+      graphNodes: [...s.graphNodes.filter((n) => n.graphId !== graphId), ...nodes],
+      graphEdges: [...s.graphEdges.filter((e) => e.graphId !== graphId), ...edges],
+    }));
   },
 
   addGraphNode: async (graphId, type, label, position) => {
