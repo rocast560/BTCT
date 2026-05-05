@@ -44,8 +44,6 @@ function AuthedApp() {
     loadAttackChains,
     leftSidebarOpen,
     rightSidebarOpen,
-    commandPaletteOpen,
-    setCommandPaletteOpen,
     workspaces,
   } = useAppStore();
 
