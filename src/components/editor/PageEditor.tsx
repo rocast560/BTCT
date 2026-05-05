@@ -19,6 +19,7 @@ import {
   toggleHighlightCommand,
   type HighlightColor,
 } from '@/lib/highlight-plugin';
+import { setActiveMilkdownEditor } from '@/lib/active-editor';
 import { useAppStore } from '@/stores';
 import { normalizePageContent } from '@/export/markdown';
 import { getPageYContext } from '@/realtime/yjs-providers';
@@ -362,6 +363,7 @@ function MarkdownEditor({
     if (!editor) return;
 
     editorRef.current = editor;
+    setActiveMilkdownEditor(editor);
     let cancelled = false;
 
     void yctx.whenFullySynced.then(() => {
@@ -422,6 +424,11 @@ function MarkdownEditor({
         /* editor already destroyed */
       }
       if (editorRef.current === editor) editorRef.current = null;
+      // Only clear the global reference if it's still pointing to *this*
+      // editor — otherwise we'd stomp on a newer editor that registered
+      // itself between this effect cleanup and a remount.
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      setActiveMilkdownEditor(null);
     };
     // initialMarkdown is intentionally NOT in the deps: it would re-run this
     // effect on every keystroke (each save updates page.content → re-renders

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/stores';
 import { LeftSidebar } from '@/components/sidebar/LeftSidebar';
 import { RightSidebar } from '@/components/sidebar/RightSidebar';
@@ -10,6 +10,8 @@ import { useAuthStore } from '@/auth/auth-store';
 import { LoginScreen } from '@/auth/LoginScreen';
 import { getSharedDoc } from '@/realtime/shared-doc';
 import { bindSharedSubscriptions } from '@/stores/shared-bindings';
+import { getActiveMilkdownEditor, hasMilkdownSelection } from '@/lib/active-editor';
+import { callCommand } from '@milkdown/utils';
 
 export function App() {
   const authStatus = useAuthStore((s) => s.status);
@@ -96,13 +98,80 @@ function AuthedApp() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        // If the user has selected text inside the markdown editor, hijack
+        // Ctrl+K for inline-link insertion (matches Notion / VS Code-style
+        // expectations) instead of opening the command palette.
+        if (hasMilkdownSelection()) {
+          const editor = getActiveMilkdownEditor();
+          if (editor) {
+            e.preventDefault();
+            const href = window.prompt('Link URL');
+            if (href) {
+              editor.action(callCommand('ToggleLink', { href, title: '' }));
+            }
+            return;
+          }
+        }
         e.preventDefault();
-        setCommandPaletteOpen(!commandPaletteOpen);
+        const st = useAppStore.getState();
+        st.setCommandPaletteOpen(!st.commandPaletteOpen);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [commandPaletteOpen, setCommandPaletteOpen]);
+  }, []);
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Browser back/forward navigation between tabs.
+  //
+  // Each time the active tab changes by user action we push a history
+  // entry tagged with that tab id. When the user clicks the browser's
+  // back/forward arrows we read the tab id from the popstate event and
+  // reactivate it WITHOUT pushing a new entry (otherwise back would
+  // immediately undo itself).
+  // ───────────────────────────────────────────────────────────────────────
+  const lastActiveTabId = useRef<string | null>(null);
+  const isPopping = useRef(false);
+  useEffect(() => {
+    // Seed the initial entry with the current tab id so the first push
+    // doesn't lose the starting state.
+    const initial = useAppStore.getState().activeTabId;
+    lastActiveTabId.current = initial;
+    if (typeof window !== 'undefined' && window.history.state?.alysaTabId == null) {
+      window.history.replaceState(
+        { ...(window.history.state ?? {}), alysaTabId: initial },
+        '',
+      );
+    }
+
+    const onPop = (e: PopStateEvent) => {
+      const tabId = (e.state && (e.state as { alysaTabId?: string }).alysaTabId) ?? null;
+      if (!tabId) return;
+      const st = useAppStore.getState();
+      if (!st.tabs.some((t) => t.id === tabId)) return;
+      if (st.activeTabId === tabId) return;
+      isPopping.current = true;
+      st.setActiveTab(tabId);
+      // Reset the guard on the next tick after the store update flushes.
+      queueMicrotask(() => { isPopping.current = false; });
+    };
+    window.addEventListener('popstate', onPop);
+
+    const unsub = useAppStore.subscribe((s, prev) => {
+      if (s.activeTabId === prev.activeTabId) return;
+      const next = s.activeTabId;
+      if (next === lastActiveTabId.current) return;
+      lastActiveTabId.current = next;
+      if (isPopping.current) return;
+      if (!next) return;
+      window.history.pushState({ alysaTabId: next }, '');
+    });
+
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      unsub();
+    };
+  }, []);
 
   // Tab navigation: Left/Right arrows cycle tabs in active pane, Alt+W closes active tab.
   // Skip when user is typing in an input/textarea/contenteditable.

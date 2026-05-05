@@ -31,7 +31,10 @@ export const highlightMark = $mark('highlight', () => ({
   attrs: {
     color: { default: 'yellow' as HighlightColor, validate: 'string' },
   },
-  inclusive: true,
+  // Non-inclusive so typing immediately after a highlighted run does NOT
+  // extend the mark onto the new characters. The user explicitly applies
+  // a colour to a selected range; subsequent typing should be plain.
+  inclusive: false,
   parseDOM: [
     {
       tag: 'mark[data-hl-color]',
