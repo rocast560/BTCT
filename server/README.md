@@ -1,6 +1,6 @@
-# Alysa Collab Server
+# BTCT Collab Server
 
-Auth + Yjs websocket server for the WebNoteApp.
+Auth + Yjs websocket server for Been There, Conquered That.
 
 ## Run
 

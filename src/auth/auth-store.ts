@@ -27,8 +27,8 @@ export const WS_URL =
   (import.meta.env.VITE_WS_URL as string | undefined)?.replace(/\/$/, '') ||
   defaultWsUrl();
 
-const TOKEN_KEY = 'alysa.auth.token';
-const USER_KEY = 'alysa.auth.user';
+const TOKEN_KEY = 'btct.auth.token';
+const USER_KEY = 'btct.auth.user';
 
 export interface AuthUser {
   id: number;

@@ -41,7 +41,7 @@ export function LoginScreen() {
         onSubmit={submit}
         className="w-full max-w-sm rounded-lg border border-white/10 bg-black/30 p-6 shadow-xl"
       >
-        <h1 className="mb-1 text-xl font-semibold">SYNote</h1>
+        <h1 className="mb-1 text-xl font-semibold">Been There, Conquered That</h1>
         <p className="mb-5 text-sm text-white/60">Sign in to your workspace</p>
 
         <label className="mb-3 block text-sm">

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "alysa-server",
+      "name": "btct-server",
       "dependencies": {
         "lib0": "^0.2.99",
         "ws": "^8.18.0",

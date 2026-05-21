@@ -135,15 +135,15 @@ function AuthedApp() {
     // doesn't lose the starting state.
     const initial = useAppStore.getState().activeTabId;
     lastActiveTabId.current = initial;
-    if (typeof window !== 'undefined' && window.history.state?.alysaTabId == null) {
+    if (typeof window !== 'undefined' && window.history.state?.btctTabId == null) {
       window.history.replaceState(
-        { ...(window.history.state ?? {}), alysaTabId: initial },
+        { ...(window.history.state ?? {}), btctTabId: initial },
         '',
       );
     }
 
     const onPop = (e: PopStateEvent) => {
-      const tabId = (e.state && (e.state as { alysaTabId?: string }).alysaTabId) ?? null;
+      const tabId = (e.state && (e.state as { btctTabId?: string }).btctTabId) ?? null;
       if (!tabId) return;
       const st = useAppStore.getState();
       if (!st.tabs.some((t) => t.id === tabId)) return;
@@ -162,7 +162,7 @@ function AuthedApp() {
       lastActiveTabId.current = next;
       if (isPopping.current) return;
       if (!next) return;
-      window.history.pushState({ alysaTabId: next }, '');
+      window.history.pushState({ btctTabId: next }, '');
     });
 
     return () => {

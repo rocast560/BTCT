@@ -28,7 +28,7 @@
  *
  * Networking:
  *   - WebsocketProvider connects to the Bun collab server, room name
- *     "alysa-shared". Auth token is sent as a query param so the server
+ *     "btct-shared". Auth token is sent as a query param so the server
  *     can reject unauthenticated clients.
  *   - IndexedDB persistence keeps a local cache so the UI can render
  *     instantly while the WS catches up.
@@ -51,7 +51,7 @@ export const TABLE_NAMES = [
 ] as const;
 export type TableName = (typeof TABLE_NAMES)[number];
 
-const SHARED_ROOM = 'alysa-shared';
+const SHARED_ROOM = 'btct-shared';
 
 export interface SharedDocContext {
   doc: Y.Doc;
@@ -69,7 +69,7 @@ export function getSharedDoc(): SharedDocContext {
   if (ctx) return ctx;
 
   const doc = new Y.Doc();
-  const persistence = new IndexeddbPersistence(`alysa-${SHARED_ROOM}`, doc);
+  const persistence = new IndexeddbPersistence(`btct-${SHARED_ROOM}`, doc);
 
   const tables = {} as Record<TableName, Y.Map<unknown>>;
   for (const name of TABLE_NAMES) {

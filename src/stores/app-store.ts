@@ -9,7 +9,7 @@ import { createLeaf, findLeafContainingTab, firstLeaf, addTabToPane, removeTab a
 // across page refreshes so the user lands back on the page they left off.
 // Stored as a single JSON blob in localStorage.
 // ─────────────────────────────────────────────────────────────────────────
-const UI_PERSIST_KEY = 'alysa.ui.v1';
+const UI_PERSIST_KEY = 'btct.ui.v1';
 
 interface PersistedUi {
   activeWorkspaceId: ID | null;

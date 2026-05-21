@@ -1,8 +1,8 @@
 services:
-  alysa:
+  btct:
     build: .
-    image: alysa:latest
-    container_name: alysa
+    image: btct:latest
+    container_name: btct
     restart: unless-stopped
     ports:
       # Host:container. Change the left side to whatever port you want
@@ -18,7 +18,7 @@ services:
       # Leave ALLOWED_ORIGIN unset for same-origin deployment (recommended).
       # Set it only if the API will be accessed from a different origin.
     volumes:
-      - alysa-data:/data
+      - btct-data:/data
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
@@ -26,4 +26,4 @@ services:
       retries: 3
 
 volumes:
-  alysa-data:
+  btct-data:

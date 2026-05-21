@@ -432,10 +432,10 @@ body {
   vertical-align: text-bottom;
   pointer-events: none;
   /* Subtle blink to mimic a native caret. */
-  animation: alysa-yjs-caret-blink 1.1s steps(2, start) infinite;
+  animation: btct-yjs-caret-blink 1.1s steps(2, start) infinite;
 }
 
-@keyframes alysa-yjs-caret-blink {
+@keyframes btct-yjs-caret-blink {
   to { border-left-color: transparent; }
 }
 

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "webnoteapp",
+      "name": "btct",
       "dependencies": {
         "@dagrejs/dagre": "^3.0.0",
         "@mantine/core": "^9.0.2",

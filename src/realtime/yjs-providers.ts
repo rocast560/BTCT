@@ -55,7 +55,7 @@ export function getPageYContext(pageId: string): PageYContext {
   }
 
   const doc = new Y.Doc();
-  const persistence = new IndexeddbPersistence(`alysa-page-${pageId}`, doc);
+  const persistence = new IndexeddbPersistence(`btct-page-${pageId}`, doc);
 
   const token = useAuthStore.getState().token ?? '';
   const provider = new WebsocketProvider(`${WS_URL}/yjs`, pageId, doc, {

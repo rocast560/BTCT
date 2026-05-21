@@ -49,7 +49,7 @@ function ensureBootstrapAdmin() {
     // Account exists but isn't admin — promote it rather than failing.
     setUserAdmin(existing.id, true);
     console.warn(
-      `[alysa-server] promoted existing user '${DEFAULT_ADMIN_USERNAME}' to admin`,
+      `[btct-server] promoted existing user '${DEFAULT_ADMIN_USERNAME}' to admin`,
     );
     return;
   }
@@ -62,7 +62,7 @@ function ensureBootstrapAdmin() {
     isAdmin: true,
   });
   console.warn(
-    `[alysa-server] created bootstrap admin '${DEFAULT_ADMIN_USERNAME}' / '${DEFAULT_ADMIN_PASSWORD}' — change this password immediately`,
+    `[btct-server] created bootstrap admin '${DEFAULT_ADMIN_USERNAME}' / '${DEFAULT_ADMIN_PASSWORD}' — change this password immediately`,
   );
 }
 ensureBootstrapAdmin();
@@ -376,7 +376,7 @@ wss.on('connection', (ws, req) => {
 });
 
 httpServer.listen(PORT, HOST, () => {
-  console.log(`[alysa-server] HTTP/WS listening on http://${HOST}:${PORT}`);
-  if (STATIC_DIR) console.log(`[alysa-server] serving static client from ${STATIC_DIR}`);
-  console.log(`[alysa-server] CORS allowed origin: ${ALLOWED_ORIGIN || '(same-origin only)'}`);
+  console.log(`[btct-server] HTTP/WS listening on http://${HOST}:${PORT}`);
+  if (STATIC_DIR) console.log(`[btct-server] serving static client from ${STATIC_DIR}`);
+  console.log(`[btct-server] CORS allowed origin: ${ALLOWED_ORIGIN || '(same-origin only)'}`);
 });

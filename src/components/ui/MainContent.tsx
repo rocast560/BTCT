@@ -13,7 +13,7 @@ export function MainContent() {
     return (
       <div className="flex flex-1 items-center justify-center">
         <div className="text-center">
-          <h2 className="text-lg font-medium text-[hsl(var(--foreground))]">SYNote</h2>
+          <h2 className="text-lg font-medium text-[hsl(var(--foreground))]">Been There, Conquered That</h2>
           <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
             Open a page or attack narrative from the sidebar, or press <kbd className="rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 text-xs">Ctrl+K</kbd> for the command palette.
           </p>

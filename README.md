@@ -1,4 +1,4 @@
-# SYNote
+# Been There, Conquered That (BTCT)
 
 A LAN-hosted, multi-user, real-time collaborative note-taking and attack-path
 graphing app for penetration testing engagements. Notion-style pages, an
@@ -9,7 +9,7 @@ every machine on the LAN.
 
 ## How it works
 
-SYNote is two cooperating processes packaged into one Docker image:
+BTCT is two cooperating processes packaged into one Docker image:
 
 1. **Bun HTTP/WebSocket server** (`server/`)
    - Serves a REST API for auth (`/api/login`, `/api/me`, admin routes).
@@ -23,7 +23,7 @@ SYNote is two cooperating processes packaged into one Docker image:
 2. **Vite/React client** (`src/`)
    - Loads, authenticates against `/api/login`, then opens a WebSocket
      connection to `/yjs/...` for live collaboration.
-   - Maintains **one shared Yjs doc** (`alysa-shared`) holding workspaces,
+   - Maintains **one shared Yjs doc** (`btct-shared`) holding workspaces,
      pages, graphs, nodes, edges, attack chains, change logs, and nmap
      scans + machines. Every collaboratively-edited text field
      (page title, slug, node label, etc.) is a `Y.Text` keyed
@@ -63,8 +63,8 @@ Auth and admin actions go through normal REST.
 - **Docker** + **docker compose** (multi-stage `Dockerfile`)
 - Single image serves API + WebSocket + static client on one port
 - Persistent SQLite volume at `/data`
-- `Publish-Synote.ps1` (Windows) → tags + pushes to GitHub
-- `update-synote` (Linux) → fetches the tag, rebuilds the container
+- `Publish-BTCT.ps1` (Windows) → tags + pushes to GitHub
+- `update-btct` (Linux) → fetches the tag, rebuilds the container
 
 ---
 
@@ -94,7 +94,7 @@ server/
   db.mjs              bun:sqlite user table
 Dockerfile            Multi-stage build (client → server-deps → runtime)
 docker-compose.yml    Single-container deployment
-Publish-Synote.ps1    Windows release script
+Publish-BTCT.ps1      Windows release script
 ```
 
 ---
@@ -110,8 +110,8 @@ This is the simplest path: one container, one command, persistent data.
 
 ### 1. Clone the repo
 ```powershell
-git clone https://github.com/<you>/AlysaFramework.git
-cd AlysaFramework
+git clone https://github.com/<you>/BeenThereConqueredThat.git
+cd BeenThereConqueredThat
 ```
 
 ### 2. Create your `.env`
@@ -150,10 +150,10 @@ docker compose down -v            # stop AND wipe the SQLite volume
 docker compose up -d --build      # apply code changes
 ```
 
-The SQLite database lives in the named Docker volume `alysa-data` and
+The SQLite database lives in the named Docker volume `btct-data` and
 survives container rebuilds. Inspect it with:
 ```powershell
-docker run --rm -it -v alysaframework_alysa-data:/data alpine ls -la /data
+docker run --rm -it -v beenthereconqueredthat_btct-data:/data alpine ls -la /data
 ```
 
 ### 6. (Optional) LAN access from teammates
@@ -183,23 +183,29 @@ Then open http://127.0.0.1:5173.
 
 ## Push a release to GitHub (Windows)
 
-The `Publish-Synote.ps1` script handles staging, committing, pushing, and
-tagging in one go.
+The `Publish-BTCT.ps1` script handles staging, committing, pushing, and
+tagging in one go. By default it bumps the patch version of the latest
+existing `vMAJOR.MINOR.PATCH` tag automatically — pass `-Tag` only when
+you want to override (e.g. cut a minor/major bump).
 
 ```powershell
-.\Publish-Synote.ps1 -Tag v0.3.5 -Message "Add foo and fix bar"
+# Auto-bump patch from the latest tag (most common case)
+.\Publish-BTCT.ps1 -Message "Add foo and fix bar"
+
+# Explicit override for a minor or major bump
+.\Publish-BTCT.ps1 -Message "Big rewrite" -Tag v0.4.0
 ```
 
 What it does:
-1. Validates the tag matches `vMAJOR.MINOR.PATCH`.
-2. `git add -A` and commits the staged changes (skips if nothing to stage).
-3. `git push origin main`.
-4. `git tag -fa <tag>` and `git push origin <tag> --force` (so re-publishing
+1. `git fetch --tags` so the bump is based on the real latest tag.
+2. If `-Tag` was not supplied, finds the highest `vMAJOR.MINOR.PATCH` tag
+   and bumps patch by 1 (or starts at `v0.1.0` if there are none).
+3. Validates the resulting tag matches `vMAJOR.MINOR.PATCH`.
+4. `git add -A` and commits the staged changes (skips if nothing to stage).
+5. `git push origin main`.
+6. `git tag -fa <tag>` and `git push origin <tag> --force` (so re-publishing
    the same version overwrites the old tag).
-5. Prints the matching `update-synote <tag>` command for the Linux host.
-
-> Bump the tag every release (e.g. `v0.3.5` → `v0.3.6`). The Linux side
-> uses the tag to know what to deploy.
+7. Prints the matching `update-btct <tag>` command for the Linux host.
 
 ---
 
@@ -219,13 +225,13 @@ sudo apt install -y docker.io docker-compose-plugin git curl
 sudo systemctl enable --now docker
 sudo usermod -aG docker $USER   # log out/in to take effect
 
-# Clone the repo to /opt/synote
-sudo mkdir -p /opt/synote
-sudo chown $USER:$USER /opt/synote
-git clone https://github.com/<you>/AlysaFramework.git /opt/synote
-cd /opt/synote
+# Clone the repo to /opt/btct
+sudo mkdir -p /opt/btct
+sudo chown $USER:$USER /opt/btct
+git clone https://github.com/<you>/BeenThereConqueredThat.git /opt/btct
+cd /opt/btct
 
-# Create /opt/synote/.env with a real AUTH_SECRET
+# Create /opt/btct/.env with a real AUTH_SECRET
 echo "AUTH_SECRET=$(openssl rand -hex 32)" | sudo tee .env > /dev/null
 sudo chmod 600 .env
 
@@ -243,65 +249,67 @@ sudo docker compose ps
 
 Then put nginx/Caddy in front and point `:443` at `127.0.0.1:8080`.
 
-### Install the `update-synote` helper
+### Install the `update-btct` helper
 This one-liner script automates "fetch tag → rebuild container → wait
 for healthz" so updates are a single command.
 
 ```bash
-sudo tee /usr/local/bin/update-synote >/dev/null <<'EOF'
+sudo tee /usr/local/bin/update-btct >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-APP_DIR="${APP_DIR:-/opt/synote}"
+APP_DIR="${APP_DIR:-/opt/btct}"
 TAG="${1:-v0.1.0}"
 
 cd "$APP_DIR"
-echo "[update-synote] fetching tags…"
+echo "[update-btct] fetching tags…"
 git fetch --tags --force --prune
-echo "[update-synote] checking out $TAG"
+echo "[update-btct] checking out $TAG"
 git checkout -f "$TAG"
 git reset --hard "$TAG"
 
-echo "[update-synote] rebuilding container…"
+echo "[update-btct] rebuilding container…"
 sudo docker compose down
 sudo docker compose up -d --build
 sudo docker image prune -f >/dev/null
 
-echo "[update-synote] waiting for healthz…"
+echo "[update-btct] waiting for healthz…"
 for i in {1..20}; do
   if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then
-    echo "[update-synote] healthy ✔  ($(curl -s http://127.0.0.1:8080/healthz))"
+    echo "[update-btct] healthy ✔  ($(curl -s http://127.0.0.1:8080/healthz))"
     sudo docker compose ps
     exit 0
   fi
   sleep 1
 done
-echo "[update-synote] healthz never came up; recent logs:" >&2
+echo "[update-btct] healthz never came up; recent logs:" >&2
 sudo docker compose logs --tail=80
 exit 1
 EOF
-sudo chmod +x /usr/local/bin/update-synote
+sudo chmod +x /usr/local/bin/update-btct
 ```
 
 ### Update flow (every release)
 
 On Windows:
 ```powershell
-.\Publish-Synote.ps1 -Tag v0.3.6 -Message "Whatever changed"
+.\Publish-BTCT.ps1 -Message "Whatever changed"
+# → "[Publish-BTCT] bumping v0.3.5 -> v0.3.6"
+# → "[Publish-BTCT] released v0.3.6"
 ```
 
-On Linux:
+On Linux (use whichever tag the publish step printed):
 ```bash
-update-synote v0.3.6
+update-btct v0.3.6
 ```
 
 The script pulls the new tag, rebuilds the image (with layer cache reuse),
 drops the old container, brings up the new one, and waits for `/healthz`
 to confirm it's serving. SQLite data is untouched — it lives in the
-`alysa-data` volume, not in the image.
+`btct-data` volume, not in the image.
 
 ### Manual rollback
 ```bash
-update-synote v0.3.5     # just point at the previous tag
+update-btct v0.3.5     # just point at the previous tag
 ```
 
 ---
