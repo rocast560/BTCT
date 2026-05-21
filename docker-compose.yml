@@ -15,6 +15,10 @@ services:
       PORT: "8080"
       STATIC_DIR: "/app/dist"
       DB_PATH: "/data/data.sqlite"
+      # Persist Yjs rooms (notes/pages/graphs/etc.) to disk via LevelDB so
+      # they survive server restarts and image rebuilds. Lives on the same
+      # named volume as the SQLite users DB.
+      YPERSISTENCE: "/data/yjs"
       # Leave ALLOWED_ORIGIN unset for same-origin deployment (recommended).
       # Set it only if the API will be accessed from a different origin.
     volumes:

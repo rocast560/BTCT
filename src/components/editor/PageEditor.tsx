@@ -23,6 +23,7 @@ import { setActiveMilkdownEditor } from '@/lib/active-editor';
 import { useAppStore } from '@/stores';
 import { normalizePageContent } from '@/export/markdown';
 import { getPageYContext } from '@/realtime/yjs-providers';
+import { scheduleAutoSnapshot } from '@/realtime/page-snapshots';
 import { textKey } from '@/realtime/shared-doc';
 import { useYTextInput } from '@/realtime/use-y-text';
 import { graphNodeRepo } from '@/db/graph-node-repo';
@@ -280,6 +281,9 @@ function PageEditorInner({ page, linkedNode }: {
             onChange={(md) => {
               latestMarkdown.current = md;
               queueSave();
+              // Reset the page-body snapshot debouncer; fires ~2min after
+              // the last keystroke so we don't snapshot mid-typing.
+              if (page.workspaceId) scheduleAutoSnapshot(page.id, page.workspaceId);
             }}
           />
         </MilkdownProvider>

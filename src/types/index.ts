@@ -164,8 +164,8 @@ export type PaneNode = LeafPane | SplitPane;
 export type DropPosition = 'center' | 'left' | 'right' | 'top' | 'bottom';
 
 // ---- Change Log ----
-export type ChangeAction = 'create' | 'update' | 'delete';
-export type ChangeTarget = 'page' | 'graph' | 'node' | 'edge';
+export type ChangeAction = 'create' | 'update' | 'delete' | 'restore';
+export type ChangeTarget = 'page' | 'graph' | 'node' | 'edge' | 'attackChain' | 'workspace';
 
 export interface ChangeLogEntry {
   id: ID;
@@ -175,6 +175,37 @@ export interface ChangeLogEntry {
   targetId: ID;
   summary: string;
   timestamp: number;
+  // Author attribution. Optional for backward-compat with logs written
+  // before the history feature landed.
+  userId?: number | null;
+  userName?: string | null;
+  userColor?: string | null;
+  // Field-level delta. Set for `update` entries on a single field, OR
+  // for `delete` entries where prevValue is the full entity JSON.
+  // Strings are JSON.stringify-encoded so any value shape can roundtrip.
+  field?: string | null;
+  prevValue?: string | null;
+  newValue?: string | null;
+  // Reversible entries get a Restore button in the UI. true when we have
+  // enough state captured (prevValue for update, full entity JSON for
+  // delete) to put the entity back.
+  reversible?: boolean;
+}
+
+// Page-body snapshot — Yjs encodeStateAsUpdate bytes of a per-page Y.Doc
+// captured at a point in time. Stored in the shared doc so every client
+// can browse + restore. Bytes are base64 to fit cleanly in JSON.
+export interface PageSnapshot {
+  id: ID;
+  pageId: ID;
+  workspaceId: ID;
+  timestamp: number;
+  userId?: number | null;
+  userName?: string | null;
+  userColor?: string | null;
+  label?: string | null;       // human label when user explicitly named the version
+  updateBase64: string;        // Y.encodeStateAsUpdate(pageDoc) -> base64
+  byteLength: number;          // for UI display
 }
 
 // ---- Nmap Scan ----

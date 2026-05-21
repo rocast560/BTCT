@@ -46,6 +46,7 @@ export const TABLE_NAMES = [
   'graphEdges',
   'attackChains',
   'changeLogs',
+  'pageSnapshots',
   'nmapScans',
   'nmapMachines',
 ] as const;

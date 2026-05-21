@@ -4,6 +4,8 @@ import { NodeProperties } from '@/components/graph/NodeProperties';
 import { EdgeProperties } from '@/components/graph/EdgeProperties';
 import { BacklinksPanel } from '@/components/sidebar/BacklinksPanel';
 import { ChangeLogPanel } from '@/components/sidebar/ChangeLogPanel';
+import { PageHistoryPanel } from '@/components/sidebar/PageHistoryPanel';
+import { LastEditedBadge } from '@/components/sidebar/LastEditedBadge';
 import { ExportDialog } from '@/components/ui/ExportDialog';
 import { PanelRightClose, AlertTriangle } from 'lucide-react';
 
@@ -37,10 +39,26 @@ export function RightSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
-        {selectedNodeId && <NodeProperties nodeId={selectedNodeId} />}
-        {selectedEdgeId && !selectedNodeId && <EdgeProperties edgeId={selectedEdgeId} />}
+        {selectedNodeId && (
+          <>
+            <NodeProperties nodeId={selectedNodeId} />
+            <div className="mt-2"><LastEditedBadge target="node" targetId={selectedNodeId} /></div>
+          </>
+        )}
+        {selectedEdgeId && !selectedNodeId && (
+          <>
+            <EdgeProperties edgeId={selectedEdgeId} />
+            <div className="mt-2"><LastEditedBadge target="edge" targetId={selectedEdgeId} /></div>
+          </>
+        )}
         {!selectedNodeId && !selectedEdgeId && activeTab?.kind === 'page' && (
-          <BacklinksPanel pageId={activeTab.entityId} />
+          <>
+            <BacklinksPanel pageId={activeTab.entityId} />
+            <div className="mt-2"><LastEditedBadge target="page" targetId={activeTab.entityId} /></div>
+            <div className="mt-4 border-t border-[hsl(var(--border))] pt-3">
+              <PageHistoryPanel pageId={activeTab.entityId} />
+            </div>
+          </>
         )}
         {!selectedNodeId && !selectedEdgeId && !activeTab && (
           <p className="text-sm text-[hsl(var(--muted-foreground))]">Select a node, edge, or open a page to see properties.</p>

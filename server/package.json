@@ -10,6 +10,7 @@
   "dependencies": {
     "lib0": "^0.2.99",
     "ws": "^8.18.0",
+    "y-leveldb": "^0.1.2",
     "y-protocols": "^1.0.7",
     "y-websocket": "^2.1.0",
     "yjs": "^13.6.30"

@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain } from '@/types';
 import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo } from '@/db';
+import type { LogAuthor, LogDelta } from '@/db/changelog-repo';
 import { db } from '@/db/database';
+import { useAuthStore } from '@/auth/auth-store';
 import { createLeaf, findLeafContainingTab, firstLeaf, addTabToPane, removeTab as removeTabFromLayout, collapse, moveTab, removeTabsWhere, setActiveInPane, updateRatio } from '@/lib/pane-layout';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -120,6 +122,14 @@ interface AppState {
   // Change log
   changeLogs: ChangeLogEntry[];
   loadChangeLogs: () => Promise<void>;
+  /**
+   * Re-apply the prevValue of an `update` log entry, or recreate the
+   * entity from the captured snapshot of a `delete` entry. Returns true
+   * if the restore was applied; false if the entry is not reversible
+   * or its target is no longer addressable. Always records a new
+   * `restore` action entry for audit.
+   */
+  restoreFromLog: (entryId: ID) => Promise<boolean>;
 
   // Nmap scans
   nmapScans: NmapScan[];
@@ -157,13 +167,31 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => {
-  const log = (action: ChangeLogEntry['action'], target: ChangeLogEntry['target'], targetId: string, summary: string) => {
+  const currentAuthor = (): LogAuthor => {
+    const u = useAuthStore.getState().user;
+    if (!u) return { userId: null, userName: null, userColor: null };
+    return { userId: u.id, userName: u.username, userColor: u.color };
+  };
+  const log = (
+    action: ChangeLogEntry['action'],
+    target: ChangeLogEntry['target'],
+    targetId: string,
+    summary: string,
+    delta: LogDelta = {},
+  ) => {
     const wsId = get().activeWorkspaceId;
     if (!wsId) return;
-    void changeLogRepo.add(wsId, action, target, targetId, summary).then((entry) => {
-      set((s) => ({ changeLogs: [entry, ...s.changeLogs].slice(0, 100) }));
+    void changeLogRepo.add(wsId, action, target, targetId, summary, currentAuthor(), delta).then((entry) => {
+      set((s) => ({ changeLogs: [entry, ...s.changeLogs].slice(0, 200) }));
     });
   };
+  // Stringify any JSON-serialisable value so prev/new round-trip safely
+  // through the log entry. Returns null for nullish so the DB column
+  // stays sparse rather than holding the string "null".
+  const encodeValue = (v: unknown): string | null =>
+    v === null || v === undefined ? null : JSON.stringify(v);
+  const decodeValue = <T = unknown>(s: string | null | undefined): T | null =>
+    s == null ? null : (JSON.parse(s) as T);
 
   return ({
   // Workspace
@@ -249,12 +277,24 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   updatePage: async (id, data) => {
+    const prev = get().pages.find((p) => p.id === id);
     await pageRepo.update(id, data);
     set((s) => ({
       pages: s.pages.map((p) => (p.id === id ? { ...p, ...data, updatedAt: Date.now() } : p)),
     }));
-    if (data.title) log('update', 'page', id, `Renamed page to "${data.title}"`);
-    else if (data.content) log('update', 'page', id, 'Updated page content');
+    if (data.title && prev && prev.title !== data.title) {
+      log('update', 'page', id, `Renamed page "${prev.title}" → "${data.title}"`, {
+        field: 'title',
+        prevValue: encodeValue(prev.title),
+        newValue: encodeValue(data.title),
+        reversible: true,
+      });
+    } else if (data.content) {
+      // Page bodies are persisted via Yjs per-page docs; per-keystroke
+      // change-log entries would be noisy. Page snapshots (see Page
+      // History panel) provide rollback for body content instead.
+      log('update', 'page', id, 'Updated page content');
+    }
   },
 
   deletePage: async (id) => {
@@ -268,7 +308,10 @@ export const useAppStore = create<AppState>((set, get) => {
         return !!tab && tab.kind === 'page' && tab.entityId === id;
       })),
     }));
-    log('delete', 'page', id, `Deleted page "${page?.title ?? id}"`);
+    log('delete', 'page', id, `Deleted page "${page?.title ?? id}"`, {
+      prevValue: encodeValue(page),
+      reversible: !!page,
+    });
   },
 
   // Graphs
@@ -291,11 +334,19 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   updateGraph: async (id, data) => {
+    const prev = get().graphs.find((g) => g.id === id);
     await graphRepo.update(id, data);
     set((s) => ({
       graphs: s.graphs.map((g) => (g.id === id ? { ...g, ...data, updatedAt: Date.now() } : g)),
     }));
-    if (data.name) log('update', 'graph', id, `Renamed narrative to "${data.name}"`);
+    if (data.name && prev && prev.name !== data.name) {
+      log('update', 'graph', id, `Renamed narrative "${prev.name}" → "${data.name}"`, {
+        field: 'name',
+        prevValue: encodeValue(prev.name),
+        newValue: encodeValue(data.name),
+        reversible: true,
+      });
+    }
   },
 
   deleteGraph: async (id) => {
@@ -347,11 +398,19 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   updateGraphNode: async (id, data) => {
+    const prev = get().graphNodes.find((n) => n.id === id);
     await graphNodeRepo.update(id, data);
     set((s) => ({
       graphNodes: s.graphNodes.map((n) => (n.id === id ? { ...n, ...data, updatedAt: Date.now() } : n)),
     }));
-    if (data.label) log('update', 'node', id, `Renamed node to "${data.label}"`);
+    if (data.label && prev && prev.label !== data.label) {
+      log('update', 'node', id, `Renamed node "${prev.label}" → "${data.label}"`, {
+        field: 'label',
+        prevValue: encodeValue(prev.label),
+        newValue: encodeValue(data.label),
+        reversible: true,
+      });
+    }
     // If host node hostname changed, sync to linked nmap machine
     if (data.data && 'hostname' in data.data) {
       const newHostname = (data.data as import('@/types').HostData).hostname;
@@ -383,7 +442,10 @@ export const useAppStore = create<AppState>((set, get) => {
       attackChains: s.attackChains.map((c) => c.nodeIds.includes(id) ? { ...c, nodeIds: c.nodeIds.filter((nid) => nid !== id), updatedAt: Date.now() } : c),
       selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
     }));
-    log('delete', 'node', id, `Deleted node "${node?.label ?? id}"`);
+    log('delete', 'node', id, `Deleted node "${node?.label ?? id}"`, {
+      prevValue: encodeValue(node),
+      reversible: !!node,
+    });
   },
 
   // Graph edges
@@ -397,20 +459,32 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   updateGraphEdge: async (id, data) => {
+    const prev = get().graphEdges.find((e) => e.id === id);
     await graphEdgeRepo.update(id, data);
     set((s) => ({
       graphEdges: s.graphEdges.map((e) => (e.id === id ? { ...e, ...data, updatedAt: Date.now() } : e)),
     }));
-    if (data.label !== undefined) log('update', 'edge', id, `Updated edge label to "${data.label}"`);
+    if (data.label !== undefined && prev && prev.label !== data.label) {
+      log('update', 'edge', id, `Edge label "${prev.label ?? ''}" → "${data.label}"`, {
+        field: 'label',
+        prevValue: encodeValue(prev.label),
+        newValue: encodeValue(data.label),
+        reversible: true,
+      });
+    }
   },
 
   deleteGraphEdge: async (id) => {
+    const edge = get().graphEdges.find((e) => e.id === id);
     await graphEdgeRepo.remove(id);
     set((s) => ({
       graphEdges: s.graphEdges.filter((e) => e.id !== id),
       selectedEdgeId: s.selectedEdgeId === id ? null : s.selectedEdgeId,
     }));
-    log('delete', 'edge', id, 'Deleted edge');
+    log('delete', 'edge', id, 'Deleted edge', {
+      prevValue: encodeValue(edge),
+      reversible: !!edge,
+    });
   },
 
   // Tabs & Panes
@@ -568,6 +642,90 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!wsId) return;
     const logs = await changeLogRepo.getByWorkspace(wsId);
     set({ changeLogs: logs });
+  },
+
+  restoreFromLog: async (entryId: ID) => {
+    const entry = get().changeLogs.find((e) => e.id === entryId);
+    if (!entry || !entry.reversible) return false;
+
+    if (entry.action === 'update' && entry.field) {
+      const value = decodeValue<unknown>(entry.prevValue);
+      switch (entry.target) {
+        case 'page':
+          await get().updatePage(entry.targetId, { [entry.field]: value } as Partial<Page>);
+          break;
+        case 'graph':
+          await get().updateGraph(entry.targetId, { [entry.field]: value } as Partial<Pick<Graph, 'name'>>);
+          break;
+        case 'node':
+          await get().updateGraphNode(entry.targetId, { [entry.field]: value } as Partial<GraphNode>);
+          break;
+        case 'edge':
+          await get().updateGraphEdge(entry.targetId, { [entry.field]: value } as Partial<GraphEdge>);
+          break;
+        case 'attackChain':
+          await get().updateAttackChain(entry.targetId, { [entry.field]: value } as Partial<Pick<AttackChain, 'name' | 'nodeIds'>>);
+          break;
+        default:
+          return false;
+      }
+      log('restore', entry.target, entry.targetId,
+          `Restored ${entry.field} to previous value`);
+      return true;
+    }
+
+    if (entry.action === 'delete') {
+      const prev = decodeValue<Record<string, unknown>>(entry.prevValue);
+      if (!prev || typeof prev !== 'object') return false;
+      try {
+        // Recreate via the same Y.Map the original entity lived in. We
+        // reuse the original id so any references (graph nodes pointing
+        // at this page, attack chains referencing this node, etc.) keep
+        // resolving. Cast via `unknown` because the stored JSON is opaque
+        // to the type system but the runtime shape matches the entity.
+        switch (entry.target) {
+          case 'page': {
+            const rec = prev as unknown as Page;
+            await db.pages.add(rec);
+            set((s) => ({ pages: [...s.pages.filter((p) => p.id !== entry.targetId), rec] }));
+            break;
+          }
+          case 'graph': {
+            const rec = prev as unknown as Graph;
+            await db.graphs.add(rec);
+            set((s) => ({ graphs: [...s.graphs.filter((g) => g.id !== entry.targetId), rec] }));
+            break;
+          }
+          case 'node': {
+            const rec = prev as unknown as GraphNode;
+            await db.graphNodes.add(rec);
+            set((s) => ({ graphNodes: [...s.graphNodes.filter((n) => n.id !== entry.targetId), rec] }));
+            break;
+          }
+          case 'edge': {
+            const rec = prev as unknown as GraphEdge;
+            await db.graphEdges.add(rec);
+            set((s) => ({ graphEdges: [...s.graphEdges.filter((e) => e.id !== entry.targetId), rec] }));
+            break;
+          }
+          case 'attackChain': {
+            const rec = prev as unknown as AttackChain;
+            await db.attackChains.add(rec);
+            set((s) => ({ attackChains: [...s.attackChains.filter((c) => c.id !== entry.targetId), rec] }));
+            break;
+          }
+          default:
+            return false;
+        }
+        log('restore', entry.target, entry.targetId,
+            `Restored deleted ${entry.target} "${(prev['name'] ?? prev['title'] ?? prev['label'] ?? entry.targetId) as string}"`);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    return false;
   },
 
   // Nmap scans
@@ -782,17 +940,28 @@ export const useAppStore = create<AppState>((set, get) => {
     return chain;
   },
   updateAttackChain: async (id, data) => {
+    const prev = get().attackChains.find((c) => c.id === id);
     await attackChainRepo.update(id, data);
     set((s) => ({
       attackChains: s.attackChains.map((c) => c.id === id ? { ...c, ...data, updatedAt: Date.now() } : c),
     }));
-    if (data.name) log('update', 'graph', id, `Renamed attack chain to "${data.name}"`);
+    if (data.name && prev && prev.name !== data.name) {
+      log('update', 'attackChain', id, `Renamed attack chain "${prev.name}" → "${data.name}"`, {
+        field: 'name',
+        prevValue: encodeValue(prev.name),
+        newValue: encodeValue(data.name),
+        reversible: true,
+      });
+    }
   },
   deleteAttackChain: async (id) => {
     const chain = get().attackChains.find((c) => c.id === id);
     await attackChainRepo.remove(id);
     set((s) => ({ attackChains: s.attackChains.filter((c) => c.id !== id) }));
-    log('delete', 'graph', id, `Deleted attack chain "${chain?.name ?? id}"`);
+    log('delete', 'attackChain', id, `Deleted attack chain "${chain?.name ?? id}"`, {
+      prevValue: encodeValue(chain),
+      reversible: !!chain,
+    });
   },
   addNodesToAttackChain: async (id, nodeIds) => {
     const chain = get().attackChains.find((c) => c.id === id);
