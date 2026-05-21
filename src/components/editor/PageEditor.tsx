@@ -205,7 +205,7 @@ function PageEditorInner({ page, linkedNode }: {
                   openTab({ id: uuidv4(), kind: 'graph', entityId: graph.id, title: graph.name });
                 }}
                 title={`Back to ${graph.name}`}
-                className="flex shrink-0 items-center gap-1 border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
+                className="flex shrink-0 items-center gap-1 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2.5 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
               >
                 <ArrowLeft size={12} /> Narrative
               </button>
@@ -248,7 +248,7 @@ function PageEditorInner({ page, linkedNode }: {
         {/* Tags */}
         <div className="mb-2 flex flex-wrap gap-1">
           {page.tags.map((tag) => (
-            <span key={tag} className="bg-[hsl(var(--muted))] px-2 py-0.5 text-xs">
+            <span key={tag} className="rounded-full bg-[hsl(var(--muted))] px-2.5 py-0.5 text-xs text-[hsl(var(--muted-foreground))]">
               {tag}
             </span>
           ))}
@@ -542,7 +542,7 @@ function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<
   return createPortal(
     <div
       ref={panelRef}
-      className="fixed z-[60] flex flex-col gap-3 border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2 shadow-xl animate-[hl-toolbar-in_0.08s_ease-out]"
+      className="fixed z-[60] flex flex-col gap-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2 shadow-xl animate-[hl-toolbar-in_0.08s_ease-out]"
       style={{ top: pos.top, left: pos.left, width: 200 }}
       role="toolbar"
       aria-label="Text formatting"
@@ -642,11 +642,30 @@ const NODE_TYPE_LABELS: Record<string, string> = {
   pivot: 'Pivot',
 };
 
+// Per-severity pill styling for the finding-properties header — kept in
+// sync with FindingNode's severityConfig so the same medium/high/etc.
+// badge appears on the graph card AND in the editor header.
+const SEVERITY_BADGE: Record<string, string> = {
+  critical: 'bg-[hsl(var(--status-purple))]/25 text-[hsl(var(--status-purple))]',
+  high:     'bg-[hsl(var(--status-red))]/25 text-[hsl(var(--status-red))]',
+  medium:   'bg-[hsl(var(--status-amber))]/25 text-[hsl(var(--status-amber))]',
+  low:      'bg-[hsl(var(--status-green))]/25 text-[hsl(var(--status-green))]',
+  info:     'bg-[hsl(var(--status-blue))]/25 text-[hsl(var(--status-blue))]',
+};
+
 function NodeDataEditor({ node, onChange }: { node: GraphNode; onChange: (patch: Record<string, unknown>) => void }) {
+  const findingData = node.type === 'finding' ? (node.data as FindingData | undefined) : null;
+  const severity = findingData?.severity ?? null;
   return (
-    <div className="mb-6 border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
-      <div className="flex items-center gap-2 border-b border-[hsl(var(--border))] px-4 py-2">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+    <div className="mb-6 overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+      <div className="flex items-center gap-3 border-b border-[hsl(var(--border))] px-4 py-3">
+        {severity && (
+          <span className={`rounded-full px-3.5 py-1 text-xl font-bold uppercase tracking-wide ${SEVERITY_BADGE[severity] ?? SEVERITY_BADGE['info']}`}>
+            {severity}
+            {findingData && findingData.cvss > 0 ? ` · ${findingData.cvss.toFixed(1)}` : ''}
+          </span>
+        )}
+        <span className="text-2xl font-bold uppercase tracking-wider text-[hsl(var(--foreground))]">
           {NODE_TYPE_LABELS[node.type] ?? node.type} Properties
         </span>
       </div>
@@ -915,7 +934,7 @@ function ConnectedNodes({ node }: { node: GraphNode }) {
   };
 
   return (
-    <div className="mb-6 border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+    <div className="mb-6 overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
       <div className="flex items-center gap-2 border-b border-[hsl(var(--border))] px-4 py-2">
         <span className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
           Connected Nodes
@@ -929,7 +948,7 @@ function ConnectedNodes({ node }: { node: GraphNode }) {
           <button
             key={c.node.id}
             onClick={() => handleClick(c.node)}
-            className={`flex items-start gap-3 border bg-[hsl(var(--background))] p-3 text-left transition-colors hover:bg-[hsl(var(--accent))] ${NODE_BORDER_COLOR[c.node.type] ?? 'border-[hsl(var(--border))]'}`}
+            className={`flex items-start gap-3 rounded-lg border bg-[hsl(var(--background))] p-3 text-left transition-colors hover:bg-[hsl(var(--accent))] ${NODE_BORDER_COLOR[c.node.type] ?? 'border-[hsl(var(--border))]'}`}
           >
             <div className="mt-0.5 shrink-0">{NODE_ICON[c.node.type]}</div>
             <div className="min-w-0 flex-1">

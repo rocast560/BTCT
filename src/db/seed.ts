@@ -64,7 +64,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   // ── Static Pages ───────────────────────────────────────────
   const engagementPage: Page = {
     id: uuidv4(), workspaceId: workspace.id, parentId: null,
-    title: 'Engagement Notes', slug: 'engagement-notes', icon: '📋',
+    title: 'Engagement Notes', slug: 'engagement-notes', icon: '',
     tags: ['engagement', 'overview'],
     content: [
       { id: uuidv4(), type: 'heading', props: { level: 2 }, content: [{ type: 'text', text: 'ACME Corp – Internal Penetration Test', styles: {} }], children: [] },
@@ -86,7 +86,7 @@ export async function seedDemoWorkspace(): Promise<void> {
 
   const reconPage: Page = {
     id: uuidv4(), workspaceId: workspace.id, parentId: engagementPage.id,
-    title: 'Reconnaissance', slug: 'recon', icon: '🔍',
+    title: 'Reconnaissance', slug: 'recon', icon: '',
     tags: ['recon', 'enumeration'],
     content: [
       { id: uuidv4(), type: 'heading', props: { level: 2 }, content: [{ type: 'text', text: 'Network Reconnaissance', styles: {} }], children: [] },
@@ -98,7 +98,7 @@ export async function seedDemoWorkspace(): Promise<void> {
 
   const methodologyPage: Page = {
     id: uuidv4(), workspaceId: workspace.id, parentId: engagementPage.id,
-    title: 'Methodology', slug: 'methodology', icon: '📐',
+    title: 'Methodology', slug: 'methodology', icon: '',
     tags: ['methodology'],
     content: [
       { id: uuidv4(), type: 'paragraph', content: [{ type: 'text', text: 'OWASP Testing Guide v4, PTES, and OSSTMM methodologies applied. AD attack path analysis via BloodHound (SharpHound ingestor) enumeration. Full domain compromise achieved on Day 4 (Thursday) approximately 27 working hours after first NTLMv2 capture on Day 1.', styles: {} }], children: [], props: {} },
@@ -108,7 +108,7 @@ export async function seedDemoWorkspace(): Promise<void> {
 
   const findingsPage: Page = {
     id: uuidv4(), workspaceId: workspace.id, parentId: null,
-    title: 'Findings Summary', slug: 'findings-summary', icon: '🐛',
+    title: 'Findings Summary', slug: 'findings-summary', icon: '',
     tags: ['findings'],
     content: [
       { id: uuidv4(), type: 'heading', props: { level: 2 }, content: [{ type: 'text', text: 'Executive Summary', styles: {} }], children: [] },
@@ -119,7 +119,7 @@ export async function seedDemoWorkspace(): Promise<void> {
 
   const remediationPage: Page = {
     id: uuidv4(), workspaceId: workspace.id, parentId: null,
-    title: 'Remediation Plan', slug: 'remediation', icon: '🛡️',
+    title: 'Remediation Plan', slug: 'remediation', icon: '',
     tags: ['remediation'],
     content: [
       { id: uuidv4(), type: 'paragraph', content: [{ type: 'text', text: 'Priority remediation items grouped by severity. Critical findings should be addressed within 7 days, High within 30 days, Medium within 90 days.', styles: {} }], children: [], props: {} },
@@ -161,7 +161,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   // ════════════════════════════════════════════════════════════
 
   // ── Hosts (9) ──────────────────────────────────────────────
-  const p_web01 = makeNodePage('WEB-01', '🖥️');
+  const p_web01 = makeNodePage('WEB-01', '');
   const web01: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'host',
     label: 'WEB-01 (10.10.10.10)', position: { x: 200, y: 0 },
@@ -169,7 +169,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_web01.id, discoveredAt: t(0, 8, 30), createdAt, updatedAt: createdAt,
   };
 
-  const p_web02 = makeNodePage('WEB-02', '🖥️');
+  const p_web02 = makeNodePage('WEB-02', '');
   const web02: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'host',
     label: 'WEB-02 (10.10.10.11)', position: { x: 700, y: 0 },
@@ -177,7 +177,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_web02.id, discoveredAt: t(0, 8, 32), createdAt, updatedAt: createdAt,
   };
 
-  const p_db01 = makeNodePage('DB-01', '🖥️');
+  const p_db01 = makeNodePage('DB-01', '');
   const db01: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'host',
     label: 'DB-01 (10.10.10.20)', position: { x: 500, y: 350 },
@@ -185,7 +185,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_db01.id, discoveredAt: t(0, 8, 34), createdAt, updatedAt: createdAt,
   };
 
-  const p_file01 = makeNodePage('FILE-01', '🖥️');
+  const p_file01 = makeNodePage('FILE-01', '');
   const file01: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'host',
     label: 'FILE-01 (10.10.10.30)', position: { x: 50, y: 350 },
@@ -193,7 +193,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_file01.id, discoveredAt: t(0, 8, 36), createdAt, updatedAt: createdAt,
   };
 
-  const p_mail01 = makeNodePage('MAIL-01', '🖥️');
+  const p_mail01 = makeNodePage('MAIL-01', '');
   const mail01: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'host',
     label: 'MAIL-01 (10.10.10.40)', position: { x: 1000, y: 250 },
@@ -201,7 +201,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_mail01.id, discoveredAt: t(0, 8, 38), createdAt, updatedAt: createdAt,
   };
 
-  const p_app01 = makeNodePage('APP-01', '🖥️');
+  const p_app01 = makeNodePage('APP-01', '');
   const app01: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'host',
     label: 'APP-01 (10.10.10.50)', position: { x: 700, y: 550 },
@@ -209,7 +209,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_app01.id, discoveredAt: t(0, 8, 40), createdAt, updatedAt: createdAt,
   };
 
-  const p_dc01 = makeNodePage('DC-01', '🖥️');
+  const p_dc01 = makeNodePage('DC-01', '');
   const dc01: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'host',
     label: 'DC-01 (10.10.10.1)', position: { x: 300, y: 950 },
@@ -217,7 +217,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_dc01.id, discoveredAt: t(0, 8, 42), createdAt, updatedAt: createdAt,
   };
 
-  const p_dc02 = makeNodePage('DC-02', '🖥️');
+  const p_dc02 = makeNodePage('DC-02', '');
   const dc02: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'host',
     label: 'DC-02 (10.10.10.2)', position: { x: 650, y: 950 },
@@ -225,7 +225,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_dc02.id, discoveredAt: t(0, 8, 44), createdAt, updatedAt: createdAt,
   };
 
-  const p_jump01 = makeNodePage('JUMP-01', '🖥️');
+  const p_jump01 = makeNodePage('JUMP-01', '');
   const jump01: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'host',
     label: 'JUMP-01 (10.10.10.100)', position: { x: 900, y: 850 },
@@ -234,7 +234,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   };
 
   // ── Services (4) ───────────────────────────────────────────
-  const p_iis = makeNodePage('IIS on WEB-01', '⚙️');
+  const p_iis = makeNodePage('IIS on WEB-01', '');
   const iis: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'service',
     label: 'IIS 10.0 (443)', position: { x: 50, y: 150 },
@@ -242,7 +242,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_iis.id, discoveredAt: t(0, 9, 15), createdAt, updatedAt: createdAt,
   };
 
-  const p_tomcat = makeNodePage('Tomcat on WEB-02', '⚙️');
+  const p_tomcat = makeNodePage('Tomcat on WEB-02', '');
   const tomcat: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'service',
     label: 'Tomcat 9.0.45 (8080)', position: { x: 900, y: 150 },
@@ -250,7 +250,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_tomcat.id, discoveredAt: t(0, 9, 22), createdAt, updatedAt: createdAt,
   };
 
-  const p_mssql = makeNodePage('MSSQL on DB-01', '⚙️');
+  const p_mssql = makeNodePage('MSSQL on DB-01', '');
   const mssqlSvc: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'service',
     label: 'MSSQL 2019 (1433)', position: { x: 500, y: 200 },
@@ -258,7 +258,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_mssql.id, discoveredAt: t(0, 9, 30), createdAt, updatedAt: createdAt,
   };
 
-  const p_smb = makeNodePage('SMB on FILE-01', '⚙️');
+  const p_smb = makeNodePage('SMB on FILE-01', '');
   const smbSvc: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'service',
     label: 'SMB (445)', position: { x: 50, y: 500 },
@@ -267,7 +267,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   };
 
   // ── Credentials (5) ────────────────────────────────────────
-  const p_jsmith = makeNodePage('j.smith credential', '🔑');
+  const p_jsmith = makeNodePage('j.smith credential', '');
   const jsmith: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'credential',
     label: 'j.smith', position: { x: 50, y: 650 },
@@ -275,7 +275,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_jsmith.id, discoveredAt: t(0, 16, 30), createdAt, updatedAt: createdAt,
   };
 
-  const p_svcweb = makeNodePage('svc_web credential', '🔑');
+  const p_svcweb = makeNodePage('svc_web credential', '');
   const svcweb: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'credential',
     label: 'svc_web', position: { x: 250, y: 600 },
@@ -283,7 +283,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_svcweb.id, discoveredAt: t(1, 14, 30), createdAt, updatedAt: createdAt,
   };
 
-  const p_adminsql = makeNodePage('admin_sql credential', '🔑');
+  const p_adminsql = makeNodePage('admin_sql credential', '');
   const adminsql: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'credential',
     label: 'admin_sql (sa)', position: { x: 500, y: 600 },
@@ -291,7 +291,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_adminsql.id, discoveredAt: t(2, 11, 0), createdAt, updatedAt: createdAt,
   };
 
-  const p_svcbackup = makeNodePage('svc_backup credential', '🔑');
+  const p_svcbackup = makeNodePage('svc_backup credential', '');
   const svcbackup: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'credential',
     label: 'svc_backup', position: { x: 700, y: 650 },
@@ -299,7 +299,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_svcbackup.id, discoveredAt: t(2, 9, 30), createdAt, updatedAt: createdAt,
   };
 
-  const p_daadmin = makeNodePage('Domain Admin credential', '🔑');
+  const p_daadmin = makeNodePage('Domain Admin credential', '');
   const daadmin: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'credential',
     label: 'ACME\\Administrator', position: { x: 450, y: 1100 },
@@ -308,7 +308,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   };
 
   // ── Pivots (3) ─────────────────────────────────────────────
-  const p_piv1 = makeNodePage('Pivot: PsExec to FILE-01', '🔄');
+  const p_piv1 = makeNodePage('Pivot: PsExec to FILE-01', '');
   const pivotPsexec: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'pivot',
     label: 'PsExec → FILE-01', position: { x: 100, y: 800 },
@@ -316,7 +316,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_piv1.id, discoveredAt: t(2, 10, 30), createdAt, updatedAt: createdAt,
   };
 
-  const p_piv2 = makeNodePage('Pivot: WinRM to DC-01', '🔄');
+  const p_piv2 = makeNodePage('Pivot: WinRM to DC-01', '');
   const pivotWinrm: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'pivot',
     label: 'WinRM → DC-01', position: { x: 350, y: 800 },
@@ -324,7 +324,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_piv2.id, discoveredAt: t(3, 9, 0), createdAt, updatedAt: createdAt,
   };
 
-  const p_piv3 = makeNodePage('Pivot: MSSQL Link to APP-01', '🔄');
+  const p_piv3 = makeNodePage('Pivot: MSSQL Link to APP-01', '');
   const pivotMssql: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'pivot',
     label: 'MSSQL Link → APP-01', position: { x: 650, y: 800 },
@@ -333,7 +333,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   };
 
   // ── Findings – Critical (3) ────────────────────────────────
-  const p_f1 = makeNodePage('Domain Admin via Kerberoasting', '🐛');
+  const p_f1 = makeNodePage('Domain Admin via Kerberoasting', '');
   const f1: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Domain Admin via Kerberoasting', position: { x: 150, y: 1150 },
@@ -341,7 +341,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f1.id, discoveredAt: t(3, 15, 30), createdAt, updatedAt: createdAt,
   };
 
-  const p_f2 = makeNodePage('Unconstrained Delegation on WEB-01', '🐛');
+  const p_f2 = makeNodePage('Unconstrained Delegation on WEB-01', '');
   const f2: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Unconstrained Delegation', position: { x: 400, y: 100 },
@@ -349,7 +349,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f2.id, discoveredAt: t(1, 13, 0), createdAt, updatedAt: createdAt,
   };
 
-  const p_f3 = makeNodePage('DCSync Rights for svc_backup', '🐛');
+  const p_f3 = makeNodePage('DCSync Rights for svc_backup', '');
   const f3: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'DCSync Rights – svc_backup', position: { x: 600, y: 1150 },
@@ -358,7 +358,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   };
 
   // ── Findings – High (5) ────────────────────────────────────
-  const p_f4 = makeNodePage('SQL Injection in Inventory App', '🐛');
+  const p_f4 = makeNodePage('SQL Injection in Inventory App', '');
   const f4: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'SQL Injection – Inventory App', position: { x: 900, y: 300 },
@@ -366,7 +366,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f4.id, discoveredAt: t(1, 10, 30), createdAt, updatedAt: createdAt,
   };
 
-  const p_f5 = makeNodePage('LLMNR/NBT-NS Poisoning', '🐛');
+  const p_f5 = makeNodePage('LLMNR/NBT-NS Poisoning', '');
   const f5: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'LLMNR/NBT-NS Poisoning', position: { x: 350, y: 200 },
@@ -374,7 +374,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f5.id, discoveredAt: t(0, 14, 0), createdAt, updatedAt: createdAt,
   };
 
-  const p_f6 = makeNodePage('Weak Kerberos Encryption (RC4)', '🐛');
+  const p_f6 = makeNodePage('Weak Kerberos Encryption (RC4)', '');
   const f6: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Weak Kerberos Encryption (RC4)', position: { x: 100, y: 1050 },
@@ -382,7 +382,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f6.id, discoveredAt: t(1, 15, 30), createdAt, updatedAt: createdAt,
   };
 
-  const p_f7 = makeNodePage('LAPS Not Deployed', '🐛');
+  const p_f7 = makeNodePage('LAPS Not Deployed', '');
   const f7: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'LAPS Not Deployed', position: { x: 500, y: 1050 },
@@ -390,7 +390,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f7.id, discoveredAt: t(2, 13, 0), createdAt, updatedAt: createdAt,
   };
 
-  const p_f8 = makeNodePage('Cleartext GPP Passwords', '🐛');
+  const p_f8 = makeNodePage('Cleartext GPP Passwords', '');
   const f8: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Cleartext GPP Passwords', position: { x: 850, y: 550 },
@@ -399,7 +399,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   };
 
   // ── Findings – Medium (4) ──────────────────────────────────
-  const p_f9 = makeNodePage('SMB Signing Disabled', '🐛');
+  const p_f9 = makeNodePage('SMB Signing Disabled', '');
   const f9: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'SMB Signing Disabled', position: { x: 200, y: 450 },
@@ -407,7 +407,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f9.id, discoveredAt: t(2, 10, 0), createdAt, updatedAt: createdAt,
   };
 
-  const p_f10 = makeNodePage('Unrestricted Outbound Access', '🐛');
+  const p_f10 = makeNodePage('Unrestricted Outbound Access', '');
   const f10: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Unrestricted Outbound Access', position: { x: 900, y: 50 },
@@ -415,7 +415,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f10.id, discoveredAt: t(1, 10, 0), createdAt, updatedAt: createdAt,
   };
 
-  const p_f11 = makeNodePage('Weak Domain Password Policy', '🐛');
+  const p_f11 = makeNodePage('Weak Domain Password Policy', '');
   const f11: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Weak Domain Password Policy', position: { x: 50, y: 1150 },
@@ -423,7 +423,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f11.id, discoveredAt: t(1, 11, 30), createdAt, updatedAt: createdAt,
   };
 
-  const p_f12 = makeNodePage('No MFA on Remote Access', '🐛');
+  const p_f12 = makeNodePage('No MFA on Remote Access', '');
   const f12: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'No MFA on Remote Access', position: { x: 1100, y: 350 },
@@ -432,7 +432,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   };
 
   // ── Findings – Low (2) ─────────────────────────────────────
-  const p_f13 = makeNodePage('SNMP Default Community String', '🐛');
+  const p_f13 = makeNodePage('SNMP Default Community String', '');
   const f13: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'SNMP Default Community String', position: { x: -100, y: 450 },
@@ -440,7 +440,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f13.id, discoveredAt: t(0, 10, 0), createdAt, updatedAt: createdAt,
   };
 
-  const p_f14 = makeNodePage('DNS Zone Transfer Allowed', '🐛');
+  const p_f14 = makeNodePage('DNS Zone Transfer Allowed', '');
   const f14: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'DNS Zone Transfer Allowed', position: { x: 500, y: 850 },
@@ -449,7 +449,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   };
 
   // ── Findings – Info (2) ────────────────────────────────────
-  const p_f15 = makeNodePage('Internal IP Address Disclosure', '🐛');
+  const p_f15 = makeNodePage('Internal IP Address Disclosure', '');
   const f15: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Internal IP Address Disclosure', position: { x: 550, y: 50 },
@@ -457,7 +457,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f15.id, discoveredAt: t(0, 11, 45), createdAt, updatedAt: createdAt,
   };
 
-  const p_f16 = makeNodePage('Service Version Enumeration', '🐛');
+  const p_f16 = makeNodePage('Service Version Enumeration', '');
   const f16: GraphNode = {
     id: uuidv4(), graphId: internalGraph.id, type: 'finding',
     label: 'Service Version Enumeration', position: { x: 700, y: 400 },
@@ -469,7 +469,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   //  EXTERNAL PERIMETER GRAPH – Nodes
   // ════════════════════════════════════════════════════════════
 
-  const p_dmzweb = makeNodePage('DMZ-WEB', '🖥️');
+  const p_dmzweb = makeNodePage('DMZ-WEB', '');
   const dmzweb: GraphNode = {
     id: uuidv4(), graphId: externalGraph.id, type: 'host',
     label: 'DMZ-WEB (10.0.0.10)', position: { x: 200, y: 0 },
@@ -477,7 +477,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_dmzweb.id, discoveredAt: t(0, 9, 0), createdAt, updatedAt: createdAt,
   };
 
-  const p_ex01 = makeNodePage('EX-01 (Exchange)', '🖥️');
+  const p_ex01 = makeNodePage('EX-01 (Exchange)', '');
   const ex01: GraphNode = {
     id: uuidv4(), graphId: externalGraph.id, type: 'host',
     label: 'EX-01 (10.0.0.20)', position: { x: 550, y: 0 },
@@ -485,7 +485,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_ex01.id, discoveredAt: t(0, 9, 5), createdAt, updatedAt: createdAt,
   };
 
-  const p_httpsSvc = makeNodePage('HTTPS on DMZ-WEB', '⚙️');
+  const p_httpsSvc = makeNodePage('HTTPS on DMZ-WEB', '');
   const httpsSvc: GraphNode = {
     id: uuidv4(), graphId: externalGraph.id, type: 'service',
     label: 'HTTPS (443)', position: { x: 100, y: 200 },
@@ -494,7 +494,7 @@ export async function seedDemoWorkspace(): Promise<void> {
   };
 
   // ── External Findings (4) ──────────────────────────────────
-  const p_f17 = makeNodePage('MS17-010 EternalBlue on DMZ', '🐛');
+  const p_f17 = makeNodePage('MS17-010 EternalBlue on DMZ', '');
   const f17: GraphNode = {
     id: uuidv4(), graphId: externalGraph.id, type: 'finding',
     label: 'MS17-010 EternalBlue', position: { x: 350, y: 200 },
@@ -502,7 +502,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f17.id, discoveredAt: t(1, 13, 0), createdAt, updatedAt: createdAt,
   };
 
-  const p_f18 = makeNodePage('Unpatched Exchange ProxyLogon', '🐛');
+  const p_f18 = makeNodePage('Unpatched Exchange ProxyLogon', '');
   const f18: GraphNode = {
     id: uuidv4(), graphId: externalGraph.id, type: 'finding',
     label: 'ProxyLogon (CVE-2021-26855)', position: { x: 650, y: 200 },
@@ -510,7 +510,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f18.id, discoveredAt: t(1, 15, 0), createdAt, updatedAt: createdAt,
   };
 
-  const p_f19 = makeNodePage('Outdated TLS 1.0/1.1 Enabled', '🐛');
+  const p_f19 = makeNodePage('Outdated TLS 1.0/1.1 Enabled', '');
   const f19: GraphNode = {
     id: uuidv4(), graphId: externalGraph.id, type: 'finding',
     label: 'Outdated TLS 1.0/1.1', position: { x: 100, y: 400 },
@@ -518,7 +518,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     linkedPageId: p_f19.id, discoveredAt: t(0, 10, 30), createdAt, updatedAt: createdAt,
   };
 
-  const p_f20 = makeNodePage('Missing HTTP Security Headers', '🐛');
+  const p_f20 = makeNodePage('Missing HTTP Security Headers', '');
   const f20: GraphNode = {
     id: uuidv4(), graphId: externalGraph.id, type: 'finding',
     label: 'Missing HTTP Security Headers', position: { x: 400, y: 400 },

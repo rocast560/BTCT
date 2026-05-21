@@ -7,7 +7,7 @@ describe('Markdown export', () => {
     const page = fixturePages[0]!;
     const md = pageToMarkdown(page);
 
-    expect(md).toContain('# 📄 Test Page');
+    expect(md).toContain('# Test Page');
     expect(md).toContain('Tags: test, demo');
     expect(md).toContain('## Hello World');
     expect(md).toContain('This is a test page.');
@@ -17,8 +17,8 @@ describe('Markdown export', () => {
 
   it('bundles multiple pages with separator', () => {
     const bundle = pagesToMarkdownBundle(fixturePages);
-    expect(bundle).toContain('# 📄 Test Page');
-    expect(bundle).toContain('# 🖥️ Node Page');
+    expect(bundle).toContain('# Test Page');
+    expect(bundle).toContain('# Node Page');
     expect(bundle).toContain('---');
   });
 });

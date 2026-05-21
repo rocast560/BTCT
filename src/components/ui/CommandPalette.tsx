@@ -31,7 +31,7 @@ export function CommandPalette() {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]" onClick={() => setCommandPaletteOpen(false)}>
       <div className="fixed inset-0 bg-black/50" />
-      <div className="relative z-10 w-[500px] overflow-hidden border border-[hsl(var(--border))] bg-[hsl(var(--popover))] shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="relative z-10 w-[520px] overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <Command label="Command palette" className="flex flex-col">
           <div className="flex items-center border-b border-[hsl(var(--border))] px-3">
             <Command.Input
@@ -51,7 +51,7 @@ export function CommandPalette() {
                   openTab({ id: uuidv4(), kind: 'page', entityId: page.id, title: page.title });
                   setCommandPaletteOpen(false);
                 }}
-                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
               >
                 <Plus size={14} /> New Page
               </Command.Item>
@@ -62,13 +62,13 @@ export function CommandPalette() {
                   openTab({ id: uuidv4(), kind: 'graph', entityId: graph.id, title: graph.name });
                   setCommandPaletteOpen(false);
                 }}
-                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
               >
                 <Plus size={14} /> New Attack Narrative
               </Command.Item>
               <Command.Item
                 onSelect={() => { toggleDarkMode(); setCommandPaletteOpen(false); }}
-                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
               >
                 <Settings size={14} /> Toggle Dark Mode
               </Command.Item>
@@ -84,9 +84,9 @@ export function CommandPalette() {
                       openTab({ id: uuidv4(), kind: 'page', entityId: page.id, title: page.title });
                       setCommandPaletteOpen(false);
                     }}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
+                    className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
                   >
-                    <FileText size={14} /> {page.icon} {page.title}
+                    <FileText size={14} />{page.icon ? <span>{page.icon}</span> : null} {page.title}
                   </Command.Item>
                 ))}
               </Command.Group>
@@ -102,7 +102,7 @@ export function CommandPalette() {
                       openTab({ id: uuidv4(), kind: 'graph', entityId: graph.id, title: graph.name });
                       setCommandPaletteOpen(false);
                     }}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
+                    className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
                   >
                     <Network size={14} /> {graph.name}
                   </Command.Item>

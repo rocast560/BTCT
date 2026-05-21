@@ -11,7 +11,7 @@ export const fixturePages: Page[] = [
     parentId: null,
     title: 'Test Page',
     slug: 'test-page',
-    icon: '📄',
+    icon: '',
     tags: ['test', 'demo'],
     content: [
       { id: uuidv4(), type: 'heading', props: { level: 2 }, content: [{ type: 'text', text: 'Hello World', styles: {} }], children: [] },
@@ -30,7 +30,7 @@ export const fixturePages: Page[] = [
     parentId: null,
     title: 'Node Page',
     slug: 'node-page',
-    icon: '🖥️',
+    icon: '',
     tags: [],
     content: [
       { id: uuidv4(), type: 'paragraph', content: [{ type: 'text', text: 'Linked from a graph node.', styles: {} }], children: [], props: {} },

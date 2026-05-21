@@ -129,7 +129,7 @@ export function NmapScanView({ scanId }: { scanId: string }) {
             />
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-1.5 border border-[hsl(var(--primary))] bg-[hsl(var(--card))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--primary))] hover:bg-[hsl(var(--accent))]"
+              className="flex items-center gap-1.5 rounded-full border border-[hsl(var(--primary))] bg-[hsl(var(--primary))]/10 px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/20"
             >
               <Upload size={12} /> Import XML
             </button>
@@ -224,7 +224,7 @@ function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onD
         onClick={handleClick}
         onContextMenu={handleContext}
         className={cn(
-          'relative flex w-full flex-col items-center gap-2 border bg-[hsl(var(--card))] p-4 text-center transition-colors hover:bg-[hsl(var(--accent))]',
+          'relative flex w-full flex-col items-center gap-2 rounded-xl border bg-[hsl(var(--card))] p-4 text-center shadow-sm transition-colors hover:bg-[hsl(var(--accent))]',
           isAttached
             ? 'border-[hsl(var(--primary))]/60 hover:border-[hsl(var(--primary))]'
             : 'border-[hsl(var(--border))] hover:border-[hsl(var(--primary))]',
@@ -236,8 +236,8 @@ function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onD
           className={cn(
             'absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border',
             isAttached
-              ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-400'
-              : 'border-red-500/60 bg-red-500/15 text-red-400',
+              ? 'border-[hsl(var(--status-green))]/60 bg-[hsl(var(--status-green))]/15 text-[hsl(var(--status-green))]'
+              : 'border-[hsl(var(--status-red))]/60 bg-[hsl(var(--status-red))]/15 text-[hsl(var(--status-red))]',
           )}
           title={isAttached ? (linkedLabel ? `Attached to ${linkedLabel}` : 'Attached to a host') : 'Not attached to a host'}
           aria-label={isAttached ? (linkedLabel ? `Attached to ${linkedLabel}` : 'Attached to a host') : 'Not attached to a host'}
@@ -246,9 +246,9 @@ function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onD
         </div>
         <div className={cn(
           'flex h-10 w-10 items-center justify-center',
-          machine.os === 'windows' && 'text-blue-400',
-          machine.os === 'linux' && 'text-emerald-400',
-          machine.os === 'attacker' && 'text-red-400',
+          machine.os === 'windows' && 'text-[hsl(var(--status-blue))]',
+          machine.os === 'linux' && 'text-[hsl(var(--status-green))]',
+          machine.os === 'attacker' && 'text-[hsl(var(--status-red))]',
           machine.os === 'unknown' && 'text-[hsl(var(--muted-foreground))]',
         )}>
           <OSIcon os={machine.os} size={28} />
@@ -265,7 +265,7 @@ function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onD
       {/* Context menu */}
       {ctxMenu && (
         <div
-          className="fixed z-50 min-w-[140px] border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
+          className="fixed z-50 min-w-[160px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -279,7 +279,7 @@ function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onD
           )}
           <button
             onClick={handleDeleteClick}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[hsl(var(--status-red))] hover:bg-[hsl(var(--status-red))]/10"
           >
             <X size={12} /> Delete Machine
           </button>
@@ -289,7 +289,7 @@ function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onD
       {/* Delete confirmation dialog */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setConfirmDelete(false)}>
-          <div className="w-full max-w-sm border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-2 text-sm font-bold">Delete Machine</h3>
             <p className="mb-4 text-xs text-[hsl(var(--muted-foreground))]">
               Are you sure you want to delete <span className="font-semibold text-[hsl(var(--foreground))]">{machine.hostname || machine.ip}</span>? This action cannot be undone.
@@ -297,13 +297,13 @@ function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onD
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmDelete(false)}
-                className="border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
+                className="rounded-lg border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDelete}
-                className="border border-red-500 bg-red-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-500/20"
+                className="rounded-lg border border-[hsl(var(--status-red))]/60 bg-[hsl(var(--status-red))]/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--status-red))] hover:bg-[hsl(var(--status-red))]/20"
               >
                 Delete
               </button>
@@ -456,10 +456,10 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
         {/* Machine header */}
         <div className="mb-6 flex items-start gap-4">
           <div className={cn(
-            'flex h-14 w-14 items-center justify-center border border-[hsl(var(--border))] bg-[hsl(var(--card))]',
-            os === 'windows' && 'text-blue-400',
-            os === 'linux' && 'text-emerald-400',
-            os === 'attacker' && 'text-red-400',
+            'flex h-14 w-14 items-center justify-center rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]',
+            os === 'windows' && 'text-[hsl(var(--status-blue))]',
+            os === 'linux' && 'text-[hsl(var(--status-green))]',
+            os === 'attacker' && 'text-[hsl(var(--status-red))]',
             os === 'unknown' && 'text-[hsl(var(--muted-foreground))]',
           )}>
             <OSIcon os={os} size={32} />
@@ -607,13 +607,13 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setAlreadyConnectedWarning(false)}
-                className="border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
+                className="rounded-lg border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDisconnect}
-                className="flex items-center gap-1.5 border border-red-500 bg-red-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-500/20"
+                className="flex items-center gap-1.5 rounded-lg border border-[hsl(var(--status-red))]/60 bg-[hsl(var(--status-red))]/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--status-red))] hover:bg-[hsl(var(--status-red))]/20"
               >
                 <Unlink size={10} /> Disconnect
               </button>
@@ -717,13 +717,13 @@ function ConnectToHostDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="w-full max-w-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 pb-2">
           <h3 className="mb-1 text-sm font-bold">Connect to Host</h3>
           <p className="mb-3 text-xs text-[hsl(var(--muted-foreground))]">
             Select a host node to link <span className="font-semibold text-[hsl(var(--foreground))]">{machineName}</span> to.
           </p>
-          <div className="flex items-center gap-2 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1.5">
+          <div className="flex items-center gap-2 rounded-full border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-1.5">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[hsl(var(--muted-foreground))]"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             <input
               ref={inputRef}
@@ -749,18 +749,18 @@ function ConnectToHostDialog({
                 <button
                   key={node.id}
                   onClick={() => trySelect(node)}
-                  className={`flex w-full items-center gap-3 border border-[hsl(var(--border))] px-3 py-2 text-left transition-colors mb-1 ${
+                  className={`flex w-full items-center gap-3 rounded-lg border border-[hsl(var(--border))] px-3 py-2 text-left transition-colors mb-1 ${
                     idx === clampedIdx ? 'border-[hsl(var(--primary))] bg-[hsl(var(--accent))]' : 'hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--accent))]'
                   }`}
                 >
-                  <Monitor size={14} className="shrink-0 text-blue-400" />
+                  <Monitor size={14} className="shrink-0 text-[hsl(var(--status-blue))]" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-semibold">{node.label}</div>
                     <div className="truncate text-[10px] text-[hsl(var(--muted-foreground))]">
                       {hd.hostname ? `${hd.hostname} · ` : ''}{hd.ip || 'No IP'}{g ? ` · ${g.name}` : ''}
                     </div>
                   </div>
-                  <div className={`h-2.5 w-2.5 shrink-0 rounded-sm ${connectedNodeIds.has(node.id) ? 'bg-green-500' : 'bg-red-500'}`} title={connectedNodeIds.has(node.id) ? 'Connected' : 'Not connected'} />
+                  <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${connectedNodeIds.has(node.id) ? 'bg-[hsl(var(--status-green))]' : 'bg-[hsl(var(--status-red))]'}`} title={connectedNodeIds.has(node.id) ? 'Connected' : 'Not connected'} />
                 </button>
               );
             })}
@@ -769,7 +769,7 @@ function ConnectToHostDialog({
         <div className="flex justify-end border-t border-[hsl(var(--border))] px-4 py-3">
           <button
             onClick={onClose}
-            className="border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
+            className="rounded-lg border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
           >
             Cancel
           </button>
@@ -778,21 +778,21 @@ function ConnectToHostDialog({
       {/* Conflict: host already has a linked nmap machine */}
       {conflictNode && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60" onClick={() => setConflictNode(null)}>
-          <div className="w-full max-w-sm border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-2 text-sm font-bold text-amber-400">Host Already Connected</h3>
+          <div className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-2 text-sm font-bold text-[hsl(var(--status-amber))]">Host Already Connected</h3>
             <p className="mb-4 text-xs text-[hsl(var(--muted-foreground))]">
               <span className="font-semibold text-[hsl(var(--foreground))]">{conflictNode.label}</span> is already connected to another nmap machine. The existing connection will be replaced.
             </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConflictNode(null)}
-                className="border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
+                className="rounded-lg border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
               >
                 Cancel
               </button>
               <button
                 onClick={() => { onSelect(conflictNode); setConflictNode(null); }}
-                className="flex items-center gap-1.5 border border-amber-500 bg-amber-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:bg-amber-500/20"
+                className="flex items-center gap-1.5 rounded-lg border border-[hsl(var(--status-amber))]/60 bg-[hsl(var(--status-amber))]/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--status-amber))] hover:bg-[hsl(var(--status-amber))]/20"
               >
                 <Unlink size={10} /> Disconnect &amp; Reassign
               </button>

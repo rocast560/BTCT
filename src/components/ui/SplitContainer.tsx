@@ -176,7 +176,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
       ref={leafRef}
       className={cn(
         'relative flex h-full w-full flex-col',
-        isActive && hasSplits && 'ring-1 ring-inset ring-[hsl(var(--primary))]',
+        isActive && hasSplits && 'rounded-lg ring-1 ring-inset ring-[hsl(var(--primary))]/50',
       )}
       onClick={() => setActivePane(pane.id)}
       onDragOver={handleDragOver}
@@ -186,7 +186,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
     >
       {/* Per-pane tab strip (only shown when splits exist — global TabBar handles single-pane tabs) */}
       {hasSplits && paneTabs.length > 0 && (
-        <div className="flex h-7 shrink-0 items-center overflow-x-auto border-b border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+        <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2">
           {paneTabs.map((tab) => (
             <PaneTabChip
               key={tab.id}
@@ -247,17 +247,17 @@ const PaneTabChip = memo(function PaneTabChip({
       onDragStart={handleDragStart}
       onClick={onActivate}
       className={cn(
-        'group flex shrink-0 cursor-grab items-center gap-1 border-r border-[hsl(var(--border))] px-2 py-1 text-[10px] active:cursor-grabbing',
+        'group flex shrink-0 cursor-grab items-center gap-1.5 rounded-full px-3 py-1 text-[10px] transition-colors active:cursor-grabbing',
         active
-          ? 'bg-[hsl(var(--background))] text-[hsl(var(--foreground))] border-b-2 border-b-[hsl(var(--primary))]'
-          : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]',
+          ? 'bg-[hsl(var(--accent))] text-[hsl(var(--foreground))]'
+          : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]/60',
       )}
     >
       {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'findings' ? <Bug size={9} /> : tab.kind === 'timeline' ? <Clock size={9} /> : <Network size={9} />}
       <span className="max-w-[100px] truncate">{tab.title}</span>
       <button
         onClick={(e) => { e.stopPropagation(); onClose(); }}
-        className="ml-0.5 hidden rounded-sm p-0.5 hover:bg-[hsl(var(--destructive))] group-hover:block"
+        className="ml-0.5 hidden rounded-full p-0.5 hover:bg-[hsl(var(--destructive))]/30 group-hover:block"
       >
         <X size={8} />
       </button>
@@ -268,7 +268,7 @@ const PaneTabChip = memo(function PaneTabChip({
 // ── Drop zone visual overlay ──
 
 function DropZoneOverlay({ zone }: { zone: DropPosition }) {
-  const base = 'absolute pointer-events-none bg-[hsl(var(--primary))]/15 border-2 border-[hsl(var(--primary))]/40 transition-all duration-100';
+  const base = 'absolute pointer-events-none rounded-xl bg-[hsl(var(--primary))]/15 border-2 border-[hsl(var(--primary))]/40 transition-all duration-100';
   const style: Record<DropPosition, string> = {
     left: `${base} inset-y-0 left-0 w-1/2`,
     right: `${base} inset-y-0 right-0 w-1/2`,

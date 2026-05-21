@@ -19,7 +19,7 @@ export const attackChainRepo = {
       workspaceId: data.workspaceId,
       parentId: null,
       title: data.name,
-      icon: '🔗',
+      icon: '',
       isGraphPage: true,
     });
     const chain: AttackChain = {
@@ -58,7 +58,7 @@ export const attackChainRepo = {
       workspaceId: chain.workspaceId,
       parentId: null,
       title: chain.name,
-      icon: '🔗',
+      icon: '',
       isGraphPage: true,
     });
     await db.attackChains.update(id, { linkedPageId: page.id, updatedAt: Date.now() });

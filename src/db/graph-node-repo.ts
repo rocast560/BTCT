@@ -75,12 +75,8 @@ export const graphNodeRepo = {
   },
 };
 
-function nodeTypeIcon(type: NodeType): string {
-  switch (type) {
-    case 'host': return '🖥️';
-    case 'credential': return '🔑';
-    case 'service': return '⚙️';
-    case 'finding': return '🐛';
-    case 'pivot': return '🔄';
-  }
+function nodeTypeIcon(_type: NodeType): string {
+  // Icons are rendered by type-specific React components in the graph
+  // canvas and properties panel; pages don't need a per-type glyph.
+  return '';
 }

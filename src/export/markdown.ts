@@ -158,7 +158,8 @@ export function normalizePageContent(raw: unknown): string {
 
 export function pageToMarkdown(page: Page): string {
   const lines: string[] = [];
-  lines.push(`# ${page.icon} ${page.title}`);
+  const heading = page.icon ? `# ${page.icon} ${page.title}` : `# ${page.title}`;
+  lines.push(heading);
   lines.push('');
   if (page.tags.length > 0) {
     lines.push(`Tags: ${page.tags.join(', ')}`);

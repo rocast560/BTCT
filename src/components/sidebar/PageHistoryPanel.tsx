@@ -127,7 +127,7 @@ export function PageHistoryPanel({ pageId }: { pageId: string }) {
                     type="button"
                     onClick={() => void handleRestore(s)}
                     disabled={busy}
-                    className="flex items-center gap-1 border border-[hsl(var(--border))] px-1.5 py-0.5 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] disabled:opacity-50"
+                    className="flex items-center gap-1 rounded-full border border-[hsl(var(--border))] px-2 py-0.5 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] disabled:opacity-50"
                   >
                     <Undo2 size={10} /> Restore
                   </button>

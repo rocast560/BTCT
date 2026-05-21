@@ -21,15 +21,42 @@ export function TabBar() {
 
   const isSplit = paneLayout.type === 'split';
 
+  // When the layout is split, each PaneLeaf renders its own tab strip and
+  // the global TabBar's tab area is empty. Rendering the full h-10 bar in
+  // that state leaves the clock floating in an orphaned row — looks like
+  // dead space. Instead, when split:
+  //   - if both sidebars are open, render nothing (per-pane strips own
+  //     the chrome entirely)
+  //   - if a sidebar is closed, render only the open-toggle on that side
+  //     in a thin strip so the user can still reopen it
+  if (isSplit) {
+    if (leftSidebarOpen && rightSidebarOpen) return null;
+    return (
+      <div className="flex h-8 shrink-0 items-center border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2">
+        {!leftSidebarOpen && (
+          <button onClick={toggleLeftSidebar} className="shrink-0 rounded-md p-1.5 hover:bg-[hsl(var(--accent))]" title="Open sidebar">
+            <PanelLeftOpen size={14} />
+          </button>
+        )}
+        <div className="flex-1" />
+        {!rightSidebarOpen && (
+          <button onClick={toggleRightSidebar} className="shrink-0 rounded-md p-1.5 hover:bg-[hsl(var(--accent))]" title="Open properties">
+            <PanelRightOpen size={14} />
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-9 items-center border-b border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+    <div className="flex h-10 items-center gap-1 border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2">
       {!leftSidebarOpen && (
-        <button onClick={toggleLeftSidebar} className="shrink-0 p-1.5 hover:bg-[hsl(var(--accent))]" title="Open sidebar">
+        <button onClick={toggleLeftSidebar} className="shrink-0 rounded-md p-1.5 hover:bg-[hsl(var(--accent))]" title="Open sidebar">
           <PanelLeftOpen size={14} />
         </button>
       )}
-      <div className="flex flex-1 items-center overflow-x-auto">
-        {!isSplit && tabs.map((tab) => (
+      <div className="flex flex-1 items-center gap-1 overflow-x-auto">
+        {tabs.map((tab) => (
           <div
             key={tab.id}
             draggable
@@ -38,32 +65,32 @@ export function TabBar() {
               e.dataTransfer.effectAllowed = 'move';
             }}
             className={cn(
-              'group flex shrink-0 cursor-grab items-center gap-1.5 border-r border-[hsl(var(--border))] px-3 py-1.5 text-xs active:cursor-grabbing',
+              'group flex shrink-0 cursor-grab items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors active:cursor-grabbing',
               activeTabId === tab.id
-                ? 'bg-[hsl(var(--background))] text-[hsl(var(--foreground))] border-b-2 border-b-[hsl(var(--primary))]'
-                : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]'
+                ? 'bg-[hsl(var(--accent))] text-[hsl(var(--foreground))]'
+                : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]/60'
             )}
             onClick={() => setActiveTab(tab.id)}
           >
             {tab.kind === 'page' ? <FileText size={11} /> : tab.kind === 'nmap-machine' ? <Monitor size={11} /> : tab.kind === 'nmap' ? <Radar size={11} /> : tab.kind === 'findings' ? <Bug size={11} /> : tab.kind === 'timeline' ? <Clock size={11} /> : <Network size={11} />}
-            <span className="max-w-[120px] truncate">{tab.title}</span>
+            <span className="max-w-[140px] truncate">{tab.title}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 closeTab(tab.id);
               }}
-              className="ml-1 hidden p-0.5 hover:bg-[hsl(var(--destructive))] group-hover:block"
+              className="ml-1 hidden rounded-full p-0.5 hover:bg-[hsl(var(--destructive))]/30 group-hover:block"
             >
               <X size={10} />
             </button>
           </div>
         ))}
       </div>
-      <div className="flex shrink-0 items-center gap-2 border-l border-[hsl(var(--border))] px-3">
+      <div className="flex shrink-0 items-center gap-2 border-l border-[hsl(var(--border))] pl-3 pr-1">
         <LiveClock />
       </div>
       {!rightSidebarOpen && (
-        <button onClick={toggleRightSidebar} className="shrink-0 p-1.5 hover:bg-[hsl(var(--accent))]" title="Open properties">
+        <button onClick={toggleRightSidebar} className="shrink-0 rounded-md p-1.5 hover:bg-[hsl(var(--accent))]" title="Open properties">
           <PanelRightOpen size={14} />
         </button>
       )}

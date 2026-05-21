@@ -70,7 +70,7 @@ export const pageRepo = {
       parentId: data.parentId,
       title: data.title,
       slug: data.slug ?? data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
-      icon: data.icon ?? '📄',
+      icon: data.icon ?? '',
       tags: data.tags ?? [],
       content: normalizePageContent(data.content ?? ''),
       sortOrder: data.sortOrder ?? siblings,

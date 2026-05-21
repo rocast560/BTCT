@@ -17,13 +17,13 @@ export const NodePalette = memo(function NodePalette({ onDrop: _onDrop }: { onDr
   }, []);
 
   return (
-    <div className="flex gap-1 border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-1.5">
+    <div className="flex gap-1 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-1 shadow-md">
       {paletteItems.map((item) => (
         <div
           key={item.type}
           draggable
           onDragStart={(e) => onDragStart(e, item.type)}
-          className={`flex cursor-grab items-center gap-1.5 border bg-[hsl(var(--background))] px-2 py-1 text-[10px] ${item.color} hover:bg-[hsl(var(--accent))]`}
+          className={`flex cursor-grab items-center gap-1.5 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2.5 py-1 text-[10px] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]`}
           title={`Drag to add ${item.label}`}
         >
           {item.icon}

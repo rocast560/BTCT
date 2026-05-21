@@ -18,9 +18,9 @@ export const HostNode = memo(function HostNode({ data, selected }: NodeProps) {
   return (
     <div
       className={cn(
-        'min-w-[160px] border bg-[#1a1a1a] p-3 text-white',
-        selected ? 'border-[hsl(42,76%,46%)] ring-1 ring-[hsl(42,76%,46%)]' : 'border-neutral-600/60',
-        d.highlighted && 'ring-2 ring-[hsl(42,76%,46%)]'
+        'min-w-[160px] rounded-xl border bg-[hsl(var(--card))] p-3 text-[hsl(var(--card-foreground))] shadow-md',
+        selected ? 'border-[hsl(var(--primary))] ring-1 ring-[hsl(var(--primary))]' : 'border-[hsl(var(--border))]',
+        d.highlighted && 'ring-2 ring-[hsl(var(--primary))]'
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-neutral-400" />
@@ -33,7 +33,7 @@ export const HostNode = memo(function HostNode({ data, selected }: NodeProps) {
       {d.openPorts?.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {d.openPorts.map((port: number) => (
-            <span key={port} className="bg-neutral-700/50 px-1 text-[9px] text-neutral-300">
+            <span key={port} className="rounded-full bg-[hsl(var(--muted))] px-1.5 text-[9px] text-[hsl(var(--muted-foreground))]">
               {port}
             </span>
           ))}

@@ -12,7 +12,7 @@ const severityStyles: Record<string, { border: string; badge: string; icon: stri
   critical: { border: 'border-purple-500/40', badge: 'bg-purple-500/20 text-purple-300', icon: 'text-purple-400', accent: 'text-purple-400' },
   high: { border: 'border-red-500/40', badge: 'bg-red-500/20 text-red-300', icon: 'text-red-400', accent: 'text-red-400' },
   medium: { border: 'border-orange-500/40', badge: 'bg-orange-500/20 text-orange-300', icon: 'text-orange-400', accent: 'text-orange-400' },
-  low: { border: 'border-yellow-500/40', badge: 'bg-yellow-500/20 text-yellow-300', icon: 'text-yellow-400', accent: 'text-yellow-400' },
+  low: { border: 'border-[hsl(var(--status-green))]/40', badge: 'bg-[hsl(var(--status-green))]/20 text-[hsl(var(--status-green))]', icon: 'text-[hsl(var(--status-green))]', accent: 'text-[hsl(var(--status-green))]' },
   info: { border: 'border-blue-500/40', badge: 'bg-blue-500/20 text-blue-300', icon: 'text-blue-400', accent: 'text-blue-400' },
 };
 
@@ -112,7 +112,7 @@ export function FindingsCollector() {
             const style = severityStyles[sev]!;
             const count = countBySev[sev] ?? 0;
             return (
-              <div key={sev} className={cn('flex-1 border bg-[hsl(var(--card))] p-3', style.border)}>
+              <div key={sev} className={cn('flex-1 rounded-xl border bg-[hsl(var(--card))] p-3', style.border)}>
                 <div className={cn('text-[10px] font-bold uppercase tracking-widest', style.accent)}>{sev}</div>
                 <div className="mt-1 text-2xl font-bold">{count}</div>
               </div>
@@ -123,7 +123,7 @@ export function FindingsCollector() {
         {/* Findings grouped by severity */}
         {findings.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-[hsl(var(--muted-foreground))]">
-            <Bug size={48} className="mb-4 text-red-500 opacity-30" />
+            <Bug size={48} className="mb-4 text-[hsl(var(--status-red))] opacity-30" />
             <p className="text-sm">No findings yet.</p>
             <p className="mt-1 text-xs">Add finding nodes to your attack narratives to see them here.</p>
           </div>
@@ -133,14 +133,14 @@ export function FindingsCollector() {
               const style = severityStyles[severity]!;
               const collapsed = collapsedSections.has(severity);
               return (
-                <div key={severity} className={cn('border bg-[hsl(var(--card))]', style.border)}>
+                <div key={severity} className={cn('overflow-hidden rounded-xl border bg-[hsl(var(--card))]', style.border)}>
                   <button
                     onClick={() => toggleSection(severity)}
                     className="flex w-full items-center gap-3 px-4 py-3 hover:bg-[hsl(var(--accent))]"
                   >
                     {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                     <span className={cn('text-[10px] font-bold uppercase tracking-widest', style.accent)}>{severity}</span>
-                    <span className={cn('px-1.5 text-[9px]', style.badge)}>{items.length}</span>
+                    <span className={cn('rounded-full px-2 py-0.5 text-[9px]', style.badge)}>{items.length}</span>
                   </button>
                   {!collapsed && (
                     <div className="divide-y divide-[hsl(var(--border))]">
@@ -157,7 +157,7 @@ export function FindingsCollector() {
                               </div>
                             </div>
                             {fd.cvss > 0 && (
-                              <span className={cn('shrink-0 px-1.5 py-0.5 text-[10px] font-mono', style.badge)}>
+                              <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-mono', style.badge)}>
                                 {fd.cvss.toFixed(1)}
                               </span>
                             )}

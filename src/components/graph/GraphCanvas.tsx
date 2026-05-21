@@ -788,32 +788,8 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
-  // ── Cat background toggle (persisted across reloads) ──
-  const [catBgEnabled, setCatBgEnabled] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
-    return window.localStorage.getItem('graphCatBg') !== '0';
-  });
-  useEffect(() => {
-    window.localStorage.setItem('graphCatBg', catBgEnabled ? '1' : '0');
-  }, [catBgEnabled]);
-
   return (
     <div className="relative h-full w-full overflow-hidden bg-[hsl(var(--background))]">
-      {/* Looping video background */}
-      {catBgEnabled && (
-        <>
-          <video
-            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-            src="/alexcatwalk.mp4"
-            autoPlay
-            loop
-            muted
-            playsInline
-          />
-          {/* Dim overlay so the video doesn't overpower node readability */}
-          <div className="pointer-events-none absolute inset-0 bg-[hsl(var(--background))]/60" />
-        </>
-      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -855,17 +831,9 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
               }}
               disabled={nodes.length === 0}
               title="Center view on node cluster"
-              className="border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-1.5 hover:bg-[hsl(var(--accent))] disabled:opacity-40 disabled:cursor-not-allowed"
+              className="rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2 shadow-md hover:bg-[hsl(var(--accent))] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg>
-            </button>
-            <button
-              type="button"
-              onClick={() => setCatBgEnabled((v) => !v)}
-              title={catBgEnabled ? 'Disable cat background' : 'Enable cat background'}
-              className="border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
-            >
-              {catBgEnabled ? 'Cat: On' : 'Cat: Off'}
             </button>
           </div>
         </Panel>
@@ -873,20 +841,20 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
           <NodePalette onDrop={handleDropNode} />
         </Panel>
         <Panel position="bottom-center">
-          <div className="flex flex-wrap items-center justify-center gap-1">
-            <div className="relative flex">
-              <button onClick={handleAutoLayout} className="border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]">
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <div className="relative flex items-center gap-1.5">
+              <button onClick={handleAutoLayout} className="rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-[10px] uppercase tracking-wider shadow-md hover:bg-[hsl(var(--accent))]">
                 Auto Layout
               </button>
               <button
                 onClick={() => setShowLayoutConfig((v) => !v)}
-                className="-ml-px border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-1.5 py-1 text-[10px] hover:bg-[hsl(var(--accent))]"
+                className="rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2 text-[10px] shadow-md hover:bg-[hsl(var(--accent))]"
                 title="Layout settings"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
               </button>
               {showLayoutConfig && (
-                <div className="absolute bottom-full right-0 mb-1 z-50 w-56 border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 shadow-xl">
+                <div className="absolute bottom-full right-0 mb-2 z-50 w-56 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 shadow-xl">
                   <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Layout Settings</div>
                   {([
                     { key: 'nodesep' as const, label: 'Node Spacing', min: 20, max: 300 },
@@ -910,20 +878,20 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
                   ))}
                   <button
                     onClick={() => { handleAutoLayout(); setShowLayoutConfig(false); }}
-                    className="mt-1 w-full border border-[hsl(var(--border))] bg-[hsl(var(--accent))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--foreground))] hover:text-[hsl(var(--background))]"
+                    className="mt-1 w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--accent))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--primary))] hover:text-[hsl(var(--primary-foreground))]"
                   >
                     Apply Layout
                   </button>
                 </div>
               )}
             </div>
-            <button onClick={handleHighlightPath} className="border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]">
+            <button onClick={handleHighlightPath} className="rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-[10px] uppercase tracking-wider shadow-md hover:bg-[hsl(var(--accent))]">
               Highlight Path
             </button>
-            <button onClick={handleClearHighlight} className="border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]">
+            <button onClick={handleClearHighlight} className="rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-[10px] uppercase tracking-wider shadow-md hover:bg-[hsl(var(--accent))]">
               Clear
             </button>
-            <button onClick={handleExportPng} className="border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]">
+            <button onClick={handleExportPng} className="rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-[10px] uppercase tracking-wider shadow-md hover:bg-[hsl(var(--accent))]">
               Export PNG
             </button>
           </div>
@@ -947,7 +915,7 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
       )}
       {pendingDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPendingDelete(null)}>
-          <div className="w-full max-w-sm border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-2 text-sm font-bold">
               Delete {pendingDelete.items.length > 1 ? `${pendingDelete.items.length} Nodes` : pendingDelete.kind === 'node' ? 'Node' : 'Edge'}
             </h3>
@@ -961,8 +929,8 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
                 <p className="mb-2 text-xs text-[hsl(var(--muted-foreground))]">Are you sure you want to delete the following nodes? This action cannot be undone.</p>
                 <ul className="max-h-40 overflow-y-auto space-y-0.5">
                   {pendingDelete.items.map((item) => (
-                    <li key={item.id} className="text-xs text-[hsl(var(--foreground))] flex items-center gap-1.5 px-2 py-0.5 bg-[hsl(var(--accent))]">
-                      <span className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0" />
+                    <li key={item.id} className="text-xs text-[hsl(var(--foreground))] flex items-center gap-1.5 rounded-md px-2 py-1 bg-[hsl(var(--accent))]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--status-red))] shrink-0" />
                       {item.label}
                     </li>
                   ))}
@@ -972,13 +940,13 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setPendingDelete(null)}
-                className="border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
+                className="rounded-lg border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmDelete}
-                className="border border-red-500 bg-red-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-500/20"
+                className="rounded-lg border border-[hsl(var(--status-red))]/60 bg-[hsl(var(--status-red))]/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--status-red))] hover:bg-[hsl(var(--status-red))]/20"
               >
                 Delete{pendingDelete.items.length > 1 ? ` (${pendingDelete.items.length})` : ''}
               </button>
@@ -988,7 +956,7 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
       )}
       {pendingNewChain && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPendingNewChain(null)}>
-          <div className="w-full max-w-sm border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-2 text-sm font-bold">New Attack Chain</h3>
             <p className="mb-3 text-xs text-[hsl(var(--muted-foreground))]">
               Creating a chain with <span className="text-[hsl(var(--foreground))] font-semibold">{pendingNewChain.nodeIds.length}</span> nodes.
@@ -1008,12 +976,12 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
                 if (e.key === 'Escape') setPendingNewChain(null);
               }}
               placeholder="Chain name"
-              className="w-full border border-[hsl(var(--border))] bg-[hsl(var(--input))] px-2 py-1.5 text-sm outline-none focus:border-[hsl(var(--foreground))]"
+              className="w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--input))] px-3 py-2 text-sm outline-none focus:border-[hsl(var(--primary))]"
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={() => setPendingNewChain(null)}
-                className="border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
+                className="rounded-lg border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
               >
                 Cancel
               </button>
@@ -1026,7 +994,7 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
                   });
                   setPendingNewChain(null);
                 }}
-                className="border border-[hsl(var(--border))] bg-[hsl(var(--accent))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--foreground))] hover:text-[hsl(var(--background))] disabled:opacity-40"
+                className="rounded-lg bg-[hsl(var(--primary))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--primary-foreground))] hover:opacity-90 disabled:opacity-40"
               >
                 Create
               </button>
@@ -1036,7 +1004,7 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
       )}
       {showNodeSearch && (
         <div className="fixed inset-0 z-50 flex items-start justify-center pt-24" onClick={() => setShowNodeSearch(false)}>
-          <div className="w-96 border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-96 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 border-b border-[hsl(var(--border))] px-3 py-2">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[hsl(var(--muted-foreground))]"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
               <input

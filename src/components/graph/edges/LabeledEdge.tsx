@@ -54,7 +54,7 @@ export const LabeledEdge = memo(function LabeledEdge(props: EdgeProps) {
             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
             pointerEvents: 'all',
           }}
-          className="bg-[hsl(var(--card))] px-1.5 py-0.5 text-[10px] text-[hsl(var(--foreground))] border border-[hsl(var(--border))]"
+          className="rounded-md bg-[hsl(var(--card))] px-1.5 py-0.5 text-[10px] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] shadow-sm"
           onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}
         >
           {editing ? (

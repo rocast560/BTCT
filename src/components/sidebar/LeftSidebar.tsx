@@ -25,6 +25,31 @@ import {
 } from 'lucide-react';
 import type { Page, Graph, NmapScan, AttackChain } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { cn } from '@/lib/utils';
+
+// Custom drag MIME for moving a page row into another page row (or out
+// to the root level). Distinct from the tab drag MIME so the two flows
+// don't ever collide.
+const PAGE_DRAG_TYPE = 'application/x-btct-page';
+const PAGES_EXPANDED_KEY = 'btct.pages.expanded.v1';
+
+// Cycle guard: returns true if `candidateAncestor` already exists in
+// `target`'s ancestor chain. Used before reparenting so we never let a
+// user drag a parent into one of its own descendants.
+function isAncestor(candidateAncestor: string, target: string, pages: Page[]): boolean {
+  const byId = new Map(pages.map((p) => [p.id, p]));
+  let cursor: string | null = target;
+  const seen = new Set<string>();
+  while (cursor) {
+    if (seen.has(cursor)) break;
+    seen.add(cursor);
+    if (cursor === candidateAncestor) return true;
+    const node = byId.get(cursor);
+    if (!node) break;
+    cursor = node.parentId;
+  }
+  return false;
+}
 
 export function LeftSidebar() {
   const {
@@ -69,7 +94,55 @@ export function LeftSidebar() {
   const authUser = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
 
+  // Per-page expansion state, persisted across reloads. Used to remember
+  // which page-tree nodes the user has opened so subpages stay visible.
+  const [expandedPages, setExpandedPages] = useState<Set<string>>(() => {
+    if (typeof localStorage === 'undefined') return new Set();
+    try {
+      const raw = localStorage.getItem(PAGES_EXPANDED_KEY);
+      if (raw) return new Set(JSON.parse(raw) as string[]);
+    } catch { /* ignore */ }
+    return new Set();
+  });
+  const togglePageExpanded = useCallback((id: string) => {
+    setExpandedPages((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { localStorage.setItem(PAGES_EXPANDED_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+  const expandPage = useCallback((id: string) => {
+    setExpandedPages((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      try { localStorage.setItem(PAGES_EXPANDED_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
   const rootPages = pages.filter((p) => p.parentId === null && !p.isGraphPage);
+
+  // Drop-zone state on the Pages section header: hovering with a page
+  // drag here re-parents the dragged page back to root level.
+  const [rootDropOver, setRootDropOver] = useState(false);
+  const updatePageFromStore = useAppStore((s) => s.updatePage);
+  const handleRootDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes(PAGE_DRAG_TYPE)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setRootDropOver(true);
+  };
+  const handleRootDrop = (e: React.DragEvent) => {
+    const draggedId = e.dataTransfer.getData(PAGE_DRAG_TYPE);
+    setRootDropOver(false);
+    if (!draggedId) return;
+    e.preventDefault();
+    const dragged = pages.find((p) => p.id === draggedId);
+    if (!dragged || dragged.parentId === null) return;
+    void updatePageFromStore(draggedId, { parentId: null });
+  };
 
   useEffect(() => {
     if (activeWorkspaceId) void loadNmapScans();
@@ -168,30 +241,31 @@ export function LeftSidebar() {
         className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-[hsl(var(--primary))] active:bg-[hsl(var(--primary))]"
       />
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2">
+      <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-widest text-white">BTCT</span>
+          <img src="/new-logo.png" alt="" className="h-5 w-5 rounded-md object-cover" aria-hidden />
+          <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--foreground))]">BTCT</span>
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={toggleDarkMode} className="p-1 hover:bg-[hsl(var(--accent))]" title="Toggle theme">
+          <button onClick={toggleDarkMode} className="rounded-md p-1.5 hover:bg-[hsl(var(--accent))]" title="Toggle theme">
             {darkMode ? <Sun size={13} /> : <Moon size={13} />}
           </button>
-          <button onClick={toggleLeftSidebar} className="p-1 hover:bg-[hsl(var(--accent))]" title="Close sidebar">
+          <button onClick={toggleLeftSidebar} className="rounded-md p-1.5 hover:bg-[hsl(var(--accent))]" title="Close sidebar">
             <PanelLeftClose size={13} />
           </button>
         </div>
       </div>
 
       {/* Search */}
-      <div className="px-3 py-2">
-        <div className="flex items-center gap-2 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1">
+      <div className="px-3 py-2.5">
+        <div className="flex items-center gap-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-1.5">
           <Search size={14} className="text-[hsl(var(--muted-foreground))]" />
           <input
             type="text"
             placeholder="Search pages..."
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-[hsl(var(--muted-foreground))]"
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus-visible:outline-none"
           />
         </div>
       </div>
@@ -204,9 +278,9 @@ export function LeftSidebar() {
             <button
               key={p.id}
               onClick={() => openPage(p)}
-              className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-[hsl(var(--accent))]"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm outline-none hover:bg-[hsl(var(--accent))] focus:bg-transparent focus-visible:bg-[hsl(var(--accent))]/60"
             >
-              <FileText size={12} className="text-blue-400" />
+              <FileText size={12} className="text-[hsl(var(--status-blue))]" />
               <span className="truncate">{p.title}</span>
             </button>
           ))}
@@ -218,7 +292,15 @@ export function LeftSidebar() {
       <div className="flex-1 overflow-y-auto px-1">
         {/* Pages section */}
         <div className="py-1">
-          <div className="flex w-full items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2">
+          <div
+            className={cn(
+              'flex w-full items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2 transition-colors',
+              rootDropOver && 'bg-[hsl(var(--primary))]/15',
+            )}
+            onDragOver={handleRootDragOver}
+            onDragLeave={() => setRootDropOver(false)}
+            onDrop={handleRootDrop}
+          >
             <button
               onClick={() => setPagesExpanded(!pagesExpanded)}
               className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--foreground))]"
@@ -234,20 +316,30 @@ export function LeftSidebar() {
             <div className="flex flex-col gap-1 px-2 pt-1">
               <button
                 onClick={openFindings}
-                className="flex w-full items-center gap-1.5 border border-red-600/40 bg-red-500/10 px-2 py-1 text-left text-[11px] hover:bg-red-500/20"
+                className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--status-red))]/30 bg-[hsl(var(--status-red))]/10 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--status-red))]/20"
               >
-                <Bug size={12} className="text-red-400" />
+                <Bug size={12} className="text-[hsl(var(--status-red))]" />
                 <span className="truncate">Findings</span>
               </button>
               <button
                 onClick={openTimeline}
-                className="flex w-full items-center gap-1.5 border border-orange-600/40 bg-orange-500/10 px-2 py-1 text-left text-[11px] hover:bg-orange-500/20"
+                className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--status-amber))]/30 bg-[hsl(var(--status-amber))]/10 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--status-amber))]/20"
               >
-                <Clock size={12} className="text-orange-400" />
+                <Clock size={12} className="text-[hsl(var(--status-amber))]" />
                 <span className="truncate">Attack Timeline</span>
               </button>
               {rootPages.map((page) => (
-                <PageTreeItem key={page.id} page={page} pages={pages} openPage={openPage} deletePage={deletePage} depth={0} />
+                <PageTreeItem
+                  key={page.id}
+                  page={page}
+                  pages={pages}
+                  openPage={openPage}
+                  deletePage={deletePage}
+                  depth={0}
+                  expandedPages={expandedPages}
+                  toggleExpanded={togglePageExpanded}
+                  expandPage={expandPage}
+                />
               ))}
               {rootPages.length === 0 && (
                 <span className="px-2 py-1 text-xs text-[hsl(var(--muted-foreground))]">No pages yet</span>
@@ -335,8 +427,8 @@ export function LeftSidebar() {
           {nmapExpanded && (
             <div className="flex flex-col gap-1 px-2 pt-1">
               {creatingGroup && (
-                <div className="flex w-full items-center gap-1 border border-teal-600/40 bg-teal-500/10 px-2 py-1">
-                  <Radar size={12} className="shrink-0 text-teal-400" />
+                <div className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--status-green))]/30 bg-[hsl(var(--status-green))]/10 px-2.5 py-1.5">
+                  <Radar size={12} className="shrink-0 text-[hsl(var(--status-green))]" />
                   <input
                     autoFocus
                     value={newGroupName}
@@ -364,7 +456,7 @@ export function LeftSidebar() {
         <WorkspaceSelector />
 
         {authUser && (
-          <div className="flex items-center gap-2.5 rounded border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2.5 py-2">
+          <div className="flex items-center gap-2.5 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2.5 py-2">
             <button
               onClick={() => setProfileEditorOpen(true)}
               title="Edit profile"
@@ -397,7 +489,7 @@ export function LeftSidebar() {
         {authUser?.isAdmin && (
           <button
             onClick={() => setAdminPanelOpen(true)}
-            className="flex items-center justify-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] font-medium text-amber-300 hover:bg-amber-500/20"
+            className="flex items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--status-amber))]/40 bg-[hsl(var(--status-amber))]/10 px-2 py-1.5 text-[11px] font-medium text-[hsl(var(--status-amber))] hover:bg-[hsl(var(--status-amber))]/20"
           >
             <Shield size={12} />
             <span>Admin Panel</span>
@@ -417,25 +509,59 @@ function PageTreeItem({
   openPage,
   deletePage,
   depth,
+  expandedPages,
+  toggleExpanded,
+  expandPage,
 }: {
   page: Page;
   pages: Page[];
   openPage: (p: Page) => void;
   deletePage: (id: string) => Promise<void>;
   depth: number;
+  expandedPages: Set<string>;
+  toggleExpanded: (id: string) => void;
+  expandPage: (id: string) => void;
 }) {
-  const [expanded] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [editingSlug, setEditingSlug] = useState(false);
   const [slugValue, setSlugValue] = useState(page.slug ?? '');
   const [renaming, setRenaming] = useState(false);
   const [nameValue, setNameValue] = useState(page.title);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const updatePage = useAppStore((s) => s.updatePage);
   const slugRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const children = pages.filter((p) => p.parentId === page.id);
+  const hasChildren = children.length > 0;
+  const isExpanded = expandedPages.has(page.id);
+
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData(PAGE_DRAG_TYPE, page.id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes(PAGE_DRAG_TYPE)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOver(true);
+  };
+  const handleDragLeave = () => setDragOver(false);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const draggedId = e.dataTransfer.getData(PAGE_DRAG_TYPE);
+    if (!draggedId || draggedId === page.id) return;
+    // Cycle guard: refuse if the page we'd reparent is already an
+    // ancestor of the drop target.
+    if (isAncestor(draggedId, page.id, pages)) return;
+    const dragged = pages.find((p) => p.id === draggedId);
+    if (!dragged || dragged.parentId === page.id) return;
+    void updatePage(draggedId, { parentId: page.id });
+    // Auto-expand so the user sees the page they just dropped in.
+    expandPage(page.id);
+  };
 
   useEffect(() => {
     if (editingSlug && slugRef.current) slugRef.current.focus();
@@ -475,14 +601,35 @@ function PageTreeItem({
   return (
     <div className="group relative">
       <div
-        className="flex w-full items-center border border-blue-600/40 bg-blue-500/10 hover:bg-blue-500/20"
+        draggable
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={cn(
+          'flex w-full items-center rounded-lg border border-[hsl(var(--status-blue))]/30 bg-[hsl(var(--status-blue))]/10 hover:bg-[hsl(var(--status-blue))]/20',
+          dragOver && 'ring-2 ring-[hsl(var(--primary))] ring-offset-1 ring-offset-[hsl(var(--background))]',
+        )}
         onContextMenu={(e) => {
           e.preventDefault();
           setCtxMenu({ x: e.clientX, y: e.clientY });
         }}
       >
+        {/* Chevron column. Reserved width even when there are no
+            children so every row's icon + title line up horizontally. */}
+        {hasChildren ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleExpanded(page.id); }}
+            className="ml-0.5 shrink-0 rounded p-0.5 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
+            title={isExpanded ? 'Collapse' : 'Expand'}
+          >
+            {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+          </button>
+        ) : (
+          <span className="ml-0.5 inline-block w-[14px] shrink-0" aria-hidden />
+        )}
         {editingSlug ? (
-          <div className="flex items-center gap-1 px-2 py-1">
+          <div className="flex items-center gap-1 px-1 py-1.5">
             <span className="text-[10px] text-[hsl(var(--muted-foreground))]">/</span>
             <input
               ref={slugRef}
@@ -494,8 +641,8 @@ function PageTreeItem({
             />
           </div>
         ) : renaming ? (
-          <div className="flex flex-1 items-center gap-1.5 px-2 py-1">
-            <FileText size={12} className="shrink-0 text-blue-400" />
+          <div className="flex flex-1 items-center gap-1.5 px-1 py-1.5">
+            <FileText size={12} className="shrink-0 text-[hsl(var(--status-blue))]" />
             <input
               ref={nameRef}
               value={nameValue}
@@ -511,9 +658,9 @@ function PageTreeItem({
         ) : (
           <button
             onClick={() => openPage(page)}
-            className="flex flex-1 items-center gap-1.5 px-2 py-1 text-[11px]"
+            className="flex flex-1 items-center gap-1.5 px-1 py-1.5 pr-2.5 text-[11px]"
           >
-            <FileText size={12} className="text-blue-400" />
+            <FileText size={12} className="text-[hsl(var(--status-blue))]" />
             <span className="truncate">{page.title}</span>
           </button>
         )}
@@ -533,7 +680,7 @@ function PageTreeItem({
       {ctxMenu && (
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[140px] border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
+          className="fixed z-50 min-w-[160px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
         >
           <button
@@ -554,6 +701,14 @@ function PageTreeItem({
           >
             Open
           </button>
+          {page.parentId !== null && (
+            <button
+              onClick={() => { setCtxMenu(null); void updatePage(page.id, { parentId: null }); }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
+            >
+              Move to root
+            </button>
+          )}
           <div className="my-1 border-t border-[hsl(var(--border))]" />
           <button
             onClick={() => { setCtxMenu(null); setConfirmDelete(true); }}
@@ -564,10 +719,26 @@ function PageTreeItem({
         </div>
       )}
 
-      {expanded &&
-        children.map((child) => (
-          <PageTreeItem key={child.id} page={child} pages={pages} openPage={openPage} deletePage={deletePage} depth={depth + 1} />
-        ))}
+      {/* Children — wrapped in a left-bordered indent so the tree
+          structure is visible. Each nesting level adds its own border-l,
+          so a node at depth 3 shows 3 stacked guide lines on its left. */}
+      {isExpanded && hasChildren && (
+        <div className="ml-3 mt-1 flex flex-col gap-1 border-l border-[hsl(var(--border))] pl-2">
+          {children.map((child) => (
+            <PageTreeItem
+              key={child.id}
+              page={child}
+              pages={pages}
+              openPage={openPage}
+              deletePage={deletePage}
+              depth={depth + 1}
+              expandedPages={expandedPages}
+              toggleExpanded={toggleExpanded}
+              expandPage={expandPage}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -618,12 +789,12 @@ function NarrativeItem({
 
   return (
     <div
-      className="group flex w-full items-center border border-amber-600/40 bg-amber-500/10 hover:bg-amber-500/20"
+      className="group flex w-full items-center rounded-lg border border-[hsl(var(--status-amber))]/30 bg-[hsl(var(--status-amber))]/10 hover:bg-[hsl(var(--status-amber))]/20"
       onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
     >
       {renaming ? (
-        <div className="flex flex-1 items-center gap-1.5 px-2 py-1">
-          <Network size={12} className="shrink-0 text-amber-400" />
+        <div className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5">
+          <Network size={12} className="shrink-0 text-[hsl(var(--status-amber))]" />
           <input
             ref={inputRef}
             value={nameValue}
@@ -639,9 +810,9 @@ function NarrativeItem({
       ) : (
         <button
           onClick={() => openGraph(graph)}
-          className="flex flex-1 items-center gap-1.5 px-2 py-1 text-[11px]"
+          className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5 text-[11px]"
         >
-          <Network size={12} className="text-amber-400" />
+          <Network size={12} className="text-[hsl(var(--status-amber))]" />
           <span className="truncate">{graph.name}</span>
         </button>
       )}
@@ -656,7 +827,7 @@ function NarrativeItem({
       {ctxMenu && (
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[140px] border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
+          className="fixed z-50 min-w-[160px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
         >
           <button
@@ -727,12 +898,12 @@ function NmapScanItem({
   };
 
   return (
-    <div className="group flex w-full items-center border border-teal-600/40 bg-teal-500/10 hover:bg-teal-500/20"
+    <div className="group flex w-full items-center rounded-lg border border-[hsl(var(--status-green))]/30 bg-[hsl(var(--status-green))]/10 hover:bg-[hsl(var(--status-green))]/20"
       onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
     >
       {renaming ? (
-        <div className="flex flex-1 items-center gap-1.5 px-2 py-1">
-          <Radar size={12} className="shrink-0 text-teal-400" />
+        <div className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5">
+          <Radar size={12} className="shrink-0 text-[hsl(var(--status-green))]" />
           <input
             ref={inputRef}
             value={nameValue}
@@ -745,9 +916,9 @@ function NmapScanItem({
       ) : (
         <button
           onClick={() => openScan(scan)}
-          className="flex flex-1 items-center gap-1.5 px-2 py-1 text-[11px]"
+          className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5 text-[11px]"
         >
-          <Radar size={12} className="text-teal-400" />
+          <Radar size={12} className="text-[hsl(var(--status-green))]" />
           <span className="truncate">{scan.name}</span>
         </button>
       )}
@@ -764,7 +935,7 @@ function NmapScanItem({
       {ctxMenu && (
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[140px] border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
+          className="fixed z-50 min-w-[160px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
         >
           <button
@@ -807,7 +978,7 @@ function ConfirmDeleteDialog({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
-      <div className="w-full max-w-sm border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-2 text-sm font-bold">Delete {kind}</h3>
         <p className="mb-4 text-xs text-[hsl(var(--muted-foreground))]">
           Are you sure you want to delete{' '}
@@ -816,13 +987,13 @@ function ConfirmDeleteDialog({
         <div className="flex justify-end gap-2">
           <button
             onClick={onCancel}
-            className="border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
+            className="rounded-lg border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className="border border-red-500 bg-red-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-500/20"
+            className="rounded-lg border border-[hsl(var(--status-red))]/60 bg-[hsl(var(--status-red))]/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--status-red))] hover:bg-[hsl(var(--status-red))]/20"
           >
             Delete
           </button>
@@ -882,12 +1053,12 @@ function AttackChainItem({
 
   return (
     <div
-      className="group flex w-full flex-col border border-red-600/40 bg-red-500/10 hover:bg-red-500/20"
+      className="group flex w-full items-center rounded-lg border border-[hsl(var(--status-red))]/30 bg-[hsl(var(--status-red))]/10 hover:bg-[hsl(var(--status-red))]/20"
       onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
     >
       {renaming ? (
-        <div className="flex flex-1 items-center gap-1.5 px-2 py-1">
-          <Link2 size={12} className="shrink-0 text-red-400" />
+        <div className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5">
+          <Link2 size={12} className="shrink-0 text-[hsl(var(--status-red))]" />
           <input
             ref={inputRef}
             value={nameValue}
@@ -903,16 +1074,11 @@ function AttackChainItem({
       ) : (
         <button
           onClick={() => openChain(chain)}
-          className="flex flex-1 items-start gap-1.5 px-2 py-1 text-left text-[11px]"
+          className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px]"
           title={`${chain.nodeIds.length} nodes · in ${graphName}`}
         >
-          <Link2 size={12} className="mt-0.5 shrink-0 text-red-400" />
-          <div className="min-w-0 flex-1">
-            <div className="truncate">{chain.name}</div>
-            <div className="truncate text-[9px] text-[hsl(var(--muted-foreground))]">
-              {chain.nodeIds.length} nodes · {graphName}
-            </div>
-          </div>
+          <Link2 size={12} className="shrink-0 text-[hsl(var(--status-red))]" />
+          <span className="truncate">{chain.name}</span>
         </button>
       )}
 
@@ -928,7 +1094,7 @@ function AttackChainItem({
       {ctxMenu && (
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[160px] border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
+          className="fixed z-50 min-w-[160px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
         >
           <button

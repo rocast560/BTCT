@@ -72,7 +72,7 @@ export function ChangeLogPanel() {
                 type="button"
                 onClick={() => void handleRestore(entry)}
                 disabled={pendingId === entry.id}
-                className="flex shrink-0 items-center gap-1 border border-[hsl(var(--border))] px-1.5 py-0.5 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] disabled:opacity-50"
+                className="flex shrink-0 items-center gap-1 rounded-full border border-[hsl(var(--border))] px-2 py-0.5 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] disabled:opacity-50"
                 title="Restore to the previous value"
               >
                 <Undo2 size={10} /> Restore

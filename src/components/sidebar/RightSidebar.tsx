@@ -71,13 +71,13 @@ export function RightSidebar() {
       <div className="flex flex-col gap-2 border-t border-[hsl(var(--border))] p-3">
         <button
           onClick={() => setExportOpen(true)}
-          className="w-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-xs uppercase tracking-wide hover:bg-[hsl(var(--accent))]"
+          className="w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-xs uppercase tracking-wide hover:bg-[hsl(var(--accent))]"
         >
           Export / Import
         </button>
         <button
           onClick={() => { setShowDeleteConfirm(true); setDeleteConfirmText(''); }}
-          className="w-full border border-[hsl(var(--destructive))] bg-[hsl(var(--card))] px-3 py-1.5 text-xs uppercase tracking-wide text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive))] hover:text-white"
+          className="w-full rounded-lg border border-[hsl(var(--destructive))] bg-[hsl(var(--card))] px-3 py-2 text-xs uppercase tracking-wide text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive))] hover:text-white"
         >
           Delete Database
         </button>
@@ -87,8 +87,8 @@ export function RightSidebar() {
 
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowDeleteConfirm(false)}>
-          <div className="w-80 border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center gap-2 text-red-400">
+          <div className="w-80 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center gap-2 text-[hsl(var(--status-red))]">
               <AlertTriangle size={16} />
               <span className="text-sm font-semibold">Delete Database</span>
             </div>
@@ -104,19 +104,19 @@ export function RightSidebar() {
               onChange={(e) => setDeleteConfirmText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmDelete(); if (e.key === 'Escape') setShowDeleteConfirm(false); }}
               placeholder="Type DELETE..."
-              className="mb-3 w-full border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1.5 text-xs outline-none"
+              className="mb-3 w-full rounded-lg border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-xs outline-none focus:border-[hsl(var(--primary))]"
             />
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="px-3 py-1 text-xs hover:bg-[hsl(var(--accent))]"
+                className="rounded-lg px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDelete}
                 disabled={deleteConfirmText !== 'DELETE'}
-                className="px-3 py-1 text-xs bg-red-600 text-white hover:bg-red-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="rounded-lg bg-[hsl(var(--status-red))] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 Delete
               </button>

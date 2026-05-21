@@ -39,34 +39,37 @@ export function LoginScreen() {
     <div className="flex h-screen w-screen items-center justify-center bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
       <form
         onSubmit={submit}
-        className="w-full max-w-sm rounded-lg border border-white/10 bg-black/30 p-6 shadow-xl"
+        className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-7 shadow-2xl"
       >
-        <h1 className="mb-1 text-xl font-semibold">Been There, Conquered That</h1>
-        <p className="mb-5 text-sm text-white/60">Sign in to your workspace</p>
+        <div className="mb-5 flex items-center gap-2">
+          <img src="/new-logo.png" alt="" className="h-7 w-7 rounded-md object-cover" />
+          <h1 className="text-lg font-semibold tracking-tight">Been There, Conquered That</h1>
+        </div>
+        <p className="mb-6 text-sm text-[hsl(var(--muted-foreground))]">Sign in to your workspace</p>
 
         <label className="mb-3 block text-sm">
-          <span className="mb-1 block text-white/70">Username</span>
+          <span className="mb-1.5 block text-xs font-medium text-[hsl(var(--muted-foreground))]">Username</span>
           <input
             autoFocus
             autoComplete="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 outline-none focus:border-white/30"
+            className="w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2 outline-none transition-colors focus:border-[hsl(var(--primary))]"
           />
         </label>
-        <label className="mb-3 block text-sm">
-          <span className="mb-1 block text-white/70">Password</span>
+        <label className="mb-4 block text-sm">
+          <span className="mb-1.5 block text-xs font-medium text-[hsl(var(--muted-foreground))]">Password</span>
           <input
             type="password"
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 outline-none focus:border-white/30"
+            className="w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2 outline-none transition-colors focus:border-[hsl(var(--primary))]"
           />
         </label>
 
         {error && (
-          <div className="mb-3 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          <div className="mb-3 rounded-lg border border-[hsl(var(--destructive))]/40 bg-[hsl(var(--destructive))]/10 px-3 py-2 text-sm text-[hsl(var(--destructive))]">
             {error}
           </div>
         )}
@@ -74,12 +77,12 @@ export function LoginScreen() {
         <button
           type="submit"
           disabled={busy}
-          className="w-full rounded-md bg-white/90 px-3 py-2 text-sm font-medium text-black hover:bg-white disabled:opacity-50"
+          className="w-full rounded-lg bg-[hsl(var(--primary))] px-3 py-2 text-sm font-semibold text-[hsl(var(--primary-foreground))] transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {busy ? 'Working…' : 'Log in'}
         </button>
 
-        <p className="mt-4 text-center text-xs text-white/40">
+        <p className="mt-5 text-center text-xs text-[hsl(var(--muted-foreground))]">
           Accounts are created by an administrator from inside the app.
         </p>
       </form>

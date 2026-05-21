@@ -12,12 +12,31 @@ interface FindingNodeData {
   [key: string]: unknown;
 }
 
-const severityConfig: Record<string, { bg: string; border: string; bar: string; text: string; badge: string }> = {
-  critical: { bg: 'bg-[#1a1a1a]', border: 'border-purple-500', bar: 'bg-purple-500', text: 'text-purple-400', badge: 'bg-purple-500/30 text-purple-300' },
-  high:     { bg: 'bg-[#1a1a1a]', border: 'border-red-500',    bar: 'bg-red-500',    text: 'text-red-400',    badge: 'bg-red-500/30 text-red-300' },
-  medium:   { bg: 'bg-[#1a1a1a]', border: 'border-orange-500', bar: 'bg-orange-500', text: 'text-orange-400', badge: 'bg-orange-500/30 text-orange-300' },
-  low:      { bg: 'bg-[#1a1a1a]', border: 'border-yellow-500', bar: 'bg-yellow-500', text: 'text-yellow-400', badge: 'bg-yellow-500/30 text-yellow-300' },
-  info:     { bg: 'bg-[#1a1a1a]', border: 'border-blue-500',   bar: 'bg-blue-500',   text: 'text-blue-400',   badge: 'bg-blue-500/30 text-blue-300' },
+// Per-severity colours just for the inline icon + badge. The card frame
+// itself stays neutral (matches HostNode / ServiceNode / etc.) so all
+// node types look like a uniform family on the canvas; severity is
+// communicated by the pill inside.
+const severityConfig: Record<string, { text: string; badge: string }> = {
+  critical: {
+    text:  'text-[hsl(var(--status-purple))]',
+    badge: 'bg-[hsl(var(--status-purple))]/25 text-[hsl(var(--status-purple))]',
+  },
+  high: {
+    text:  'text-[hsl(var(--status-red))]',
+    badge: 'bg-[hsl(var(--status-red))]/25 text-[hsl(var(--status-red))]',
+  },
+  medium: {
+    text:  'text-[hsl(var(--status-amber))]',
+    badge: 'bg-[hsl(var(--status-amber))]/25 text-[hsl(var(--status-amber))]',
+  },
+  low: {
+    text:  'text-[hsl(var(--status-green))]',
+    badge: 'bg-[hsl(var(--status-green))]/25 text-[hsl(var(--status-green))]',
+  },
+  info: {
+    text:  'text-[hsl(var(--status-blue))]',
+    badge: 'bg-[hsl(var(--status-blue))]/25 text-[hsl(var(--status-blue))]',
+  },
 };
 
 export const FindingNode = memo(function FindingNode({ data, selected }: NodeProps) {
@@ -28,27 +47,21 @@ export const FindingNode = memo(function FindingNode({ data, selected }: NodePro
   return (
     <div
       className={cn(
-        'w-[160px] border text-white relative',
-        cfg.bg,
-        cfg.border,
-        selected && 'ring-1 ring-[hsl(42,76%,46%)]',
-        d.highlighted && 'ring-2 ring-[hsl(42,76%,46%)]'
+        'min-w-[160px] rounded-xl border bg-[hsl(var(--card))] p-3 text-[hsl(var(--card-foreground))] shadow-md',
+        selected ? 'border-[hsl(var(--primary))] ring-1 ring-[hsl(var(--primary))]' : 'border-[hsl(var(--border))]',
+        d.highlighted && 'ring-2 ring-[hsl(var(--primary))]'
       )}
     >
-      {/* Severity color bar at top */}
-      <div className={cn('h-1 w-full', cfg.bar)} />
-      <Handle type="target" position={Position.Top} className={cn('!bg-current', cfg.text)} />
-      <div className="p-3">
-        <div className="flex items-center gap-2">
-          <Bug size={14} className={cfg.text} />
-          <span className="text-xs font-semibold truncate">{d.label}</span>
-        </div>
-        <div className="mt-2 flex items-center gap-2">
-          <span className={cn('px-1.5 py-0.5 text-[9px] font-bold uppercase', cfg.badge)}>{sev}</span>
-          {d.cvss > 0 && <span className="text-[10px] text-neutral-400">CVSS {d.cvss}</span>}
-        </div>
+      <Handle type="target" position={Position.Top} className="!bg-neutral-400" />
+      <div className="flex items-center gap-2">
+        <Bug size={14} className={cfg.text} />
+        <span className="text-xs font-semibold truncate">{d.label}</span>
       </div>
-      <Handle type="source" position={Position.Bottom} className={cn('!bg-current', cfg.text)} />
+      <div className="mt-2 flex items-center gap-2">
+        <span className={cn('rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide', cfg.badge)}>{sev}</span>
+        {d.cvss > 0 && <span className="text-[10px] text-[hsl(var(--muted-foreground))]">CVSS {d.cvss}</span>}
+      </div>
+      <Handle type="source" position={Position.Bottom} className="!bg-neutral-400" />
     </div>
   );
 });

@@ -177,10 +177,10 @@ at `/data` inside the container:
 
 | Data                                                          | Path inside container | Survives `up -d --build` |
 | ------------------------------------------------------------- | --------------------- | ------------------------ |
-| User accounts (passwords, admin flag, color)                  | `/data/data.sqlite`   | ✅                       |
-| Notes, pages, graphs, attack chains, nmap scans (Yjs LevelDB) | `/data/yjs/`          | ✅                       |
-| Activity log (every change, with author + timestamp)          | `/data/yjs/`          | ✅                       |
-| Page-body version history (point-in-time snapshots)           | `/data/yjs/`          | ✅                       |
+| User accounts (passwords, admin flag, color)                  | `/data/data.sqlite`   | yes                      |
+| Notes, pages, graphs, attack chains, nmap scans (Yjs LevelDB) | `/data/yjs/`          | yes                      |
+| Activity log (every change, with author + timestamp)          | `/data/yjs/`          | yes                      |
+| Page-body version history (point-in-time snapshots)           | `/data/yjs/`          | yes                      |
 
 So **every code update, image rebuild, or container restart preserves
 all of your data.** The only commands that destroy it are:
@@ -479,7 +479,7 @@ sudo docker image prune -f >/dev/null
 
 for i in {1..20}; do
   if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then
-    echo "[update-btct] healthy ✔  ($(curl -s http://127.0.0.1:8080/healthz))"
+    echo "[update-btct] healthy ($(curl -s http://127.0.0.1:8080/healthz))"
     sudo docker compose ps
     exit 0
   fi

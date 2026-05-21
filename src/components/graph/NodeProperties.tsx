@@ -81,16 +81,16 @@ export const NodeProperties = memo(function NodeProperties({ nodeId }: { nodeId:
         return (
           <div className="border-t border-[hsl(var(--border))] pt-3">
             <h4 className="mb-2 text-xs font-semibold uppercase text-[hsl(var(--muted-foreground))]">Nmap Link</h4>
-            <div className="flex items-center gap-2 rounded bg-emerald-500/10 border border-emerald-500/30 px-2 py-1.5">
-              <Link2 size={12} className="shrink-0 text-emerald-400" />
+            <div className="flex items-center gap-2 rounded-lg border border-[hsl(var(--status-green))]/30 bg-[hsl(var(--status-green))]/10 px-2.5 py-2">
+              <Link2 size={12} className="shrink-0 text-[hsl(var(--status-green))]" />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-semibold text-emerald-300">{linkedMachine.hostname || linkedMachine.ip}</div>
+                <div className="truncate text-xs font-semibold text-[hsl(var(--status-green))]">{linkedMachine.hostname || linkedMachine.ip}</div>
                 {scan && <div className="truncate text-[10px] text-[hsl(var(--muted-foreground))]"><Radar size={8} className="inline mr-0.5" />{scan.name}</div>}
               </div>
             </div>
             <button
               onClick={() => openTab({ id: uuidv4(), kind: 'nmap-machine', entityId: linkedMachine.id, title: linkedMachine.hostname || linkedMachine.ip })}
-              className="mt-2 flex w-full items-center justify-center gap-1.5 border border-[hsl(var(--primary))] bg-[hsl(var(--primary))]/10 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/20 transition-colors"
+              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--primary))] bg-[hsl(var(--primary))]/10 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/20 transition-colors"
             >
               <ExternalLink size={10} /> Go to Nmap
             </button>

@@ -36,11 +36,10 @@ $sc.WorkingDirectory = $RepoPath
 $sc.WindowStyle      = 1            # 1 = normal; 7 = minimized
 $sc.Description      = 'Launch Been There, Conquered That (BTCT)'
 
-# Use the alexcat asset as the icon if present; otherwise fall back to
-# PowerShell's own icon. .lnk wants an .ico, so we extract one from the
-# PNG using System.Drawing on first install.
-$iconSource = Join-Path $RepoPath 'public\alexcat.png'
-$iconCache  = Join-Path $RepoPath 'public\alexcat.ico'
+# Use the app logo as the shortcut icon. .lnk wants an .ico, so we extract
+# one from the PNG using System.Drawing on first install.
+$iconSource = Join-Path $RepoPath 'public\new-logo.png'
+$iconCache  = Join-Path $RepoPath 'public\new-logo.ico'
 if ((Test-Path $iconSource) -and -not (Test-Path $iconCache)) {
     try {
         Add-Type -AssemblyName System.Drawing
@@ -52,7 +51,7 @@ if ((Test-Path $iconSource) -and -not (Test-Path $iconCache)) {
         $fs.Close()
         $bmp.Dispose()
     } catch {
-        Write-Host "[Install-BTCTShortcut] couldn't build .ico from alexcat.png ($_); using default icon." -ForegroundColor Yellow
+        Write-Host "[Install-BTCTShortcut] couldn't build .ico from new-logo.png ($_); using default icon." -ForegroundColor Yellow
     }
 }
 if (Test-Path $iconCache) {

@@ -123,9 +123,38 @@ export function getSharedDoc(): SharedDocContext {
   void whenReady.then(() => {
     if (!ctx) return;
     seedMissingYTexts(ctx);
+    scrubEmojiIcons(ctx);
   });
 
   return ctx;
+}
+
+/**
+ * One-shot migration: walks every page in the shared doc and clears the
+ * `icon` field if it contains a unicode glyph outside the basic ASCII +
+ * Latin-1 range. Pages created by legacy seed data shipped with emoji
+ * icons (clipboard, magnifier, bug, etc.); the current theme has no
+ * place for them. Runs each time the doc loads — idempotent: once every
+ * record has icon === '' nothing further happens.
+ *
+ * Safe across clients: writes go through the shared Yjs map, so every
+ * connected peer converges on the cleared state via standard CRDT
+ * merge. Single-character ASCII icons (e.g. an explicit 'H') are
+ * preserved.
+ */
+function scrubEmojiIcons(c: SharedDocContext): void {
+  const pageMap = c.tables['pages'];
+  const NON_ASCII = /[^\x00-\x7F]/;
+  c.doc.transact(() => {
+    for (const [id, raw] of pageMap.entries()) {
+      if (!raw || typeof raw !== 'object') continue;
+      const rec = raw as Record<string, unknown>;
+      const icon = rec['icon'];
+      if (typeof icon === 'string' && icon.length > 0 && NON_ASCII.test(icon)) {
+        pageMap.set(id, { ...rec, icon: '' });
+      }
+    }
+  });
 }
 
 /**

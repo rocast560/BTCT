@@ -33,7 +33,7 @@ const severityStyles: Record<string, string> = {
   critical: 'bg-purple-500/20 text-purple-300',
   high: 'bg-red-500/20 text-red-300',
   medium: 'bg-orange-500/20 text-orange-300',
-  low: 'bg-yellow-500/20 text-yellow-300',
+  low: 'bg-[hsl(var(--status-green))]/20 text-[hsl(var(--status-green))]',
   info: 'bg-blue-500/20 text-blue-300',
 };
 
@@ -257,7 +257,7 @@ export function AttackTimeline() {
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
             <h1 className="flex items-center gap-2 text-xl font-bold">
-              <Clock size={18} className="text-red-400" />
+              <Clock size={18} className="text-[hsl(var(--status-amber))]" />
               Attack Timeline
             </h1>
             <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">
@@ -267,16 +267,16 @@ export function AttackTimeline() {
           </div>
           <button
             onClick={() => void copyMarkdown()}
-            className="flex shrink-0 items-center gap-1.5 border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2.5 py-1.5 text-[11px] hover:bg-[hsl(var(--accent))]"
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-[11px] hover:bg-[hsl(var(--accent))]"
             title="Copy timeline as Markdown outline"
           >
-            {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+            {copied ? <Check size={12} className="text-[hsl(var(--status-green))]" /> : <Copy size={12} />}
             {copied ? 'Copied' : 'Copy as Markdown'}
           </button>
         </div>
 
         {/* Filters */}
-        <div className="mb-4 flex flex-wrap items-center gap-3 border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3">
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3">
           <div className="flex items-center gap-1">
             <span className="mr-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Types:</span>
             {(Object.keys(typeStyles) as TypeKey[]).map((t) => {
@@ -288,7 +288,7 @@ export function AttackTimeline() {
                   key={t}
                   onClick={() => toggleType(t)}
                   className={cn(
-                    'flex items-center gap-1 border px-1.5 py-0.5 text-[10px]',
+                    'flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px]',
                     active ? `${s.bg} ${s.border} ${s.color}` : 'border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]',
                   )}
                 >
@@ -303,7 +303,7 @@ export function AttackTimeline() {
             <select
               value={graphFilter}
               onChange={(e) => setGraphFilter(e.target.value)}
-              className="border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-1.5 py-0.5 text-[11px] outline-none"
+              className="rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-[11px] outline-none"
             >
               <option value="all">All narratives</option>
               {graphs.map((g) => (
@@ -325,7 +325,7 @@ export function AttackTimeline() {
             {grouped.map(({ dayTs, events }, dayIdx) => {
               const isCollapsed = collapsed.has(dayTs);
               return (
-                <div key={dayTs} className="border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+                <div key={dayTs} className="overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
                   {/* Day header */}
                   <button
                     onClick={() => toggleDay(dayTs)}
@@ -334,7 +334,7 @@ export function AttackTimeline() {
                     {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                     <span className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Day {dayIdx + 1}</span>
                     <span className="text-sm font-semibold">{formatDayHeader(dayTs)}</span>
-                    <span className="ml-auto bg-[hsl(var(--muted))] px-1.5 py-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+                    <span className="ml-auto rounded-full bg-[hsl(var(--muted))] px-2 py-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
                       {events.length} event{events.length !== 1 ? 's' : ''}
                     </span>
                   </button>
@@ -359,7 +359,7 @@ export function AttackTimeline() {
                           <div key={ev.node.id} className="grid grid-cols-[70px_110px_1fr_150px_30px] items-start gap-2 px-3 py-2 text-xs hover:bg-[hsl(var(--accent))]/30">
                             <div className="font-mono text-[11px] text-[hsl(var(--foreground))]">{formatTime(ev.node.discoveredAt)}</div>
                             <div>
-                              <span className={cn('inline-flex items-center gap-1 border px-1.5 py-0.5 text-[10px]', s.bg, s.border, s.color)}>
+                              <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]', s.bg, s.border, s.color)}>
                                 <Icon size={10} />
                                 {s.label}
                               </span>
@@ -368,7 +368,7 @@ export function AttackTimeline() {
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold">{ev.node.label}</span>
                                 {fd && (
-                                  <span className={cn('px-1.5 py-0.5 text-[9px] font-bold uppercase', severityStyles[fd.severity])}>
+                                  <span className={cn('rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide', severityStyles[fd.severity])}>
                                     {fd.severity}{fd.cvss ? ` ${fd.cvss.toFixed(1)}` : ''}
                                   </span>
                                 )}
@@ -401,7 +401,7 @@ export function AttackTimeline() {
                                 if (e.shiftKey) focusNodeOnGraph(ev.node, ev.graphId, ev.graphName);
                                 else openNodePage(ev.node);
                               }}
-                              className="justify-self-end p-1 hover:bg-[hsl(var(--accent))]"
+                              className="justify-self-end rounded-md p-1 hover:bg-[hsl(var(--accent))]"
                               title="Click: open node page · Shift+Click: jump to node on attack narrative"
                             >
                               <ExternalLink size={11} className="text-[hsl(var(--muted-foreground))]" />

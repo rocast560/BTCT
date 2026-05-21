@@ -15,9 +15,9 @@ export const PivotNode = memo(function PivotNode({ data, selected }: NodeProps) 
   return (
     <div
       className={cn(
-        'min-w-[120px] border bg-[#1a1a1a] p-3 text-white',
-        selected ? 'border-[hsl(42,76%,46%)] ring-1 ring-[hsl(42,76%,46%)]' : 'border-neutral-600/60',
-        d.highlighted && 'ring-2 ring-[hsl(42,76%,46%)]'
+        'min-w-[120px] rounded-xl border bg-[hsl(var(--card))] p-3 text-[hsl(var(--card-foreground))] shadow-md',
+        selected ? 'border-[hsl(var(--primary))] ring-1 ring-[hsl(var(--primary))]' : 'border-[hsl(var(--border))]',
+        d.highlighted && 'ring-2 ring-[hsl(var(--primary))]'
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-neutral-400" />

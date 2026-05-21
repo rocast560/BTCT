@@ -43,12 +43,12 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
       onClick={onClose}
     >
       <div
-        className="w-96 border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-xl"
+        className="w-96 overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-4 py-3">
           <span className="text-[11px] font-bold uppercase tracking-widest">Edit Profile</span>
-          <button onClick={onClose} className="p-1 hover:bg-[hsl(var(--accent))]" title="Close">
+          <button onClick={onClose} className="rounded-md p-1 hover:bg-[hsl(var(--accent))]" title="Close">
             <X size={14} />
           </button>
         </div>
@@ -59,7 +59,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
             <label className="mb-1 block text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
               Username
             </label>
-            <div className="border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1.5 text-xs text-[hsl(var(--muted-foreground))]">
+            <div className="rounded-lg border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-xs text-[hsl(var(--muted-foreground))]">
               {user.username}
             </div>
           </div>
@@ -86,20 +86,20 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
                 type="color"
                 value={HEX_RE.test(color) ? color : '#3b82f6'}
                 onChange={(e) => setColor(e.target.value)}
-                className="h-7 w-9 cursor-pointer border border-[hsl(var(--input))] bg-[hsl(var(--background))]"
+                className="h-8 w-10 cursor-pointer rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))]"
               />
               <input
                 type="text"
                 value={color}
                 onChange={(e) => setColor(e.target.value)}
                 placeholder="#rrggbb"
-                className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 font-mono text-xs outline-none"
+                className="flex-1 rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1.5 font-mono text-xs outline-none focus:border-[hsl(var(--primary))]"
               />
             </div>
           </div>
 
           {error && (
-            <div className="border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300">
+            <div className="rounded-lg border border-[hsl(var(--status-red))]/40 bg-[hsl(var(--status-red))]/10 px-2.5 py-1.5 text-[11px] text-[hsl(var(--status-red))]">
               {error}
             </div>
           )}

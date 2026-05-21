@@ -36,7 +36,7 @@ export const GraphContextMenu = memo(function GraphContextMenu({ x, y, nodeId, e
     <div
       ref={ref}
       style={{ position: 'fixed', top: y, left: x }}
-      className="z-50 min-w-[180px] border border-[hsl(var(--border))] bg-[hsl(var(--popover))] p-1 shadow-xl"
+      className="z-50 min-w-[180px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] p-1 shadow-xl"
     >
       {nodeId && (
         <>
@@ -115,7 +115,7 @@ const ChainSubmenu = memo(function ChainSubmenu({ open, setOpen, count, chains, 
       </button>
       {open && (
         <div
-          className="absolute left-full top-0 ml-1 min-w-[180px] border border-[hsl(var(--border))] bg-[hsl(var(--popover))] p-1 shadow-xl"
+          className="absolute left-full top-0 ml-1 min-w-[180px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] p-1 shadow-xl"
         >
           <MenuItem label="+ New chain…" onClick={() => onAction('chain:new')} />
           {chains.length > 0 && <div className="my-1 h-px bg-[hsl(var(--border))]" />}
