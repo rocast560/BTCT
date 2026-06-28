@@ -387,7 +387,12 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
         graphNodeRepo.getAllByType('host'),
         nmapMachineRepo.getAll(),
       ]).then(([nodes, allMachines]) => {
-        setAllHostNodes(nodes);
+        // `getAllByType` returns host nodes across every workspace; scope them
+        // to the active workspace. Host nodes live in graphs, and `graphs` in
+        // the store is the active workspace's graph list.
+        const workspaceGraphIds = new Set(graphs.map((g) => g.id));
+        const scopedNodes = nodes.filter((n) => workspaceGraphIds.has(n.graphId));
+        setAllHostNodes(scopedNodes);
         setConnectedNodeIds(new Set(allMachines.filter((m) => m.linkedNodeId).map((m) => m.linkedNodeId!)));
         setConnectDialog(true);
       });

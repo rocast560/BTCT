@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { disposeSharedDoc } from '@/realtime/shared-doc';
 import { disposeAllPageDocs } from '@/realtime/yjs-providers';
+import type { EditorPrefs } from '@/lib/editor-prefs';
 
 // Default to same-origin so the same build works on any host. Set
 // VITE_API_URL / VITE_WS_URL only when the API lives on a different host.
@@ -35,6 +36,10 @@ export interface AuthUser {
   username: string;
   color: string;
   isAdmin: boolean;
+  // Per-account editor preferences (code-block accent + custom keybinds).
+  // May be a partial blob from the server; merge with defaults via
+  // `resolvePrefs` before use.
+  prefs?: Partial<EditorPrefs> | null;
 }
 
 export interface AdminUserRow {
@@ -116,7 +121,7 @@ interface AuthState {
   adminDeleteUser: (id: number) => Promise<void>;
   adminResetPassword: (id: number, password: string) => Promise<void>;
   // Self-service profile editing for any authenticated user.
-  updateProfile: (changes: { color?: string }) => Promise<AuthUser>;
+  updateProfile: (changes: { color?: string; prefs?: EditorPrefs }) => Promise<AuthUser>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({

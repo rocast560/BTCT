@@ -1,0 +1,178 @@
+// ─────────────────────────────────────────────────────────────────────────
+// Per-account editor preferences.
+//
+// Two things are customizable on a per-account basis:
+//   1. `codeAccent` — the base color that tints code-block syntax highlighting
+//      (see src/lib/code-theme.ts `applyCodeAccent`).
+//   2. `keybinds` — shortcuts for the floating-format-panel actions plus the
+//      "focus the code-block language picker" action (see editor-keybinds.ts).
+//
+// Prefs are persisted server-side on the user row (JSON blob) and arrive on the
+// `AuthUser.prefs` field. The defaults below are merged under whatever the
+// account has saved so a brand-new / never-customized account still works.
+// ─────────────────────────────────────────────────────────────────────────
+
+export type KeybindAction =
+  | 'bold'
+  | 'italic'
+  | 'strikethrough'
+  | 'inlineCode'
+  | 'link'
+  | 'highlight'
+  | 'focusLanguage';
+
+export interface EditorPrefs {
+  /** #RRGGBB base color for code-block syntax highlighting. */
+  codeAccent: string;
+  /** Action → canonical shortcut string (e.g. "Mod-Shift-l"). */
+  keybinds: Record<KeybindAction, string>;
+}
+
+// GitHub Dark's keyword color. The rest of the code palette is fixed GitHub
+// Dark (see index.css); the accent retints keywords, so this default makes a
+// fresh account render as pure GitHub Dark until it's changed.
+export const DEFAULT_CODE_ACCENT = '#ff7b72';
+
+export const DEFAULT_KEYBINDS: Record<KeybindAction, string> = {
+  bold: 'Mod-b',
+  italic: 'Mod-i',
+  strikethrough: 'Mod-Shift-x',
+  inlineCode: 'Mod-e',
+  link: 'Mod-Shift-k',
+  highlight: 'Mod-Shift-h',
+  focusLanguage: 'Mod-Shift-l',
+};
+
+export const DEFAULT_EDITOR_PREFS: EditorPrefs = {
+  codeAccent: DEFAULT_CODE_ACCENT,
+  keybinds: { ...DEFAULT_KEYBINDS },
+};
+
+// Human-readable labels + display order for the keybinds dialog.
+export const KEYBIND_ACTIONS: ReadonlyArray<{ id: KeybindAction; label: string }> = [
+  { id: 'bold', label: 'Bold' },
+  { id: 'italic', label: 'Italic' },
+  { id: 'strikethrough', label: 'Strikethrough' },
+  { id: 'inlineCode', label: 'Inline code' },
+  { id: 'link', label: 'Link' },
+  { id: 'highlight', label: 'Highlight (yellow)' },
+  { id: 'focusLanguage', label: 'Focus code language' },
+];
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+interface MaybeUser {
+  prefs?: Partial<EditorPrefs> | null;
+}
+
+/**
+ * Merge an account's stored prefs over the defaults, dropping anything
+ * malformed. Always returns a complete, valid `EditorPrefs`.
+ */
+export function resolvePrefs(user: MaybeUser | null | undefined): EditorPrefs {
+  const stored = user?.prefs ?? {};
+  const codeAccent =
+    typeof stored.codeAccent === 'string' && HEX_RE.test(stored.codeAccent)
+      ? stored.codeAccent
+      : DEFAULT_CODE_ACCENT;
+
+  const keybinds: Record<KeybindAction, string> = { ...DEFAULT_KEYBINDS };
+  const storedKb = stored.keybinds;
+  if (storedKb && typeof storedKb === 'object') {
+    for (const { id } of KEYBIND_ACTIONS) {
+      const v = (storedKb as Record<string, unknown>)[id];
+      if (typeof v === 'string' && v.trim()) keybinds[id] = v;
+    }
+  }
+  return { codeAccent, keybinds };
+}
+
+// ── Shortcut parsing / matching ──────────────────────────────────────────
+//
+// Canonical form: hyphen-joined modifiers followed by a key, e.g.
+// "Mod-Shift-l". "Mod" means ⌘ on macOS / Ctrl elsewhere. Matching mirrors
+// the Ctrl+K handling in src/App.tsx (metaKey || ctrlKey).
+
+export interface ParsedShortcut {
+  mod: boolean;
+  shift: boolean;
+  alt: boolean;
+  key: string; // lowercased
+}
+
+export function parseShortcut(shortcut: string): ParsedShortcut | null {
+  const parts = shortcut.split('-').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  const key = parts.pop()!.toLowerCase();
+  let mod = false;
+  let shift = false;
+  let alt = false;
+  for (const p of parts) {
+    switch (p.toLowerCase()) {
+      case 'mod':
+      case 'ctrl':
+      case 'cmd':
+      case 'meta':
+        mod = true;
+        break;
+      case 'shift':
+        shift = true;
+        break;
+      case 'alt':
+      case 'option':
+        alt = true;
+        break;
+      default:
+        return null; // unknown modifier token
+    }
+  }
+  return { mod, shift, alt, key };
+}
+
+const MODIFIER_KEYS = new Set(['control', 'shift', 'alt', 'meta', 'os']);
+
+/** True when a keyboard event exactly matches a canonical shortcut string. */
+export function matchShortcut(
+  event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>,
+  shortcut: string,
+): boolean {
+  const parsed = parseShortcut(shortcut);
+  if (!parsed) return false;
+  const eventKey = event.key.toLowerCase();
+  if (MODIFIER_KEYS.has(eventKey)) return false; // a modifier by itself never matches
+  return (
+    parsed.mod === (event.ctrlKey || event.metaKey) &&
+    parsed.shift === event.shiftKey &&
+    parsed.alt === event.altKey &&
+    parsed.key === eventKey
+  );
+}
+
+/**
+ * Build a canonical shortcut string from a captured keydown, or null when the
+ * event is only a modifier (so the capture UI keeps waiting for a real key).
+ */
+export function shortcutFromEvent(
+  event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>,
+): string | null {
+  const key = event.key.toLowerCase();
+  if (MODIFIER_KEYS.has(key)) return null;
+  const parts: string[] = [];
+  if (event.ctrlKey || event.metaKey) parts.push('Mod');
+  if (event.shiftKey) parts.push('Shift');
+  if (event.altKey) parts.push('Alt');
+  parts.push(key.length === 1 ? key : key);
+  return parts.join('-');
+}
+
+/** Pretty-print a shortcut for display (e.g. "Mod-Shift-l" → "Ctrl/⌘ + Shift + L"). */
+export function formatShortcut(shortcut: string): string {
+  const parsed = parseShortcut(shortcut);
+  if (!parsed) return shortcut;
+  const parts: string[] = [];
+  if (parsed.mod) parts.push('Ctrl/⌘');
+  if (parsed.shift) parts.push('Shift');
+  if (parsed.alt) parts.push('Alt');
+  parts.push(parsed.key.length === 1 ? parsed.key.toUpperCase() : parsed.key);
+  return parts.join(' + ');
+}

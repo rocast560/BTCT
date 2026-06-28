@@ -20,6 +20,11 @@ db.exec(`
     is_admin    INTEGER NOT NULL DEFAULT 0,
     created_at  INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
 
 // Best-effort migration for databases predating the is_admin column.
@@ -30,6 +35,9 @@ try {
   }
   if (!cols.some((c) => c.name === 'avatar')) {
     db.exec(`ALTER TABLE users ADD COLUMN avatar TEXT`);
+  }
+  if (!cols.some((c) => c.name === 'prefs')) {
+    db.exec(`ALTER TABLE users ADD COLUMN prefs TEXT`);
   }
 } catch (err) {
   console.warn('[db] migration check failed:', err?.message || err);
@@ -52,6 +60,7 @@ const updatePasswordById = db.prepare(
   `UPDATE users SET salt = $salt, hash = $hash, iter = $iter WHERE id = $id`,
 );
 const setColorById = db.prepare(`UPDATE users SET color = ? WHERE id = ?`);
+const setPrefsById = db.prepare(`UPDATE users SET prefs = ? WHERE id = ?`);
 const countAdmins = db.prepare(
   `SELECT COUNT(*) AS n FROM users WHERE is_admin = 1`,
 );
@@ -109,8 +118,31 @@ export function updateUserColor(id, color) {
   setColorById.run(color, id);
 }
 
+// Per-account editor preferences (code-block accent color + custom keybinds),
+// stored as a JSON blob. The shape is validated/normalized client-side and at
+// the REST edge; here we just persist the serialized string.
+export function updateUserPrefs(id, prefsJson) {
+  setPrefsById.run(prefsJson, id);
+}
+
 export function adminCount() {
   return Number(countAdmins.get()?.n || 0);
+}
+
+// ── settings (key/value) ──
+const getSettingStmt = db.prepare(`SELECT value FROM settings WHERE key = ?`);
+const upsertSettingStmt = db.prepare(
+  `INSERT INTO settings (key, value) VALUES ($key, $value)
+   ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+);
+
+export function getSetting(key) {
+  const row = getSettingStmt.get(key);
+  return row ? row.value : null;
+}
+
+export function setSetting(key, value) {
+  upsertSettingStmt.run({ $key: key, $value: value });
 }
 
 export function publicUser(row) {
@@ -120,5 +152,19 @@ export function publicUser(row) {
     username: row.username,
     color: row.color,
     isAdmin: !!row.is_admin,
+    prefs: parsePrefs(row.prefs),
   };
+}
+
+// Defensive JSON parse for the stored prefs blob. Older rows (and rows that
+// have never saved prefs) have NULL here; return an empty object so clients
+// can merge their own defaults over it.
+function parsePrefs(raw) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
 }

@@ -12,20 +12,20 @@
 :root {
   /* Light mode is unused day-to-day; keep it neutral so screenshots in
      light environments still render. */
-  --background:        0 0% 98%;
-  --foreground:        0 0% 8%;
-  --card:              0 0% 100%;
-  --card-foreground:   0 0% 8%;
+  --background:        0 0% 97%;
+  --foreground:        0 0% 12%;
+  --card:              0 0% 100%;            /* white cards lift off the grey canvas */
+  --card-foreground:   0 0% 12%;
   --popover:           0 0% 100%;
-  --popover-foreground:0 0% 8%;
-  --primary:            0 78% 52%;           /* signature red */
+  --popover-foreground:0 0% 12%;
+  --primary:            0 78% 52%;           /* signature red (runtime theme overrides) */
   --primary-foreground: 0 0% 100%;
-  --secondary:         0 0% 92%;
-  --secondary-foreground: 0 0% 8%;
+  --secondary:         0 0% 93%;
+  --secondary-foreground: 0 0% 12%;
   --muted:             0 0% 94%;
-  --muted-foreground:  0 0% 38%;
+  --muted-foreground:  0 0% 42%;
   --accent:            0 0% 92%;
-  --accent-foreground: 0 0% 8%;
+  --accent-foreground: 0 0% 12%;
   --destructive:       0 76% 56%;
   --destructive-foreground: 0 0% 100%;
   --border:            0 0% 88%;
@@ -43,27 +43,44 @@
   --radius-sm:         6px;
   --sidebar-width:     280px;
   --properties-width:  320px;
+
+  /* Code-block syntax colors — the GitHub Dark palette. `applyCodeAccent`
+     (src/lib/code-theme.ts) only retints --code-keyword/--code-accent per
+     account; the rest stay fixed GitHub Dark. */
+  --code-fg:       #c9d1d9; /* default text / identifiers / operators */
+  --code-accent:   #ff7b72;
+  --code-keyword:  #ff7b72; /* keyword (red)    */
+  --code-function: #d2a8ff; /* entity (purple)  */
+  --code-string:   #a5d6ff; /* string (l. blue) */
+  --code-number:   #79c0ff; /* constant (blue)  */
+  --code-type:     #ffa657; /* type (orange)    */
+  --code-operator: #c9d1d9;
+  --code-variable: #c9d1d9;
+  --code-comment:  #8b949e; /* comment (gray)   */
 }
 
 .dark {
-  --background:        0 0% 5%;              /* near-black canvas */
-  --foreground:        0 0% 95%;
-  --card:              0 0% 9%;              /* card surface */
-  --card-foreground:   0 0% 95%;
-  --popover:           0 0% 11%;
-  --popover-foreground:0 0% 95%;
-  --primary:            0 84% 60%;           /* signature red — punchy on dark */
+  /* Elevation by luminance, not shadow (drop shadows are invisible on dark
+     surfaces): base → card → popover get progressively lighter. Neutral grey
+     (zero saturation) — kept off pure black at the base for eye comfort. */
+  --background:        0 0% 8%;              /* base canvas — dark grey */
+  --foreground:        0 0% 96%;
+  --card:              0 0% 12%;             /* 1st elevation: cards, sidebars */
+  --card-foreground:   0 0% 96%;
+  --popover:           0 0% 15%;             /* overlay: menus, modals */
+  --popover-foreground:0 0% 96%;
+  --primary:            0 84% 60%;           /* signature red (runtime theme overrides) */
   --primary-foreground: 0 0% 100%;
-  --secondary:         0 0% 13%;
-  --secondary-foreground: 0 0% 95%;
-  --muted:             0 0% 13%;
-  --muted-foreground:  0 0% 55%;
-  --accent:            0 0% 16%;
-  --accent-foreground: 0 0% 95%;
+  --secondary:         0 0% 16%;
+  --secondary-foreground: 0 0% 96%;
+  --muted:             0 0% 16%;
+  --muted-foreground:  0 0% 65%;             /* lifted for AA contrast on dark */
+  --accent:            0 0% 20%;             /* hover / nested surface */
+  --accent-foreground: 0 0% 96%;
   --destructive:       0 76% 64%;
   --destructive-foreground: 0 0% 100%;
-  --border:            0 0% 16%;
-  --input:             0 0% 14%;
+  --border:            0 0% 22%;             /* subtle but visible hairline */
+  --input:             0 0% 18%;
   --ring:               0 84% 60%;
 
   --status-green:      123 60% 68%;
@@ -85,11 +102,58 @@ body {
   margin: 0;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 #root {
   height: 100vh;
   width: 100vw;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   General UI polish — snappy interaction transitions, accent text selection,
+   and thin surface-matched scrollbars. Applied app-wide via the shared
+   tokens; no per-component changes.
+   ────────────────────────────────────────────────────────────────────── */
+
+/* Smooth state changes on interactive elements. Only colour/elevation props
+   are transitioned (never layout), so there's no scroll/resize jank. */
+button, a, summary,
+[role="button"], [role="tab"], [role="menuitem"], [role="option"] {
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+}
+
+/* Text selection picks up the accent. */
+::selection {
+  background-color: hsl(var(--primary) / 0.28);
+}
+
+/* Thin, subtle scrollbars that fade into the surface. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.28);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground) / 0.5);
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Respect reduced-motion preferences. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; }
 }
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -428,7 +492,7 @@ button:focus-visible {
 }
 .milkdown-host .milkdown-code-block .cm-editor {
   background: transparent;
-  color: inherit;
+  color: var(--code-fg, inherit);
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12.5px;
 }
@@ -441,6 +505,65 @@ button:focus-visible {
   background: transparent;
   color: hsl(var(--muted-foreground));
   font-size: 11px;
+}
+
+/* Syntax-highlight token colors, driven by the per-account `--code-*` vars
+   (see :root defaults and src/lib/code-theme.ts). The HighlightStyle in
+   code-theme.ts maps lezer tags to these classes instead of literal colors so
+   changing the account accent recolors every code block live. */
+.milkdown-host .milkdown-code-block .cm-tok-keyword  { color: var(--code-keyword); }
+.milkdown-host .milkdown-code-block .cm-tok-string   { color: var(--code-string); }
+.milkdown-host .milkdown-code-block .cm-tok-number   { color: var(--code-number); }
+.milkdown-host .milkdown-code-block .cm-tok-function { color: var(--code-function); }
+.milkdown-host .milkdown-code-block .cm-tok-type     { color: var(--code-type); }
+.milkdown-host .milkdown-code-block .cm-tok-operator { color: var(--code-operator); }
+.milkdown-host .milkdown-code-block .cm-tok-variable { color: var(--code-variable); }
+.milkdown-host .milkdown-code-block .cm-tok-comment  { color: var(--code-comment); font-style: italic; }
+
+/* Linux-terminal look for shell / bash blocks. `data-language="shell"` is
+   stamped on the block by codeLanguageAttrPlugin (src/lib/code-theme.ts) for
+   any shell alias. A green-forward ANSI palette on a near-black surface,
+   overriding the default GitHub-Dark code colors for shell only. */
+.milkdown-host .milkdown-code-block[data-language="shell"] {
+  background-color: #0b0e0b;
+}
+.milkdown-host .milkdown-code-block[data-language="shell"] .cm-editor {
+  color: #b5e853;                 /* base text / commands — terminal green */
+}
+.milkdown-host .milkdown-code-block[data-language="shell"] .cm-gutters {
+  background: transparent;
+  color: #46553f;
+  border-right-color: #19241a;
+}
+.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-keyword  { color: #8ae234; } /* if / then / for / do … */
+.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-function { color: #8ae234; } /* builtins / commands */
+.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-string   { color: #e9c46a; } /* "strings" */
+.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-number   { color: #ad7fa8; }
+.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-variable { color: #34e2e2; } /* $VARS */
+.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-type     { color: #729fcf; }
+.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-operator { color: #d3d7cf; } /* | && > … */
+.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-comment  { color: #7f9f7f; font-style: italic; } /* # comments */
+
+/* Keyboard navigation of the language picker (Ctrl+Shift+L → arrow keys).
+   Highlight whichever list item currently has focus so the selection is
+   visible as the user moves through it. */
+.milkdown-host .milkdown-code-block .language-list-item:focus,
+.milkdown-host .milkdown-code-block .language-list-item:focus-visible {
+  background: hsl(var(--primary) / 0.18);
+  color: hsl(var(--foreground));
+  outline: none;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Notion-style block selection (double-Esc to enter). Hides the text caret
+   and draws a highlighted ring around each selected block.
+   ────────────────────────────────────────────────────────────────────── */
+.milkdown-host .ProseMirror.block-select-mode { caret-color: transparent; }
+.milkdown-host .ProseMirror.block-select-mode ::selection { background: transparent; }
+.milkdown-host .ProseMirror .pm-block-selected {
+  border-radius: 6px;
+  background: hsl(var(--primary) / 0.14);
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.40);
 }
 .milkdown-host .ProseMirror table {
   border-collapse: collapse;

@@ -7,6 +7,10 @@ import { SplitContainer } from '@/components/ui/SplitContainer';
 import { CommandPalette } from '@/components/ui/CommandPalette';
 import { seedDemoWorkspace } from '@/db/seed';
 import { useAuthStore } from '@/auth/auth-store';
+import { useThemeStore } from '@/stores/theme-store';
+import { resolvePrefs } from '@/lib/editor-prefs';
+import { applyCodeAccent } from '@/lib/code-theme';
+import { setEditorKeybinds } from '@/lib/editor-keybinds';
 import { LoginScreen } from '@/auth/LoginScreen';
 import { getSharedDoc } from '@/realtime/shared-doc';
 import { bindSharedSubscriptions } from '@/stores/shared-bindings';
@@ -16,9 +20,26 @@ import { callCommand } from '@milkdown/utils';
 export function App() {
   const authStatus = useAuthStore((s) => s.status);
   const bootstrap = useAuthStore((s) => s.bootstrap);
+  const loadTheme = useThemeStore((s) => s.loadTheme);
+  const user = useAuthStore((s) => s.user);
 
-  // Validate any stored token on first mount.
-  useEffect(() => { void bootstrap(); }, [bootstrap]);
+  // Validate any stored token on first mount, and pull the global theme
+  // color from the server so login + main UI both render with the
+  // configured accent rather than the index.css fallback.
+  useEffect(() => {
+    void bootstrap();
+    void loadTheme();
+  }, [bootstrap, loadTheme]);
+
+  // Apply this account's editor preferences (code-block syntax accent +
+  // custom keybinds) on load and whenever the user object changes — after
+  // bootstrap, login, or a profile/keybinds save. Both apply live without
+  // rebuilding the editor.
+  useEffect(() => {
+    const prefs = resolvePrefs(user);
+    applyCodeAccent(prefs.codeAccent);
+    setEditorKeybinds(prefs.keybinds);
+  }, [user]);
 
   if (authStatus === 'unknown') {
     return (

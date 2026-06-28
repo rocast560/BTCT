@@ -16,8 +16,14 @@ import {
   setUserAdmin,
   updateUserPassword,
   updateUserColor,
+  updateUserPrefs,
   adminCount,
+  getSetting,
+  setSetting,
 } from './db.mjs';
+
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+const DEFAULT_THEME_COLOR = '#f59e0b'; // yellow-orange (amber-500)
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -252,8 +258,49 @@ const httpServer = http.createServer(async (req, res) => {
         }
         updateUserColor(user.id, color);
       }
+      // Optional per-account editor preferences (code-block accent + keybinds).
+      // Validate the shape so a malformed client can't poison the JSON blob.
+      if (body.prefs !== undefined) {
+        const prefs = body.prefs;
+        if (typeof prefs !== 'object' || prefs === null || Array.isArray(prefs)) {
+          return sendJson(res, 400, { error: 'prefs must be an object' });
+        }
+        if (prefs.codeAccent !== undefined &&
+            !(typeof prefs.codeAccent === 'string' && HEX_COLOR_RE.test(prefs.codeAccent))) {
+          return sendJson(res, 400, { error: 'prefs.codeAccent must be a #RRGGBB hex value' });
+        }
+        if (prefs.keybinds !== undefined) {
+          const kb = prefs.keybinds;
+          if (typeof kb !== 'object' || kb === null || Array.isArray(kb) ||
+              !Object.values(kb).every((v) => typeof v === 'string')) {
+            return sendJson(res, 400, { error: 'prefs.keybinds must be a map of strings' });
+          }
+        }
+        updateUserPrefs(user.id, JSON.stringify(prefs));
+      }
       const fresh = getUserById(user.id);
       return sendJson(res, 200, { user: publicUser(fresh) });
+    }
+
+    // Public settings (no auth) — needed on the login screen so the
+    // primary theme color matches the rest of the app from first paint.
+    if (req.method === 'GET' && req.url === '/api/settings') {
+      const themeColor = getSetting('theme_color') || DEFAULT_THEME_COLOR;
+      return sendJson(res, 200, { themeColor });
+    }
+
+    // Admin-only: update the global primary theme color. Stored in the
+    // SQLite settings table so it persists across container restarts.
+    if (req.method === 'POST' && req.url === '/api/settings/theme') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      const body = await readJsonBody(req, 4 * 1024);
+      const color = typeof body.color === 'string' ? body.color.trim() : '';
+      if (!HEX_COLOR_RE.test(color)) {
+        return sendJson(res, 400, { error: 'color must be a #RRGGBB hex value' });
+      }
+      setSetting('theme_color', color);
+      return sendJson(res, 200, { themeColor: color });
     }
 
     if (tryServeStatic(req, res)) return;

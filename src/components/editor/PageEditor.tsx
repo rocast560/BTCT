@@ -11,7 +11,7 @@ import '@milkdown/crepe/theme/frame-dark.css';
 import {
   Bold, Italic, Strikethrough, Code, Link as LinkIcon,
   Heading1, Heading2, Heading3,
-  List, ListOrdered, Quote,
+  List, ListOrdered, Quote, Keyboard,
 } from 'lucide-react';
 import {
   HIGHLIGHT_COLORS,
@@ -19,6 +19,15 @@ import {
   toggleHighlightCommand,
   type HighlightColor,
 } from '@/lib/highlight-plugin';
+import { codeLanguages, codeSyntaxThemeExtension, codeLanguageAttrPlugin } from '@/lib/code-theme';
+import {
+  codeBlockShellDefault,
+  inlineCodeNonInclusive,
+  userKeybindsPlugin,
+  focusLanguageKeymap,
+} from '@/lib/editor-keybinds';
+import { blockSelectPlugin } from '@/lib/block-select';
+import { KeybindsDialog } from '@/components/editor/KeybindsDialog';
 import { setActiveMilkdownEditor } from '@/lib/active-editor';
 import { useAppStore } from '@/stores';
 import { normalizePageContent } from '@/export/markdown';
@@ -344,10 +353,28 @@ function MarkdownEditor({
       features: {
         [Crepe.Feature.Toolbar]: false,
       },
+      featureConfigs: {
+        // Give code blocks the full language list (so the picker has options
+        // and blocks get highlighted) plus our CSS-variable-driven syntax
+        // theme and the "focus the language picker" keybind.
+        [Crepe.Feature.CodeMirror]: {
+          languages: codeLanguages,
+          extensions: [codeSyntaxThemeExtension, focusLanguageKeymap],
+        },
+      },
     });
     crepe.editor
       .use(listener)
       .use(highlightPlugin)
+      // `/code` defaults to shell; inline-code mark made non-inclusive so the
+      // caret stays visible and code styling stops at the closing backtick;
+      // per-account keybinds + backtick-wrap; Notion-style block selection
+      // (double-Esc); per-language data attr.
+      .use(codeBlockShellDefault)
+      .use(inlineCodeNonInclusive)
+      .use(userKeybindsPlugin)
+      .use(blockSelectPlugin)
+      .use(codeLanguageAttrPlugin)
       .use(collab)
       .config((ctx) => {
         ctx.get(listenerCtx).markdownUpdated((_, md) => {
@@ -461,6 +488,7 @@ function MarkdownEditor({
 // ─────────────────────────────────────────────────────────────────────────
 function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<Editor | null> }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [keybindsOpen, setKeybindsOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -537,9 +565,9 @@ function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<
     editor.action(callCommand(toggleHighlightCommand.key, color));
   }, [editorRef]);
 
-  if (!pos) return null;
-
-  return createPortal(
+  return (
+    <>
+      {pos && createPortal(
     <div
       ref={panelRef}
       className="fixed z-[60] flex flex-col gap-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2 shadow-xl animate-[hl-toolbar-in_0.08s_ease-out]"
@@ -549,6 +577,19 @@ function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<
       // Preserve the editor selection while clicking inside the panel.
       onMouseDown={(e) => e.preventDefault()}
     >
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Format</span>
+        <button
+          type="button"
+          title="Customize keybinds"
+          aria-label="Customize keybinds"
+          onClick={() => setKeybindsOpen(true)}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
+        >
+          <Keyboard size={13} />
+        </button>
+      </div>
+
       <FormatGroup label="Text">
         <FormatButton title="Bold (Ctrl+B)"   onClick={() => run('ToggleStrong')}><Bold size={14} /></FormatButton>
         <FormatButton title="Italic (Ctrl+I)" onClick={() => run('ToggleEmphasis')}><Italic size={14} /></FormatButton>
@@ -594,6 +635,9 @@ function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<
       </div>
     </div>,
     document.body,
+      )}
+      {keybindsOpen && <KeybindsDialog onClose={() => setKeybindsOpen(false)} />}
+    </>
   );
 }
 

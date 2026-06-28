@@ -4,6 +4,7 @@ import { useAuthStore } from '@/auth/auth-store';
 import { WorkspaceSelector } from '@/components/ui/WorkspaceSelector';
 import { AdminPanel } from '@/components/sidebar/AdminPanel';
 import { ProfileEditor } from '@/components/sidebar/ProfileEditor';
+import { ThemePicker } from '@/components/sidebar/ThemePicker';
 import {
   ChevronDown,
   ChevronRight,
@@ -22,6 +23,7 @@ import {
   Link2,
   Shield,
   LogOut,
+  Palette,
 } from 'lucide-react';
 import type { Page, Graph, NmapScan, AttackChain } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -91,6 +93,7 @@ export function LeftSidebar() {
   const [newGroupName, setNewGroupName] = useState('');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
   const authUser = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
 
@@ -487,18 +490,29 @@ export function LeftSidebar() {
         )}
 
         {authUser?.isAdmin && (
-          <button
-            onClick={() => setAdminPanelOpen(true)}
-            className="flex items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--status-amber))]/40 bg-[hsl(var(--status-amber))]/10 px-2 py-1.5 text-[11px] font-medium text-[hsl(var(--status-amber))] hover:bg-[hsl(var(--status-amber))]/20"
-          >
-            <Shield size={12} />
-            <span>Admin Panel</span>
-          </button>
+          <div className="flex flex-col gap-1.5">
+            <button
+              onClick={() => setAdminPanelOpen(true)}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--status-amber))]/40 bg-[hsl(var(--status-amber))]/10 px-2 py-1.5 text-[11px] font-medium text-[hsl(var(--status-amber))] hover:bg-[hsl(var(--status-amber))]/20"
+            >
+              <Shield size={12} />
+              <span>Admin Panel</span>
+            </button>
+            <button
+              onClick={() => setThemePickerOpen(true)}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--primary))]/40 bg-[hsl(var(--primary))]/10 px-2 py-1.5 text-[11px] font-medium text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/20"
+              title="Change the workspace accent color"
+            >
+              <Palette size={12} />
+              <span>Theme Color</span>
+            </button>
+          </div>
         )}
       </div>
 
       {adminPanelOpen && <AdminPanel onClose={() => setAdminPanelOpen(false)} />}
       {profileEditorOpen && <ProfileEditor onClose={() => setProfileEditorOpen(false)} />}
+      {themePickerOpen && <ThemePicker onClose={() => setThemePickerOpen(false)} />}
     </div>
   );
 }

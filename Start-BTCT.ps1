@@ -58,6 +58,33 @@ try {
         Write-Host "[Start-BTCT] Docker engine ready." -ForegroundColor Green
     }
 
+    # ── 1b. Already running? Notify and exit. ──────────────────────────
+    # If the btct container is already up there's nothing to do — show a
+    # desktop popup and stop, rather than churning `docker compose up`.
+    # (-Update still falls through so an explicit rebuild can proceed.)
+    function Test-BtctRunning {
+        try {
+            $names = & docker ps --filter 'name=^btct$' --filter 'status=running' --format '{{.Names}}' 2>$null
+            return ([string]$names).Trim() -eq 'btct'
+        } catch { return $false }
+    }
+
+    if (-not $Update -and (Test-BtctRunning)) {
+        Write-Host "[Start-BTCT] container 'btct' is already running; nothing to start." -ForegroundColor Yellow
+        try {
+            Add-Type -AssemblyName System.Windows.Forms
+            [void][System.Windows.Forms.MessageBox]::Show(
+                "The BTCT container on Docker is already started.`n`nIt's available at http://localhost:8080.",
+                'Been There, Conquered That',
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Information)
+        } catch {
+            # No GUI available (headless / remoting) — the console message above suffices.
+            Write-Host "[Start-BTCT] (popup unavailable: $($_.Exception.Message))" -ForegroundColor DarkGray
+        }
+        return
+    }
+
     # ── 2. .env ────────────────────────────────────────────────────────
     $envPath = Join-Path $RepoPath '.env'
     if (-not (Test-Path $envPath)) {

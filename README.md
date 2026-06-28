@@ -1,347 +1,588 @@
 # Been There, Conquered That (BTCT)
 
-A LAN-hosted, multi-user, real-time collaborative note-taking and attack-path
-graphing app for penetration testing engagements. Notion-style pages, an
-attack-narrative graph canvas, and live Google-Docs-style co-editing across
-every machine on the LAN.
+A LAN-hosted, multi-user, **real-time collaborative** note-taking and attack-path
+graphing app for penetration-testing engagements. It combines Notion-style
+pages, an attack-narrative graph canvas, nmap import, findings/timeline
+reporting, and Google-Docs-style live co-editing across every machine on the LAN
+— all from a single Docker container.
+
+> **New here?** Jump to the [Feature tour](#feature-tour) for what it does, the
+> [Keyboard shortcuts](#keyboard-shortcuts--gestures) for how to drive it fast,
+> or [Run locally](#run-locally-on-windows-with-docker-desktop) to get it up.
+>
+> **AI agent / new contributor working on the code?** Start at
+> [Architecture & internals](#architecture--internals-for-developers--llms) —
+> it's written to be your onboarding doc: the mental model, the data model,
+> every key file, the non-obvious invariants, and "how to extend X" recipes.
 
 ---
 
 ## Table of Contents
 
-- [How it works](#how-it-works)
+- [Feature tour](#feature-tour)
+  - [Pages & the markdown editor](#pages--the-markdown-editor)
+  - [Attack-narrative graph](#attack-narrative-graph)
+  - [Recon & reporting (nmap, findings, timeline)](#recon--reporting-nmap-findings-timeline)
+  - [Real-time collaboration](#real-time-collaboration)
+  - [Workspaces, navigation & layout](#workspaces-navigation--layout)
+  - [Edit history & versioning](#edit-history--versioning)
+  - [Export & import](#export--import)
+  - [Accounts, roles & settings](#accounts-roles--settings)
+- [Keyboard shortcuts & gestures](#keyboard-shortcuts--gestures)
+- [How it works (runtime)](#how-it-works-runtime)
 - [Tech stack](#tech-stack)
-  - [Client](#client)
-  - [Server (`server/`)](#server-server)
-  - [Packaging / deployment](#packaging--deployment)
+- [Architecture & internals (for developers & LLMs)](#architecture--internals-for-developers--llms)
+  - [The mental model](#the-mental-model)
+  - [The two-tier Yjs/CRDT design](#the-two-tier-yjscrdt-design)
+  - [Data model](#data-model)
+  - [Data layer: database, repos, stores](#data-layer-database-repos-stores)
+  - [Editor internals](#editor-internals)
+  - [Server & HTTP API reference](#server--http-api-reference)
+  - [Key files map](#key-files-map)
+  - [Conventions & invariants (read before changing anything)](#conventions--invariants-read-before-changing-anything)
+  - [Recipes: how to extend](#recipes-how-to-extend)
 - [Repository layout](#repository-layout)
+- [Run locally on Windows with Docker Desktop](#run-locally-on-windows-with-docker-desktop)
 - [One-click launcher (Windows)](#one-click-launcher-windows)
 - [What persists (and what doesn't)](#what-persists-and-what-doesnt)
 - [Backups & restore](#backups--restore)
-- [Edit history & rollback](#edit-history--rollback)
-  - [Activity log (who edited what, when)](#activity-log-who-edited-what-when)
-  - [Restore from history](#restore-from-history)
-  - [Page version history (body snapshots)](#page-version-history-body-snapshots)
-- [Lossless workspace export & import](#lossless-workspace-export--import)
-- [Run locally on Windows with Docker Desktop](#run-locally-on-windows-with-docker-desktop)
-  - [Prerequisites](#prerequisites)
-  - [First-time setup](#first-time-setup)
-  - [Useful commands](#useful-commands)
-  - [LAN access from teammates](#lan-access-from-teammates)
-  - [Dev mode (hot reload, without Docker)](#dev-mode-hot-reload-without-docker)
-- [Releases](#releases)
-  - [Push a release to GitHub (Windows)](#push-a-release-to-github-windows)
-  - [Deploy / update on a Linux production host](#deploy--update-on-a-linux-production-host)
+- [Releases & production deploy](#releases--production-deploy)
 - [Tests](#tests)
 - [Security posture](#security-posture)
 - [License](#license)
 
 ---
 
-## How it works
+## Feature tour
+
+### Pages & the markdown editor
+
+Pages are Notion-style documents with a title, an editable `/slug` path, tags,
+and an optional icon. They live in a nestable tree (drag a page onto another to
+re-parent it; a cycle guard stops you dropping a parent into its own child).
+
+The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
++ Crepe — Obsidian-style): you type markdown and it renders inline as you go.
+
+- **Block syntax** — `# ` … `###### ` headings, `- ` / `1. ` lists, `- [ ]`
+  task lists (click to toggle), `> ` quotes, `|` tables, `---` rules, `![](url)`
+  images, `[text](url)` links.
+- **Slash menu** — type `/` to open Crepe's block-insert menu (Heading, lists,
+  quote, **Code**, table, image, …). Inserting **Code** defaults the new block
+  to the `shell` language.
+- **Inline formatting** — `**bold**`, `*italic*`, `~~strike~~`, and inline code.
+  Select text and press **`` ` ``** to wrap the selection as inline code (or type
+  `` `x` `` to convert as you type).
+- **Floating format panel** — appears whenever you select text. Buttons for
+  bold / italic / strikethrough / inline-code / link, block conversions
+  (H1–H3, bullet/numbered list, quote), and a **7-color highlighter** (yellow,
+  green, blue, pink, orange, purple, red) + a clear button. A gear/keyboard icon
+  opens the **Keybinds** dialog. *Highlight marks are session-only* — they're an
+  annotation aid and are intentionally stripped when the page is saved (CommonMark
+  has no highlight syntax), so the saved markdown stays portable.
+- **Code blocks** — full syntax highlighting via CodeMirror using the **GitHub
+  Dark** palette. Click the language button to pick a language; or press
+  **Ctrl+Shift+L** inside a block to jump to the picker and **arrow-key** through
+  it (Enter selects, Esc closes). New code blocks default to `shell`.
+- **Notion-style block selection** — tap **Esc twice** to leave text editing and
+  select whole blocks. Then **↑/↓** to move, **Shift+↑/↓** to multi-select,
+  **Backspace/Delete** to delete the selected block(s), **Ctrl/⌘+A** to select
+  all, **Enter** to edit the focused block, **Esc/click** to exit.
+- **Per-account personalization** — each account can rebind the editor shortcuts
+  (Keybinds dialog) and choose a **code accent** color that retints code-block
+  keywords. Both follow your account (stored server-side) and apply live.
+- **Backlinks** — for a graph-linked page, the right sidebar lists the graph
+  nodes and edges that reference it. (Note: there's no `[[wikilink]]` syntax;
+  use standard markdown links.)
+- **Graph-linked pages** — pages auto-created for graph nodes show structured
+  property editors inline (host/service/finding/pivot fields, see below) plus a
+  "Connected nodes" list and a "Narrative" button back to the canvas.
+
+### Attack-narrative graph
+
+Each **Attack Narrative** is a graph canvas ([React Flow](https://reactflow.dev))
+for modeling an engagement's attack path.
+
+- **Node types** — Host, Credential, Service, Finding, Pivot. Drag from the
+  palette (top) or right-click the canvas → *Add Node*. Each carries structured
+  data:
+  - **Host**: hostname, IP, OS, open ports
+  - **Credential**: username, secret, source
+  - **Service**: name, version, port, CVEs
+  - **Finding**: title, severity (critical→info), CVSS + vector, likelihood,
+    impact, description, business impact, exploit steps, MITRE ATT&CK / mitigation,
+    remediation, affected hosts, references
+  - **Pivot**: description
+- **Edges** — drag handle-to-handle to connect; typed as AdminTo, HasSession,
+  MemberOf, Exploits, PivotsTo, or Custom. Double-click an edge label to rename;
+  changing the type resets the label to match.
+- **Every node has a page** — double-click a node to open its linked write-up
+  page; node properties and the page's inline editors stay in sync.
+- **Node search** — **Ctrl/⌘+F** fuzzy-searches across all node fields; **↑/↓**
+  to navigate, **Enter** to zoom to the node.
+- **Pathfinding** — select two nodes and **Highlight Path** (BFS shortest path),
+  or right-click → *Set as Path Start* / *Set as Path End*. Highlighted edges get
+  gold marching-ants; nodes pulse.
+- **Attack chains** — select 2+ nodes → right-click → *Add to Attack Chain*
+  (new or existing). Chains are ordered by canvas position, listed in the
+  sidebar, get an auto-created write-up page, and can be highlighted (red) on the
+  canvas.
+- **Auto-layout** — dagre hierarchical layout with adjustable node/rank/edge
+  spacing.
+- **Export** — high-resolution **PNG** of the canvas, plus GraphML/JSON (see
+  [Export & import](#export--import)). Viewport (pan/zoom) is cached per graph so
+  switching tabs preserves position.
+- **Nmap link** — Host nodes can bind to an imported nmap machine; hostname and
+  open ports sync between them, and a *Go to Nmap* action jumps across.
+
+### Recon & reporting (nmap, findings, timeline)
+
+- **Nmap import** — create a scan group in the sidebar, then drag-drop (or pick)
+  one or more nmap **XML** files. The parser extracts host IP, hostname, OS
+  (osmatch/osclass with a port-signature fallback), and per-port service/version/
+  script output, skipping hosts that are down. Re-importing the same IP merges
+  ports. Each machine has an editable, collaboratively-synced hostname and an OS
+  dropdown; machines can be linked to Host nodes (with port sync).
+- **Findings Collector** — aggregates every Finding node across all narratives in
+  the workspace, grouped by severity and sorted by CVSS, with a summary bar.
+  Click to open the finding's page; **Shift+click** to focus it on its graph.
+- **Attack Timeline** — every node across the workspace ordered by its
+  `discoveredAt` time, grouped by day, with type/narrative filters and each
+  node's incoming edges shown as lineage. **Copy as Markdown** exports the whole
+  timeline as a hierarchical outline.
+
+### Real-time collaboration
+
+Everything is live and multi-user over the LAN:
+
+- **Character-by-character merge** on every text field (page title/slug, node &
+  edge labels, workspace/graph/scan names, nmap hostnames, chain names) — two
+  people typing in the same field never clobber each other (Yjs `Y.Text` CRDTs).
+- **Live page co-editing** with remote carets and name tags (Google-Docs style),
+  backed by a per-page CRDT document and Milkdown's collab plugin.
+- **Presence** — each user broadcasts `{ id, name, color }`.
+- **Offline-first** — IndexedDB caches every doc so the UI renders instantly and
+  reconciles when the connection returns.
+
+### Workspaces, navigation & layout
+
+- **Workspaces** — create/switch/delete from the sidebar footer; the active
+  workspace is remembered across reloads. All pages/graphs/scans/findings are
+  scoped to it.
+- **Tabs** — open pages, narratives, nmap groups/machines, Findings, and Timeline
+  as tabs. Cycle with **←/→**, close with **Alt+W**, and the **browser
+  back/forward** buttons walk your tab history.
+- **Split panes** — drag a tab to a pane edge (left/right/top/bottom) to split;
+  drag the divider to resize; emptying a pane collapses the split automatically.
+- **Command palette** — **Ctrl/⌘+K** to create pages/narratives, toggle dark
+  mode, or jump to any page/graph by name. (If text is selected in the editor,
+  Ctrl/⌘+K instead inserts a link.)
+- **Search** — the sidebar search box does live title/tag search over pages.
+- **Sidebars** — left = navigation tree (Pages, Attack Narratives, Attack Chains,
+  Nmap Scans, plus Findings/Timeline shortcuts); right = context properties
+  (node/edge editors, backlinks, "last edited by" badge, change log, page
+  versions, export/import).
+
+### Edit history & versioning
+
+Two complementary systems, both stored in the shared CRDT and synced to everyone
+— see [Edit history & rollback](#edit-history--versioning-detail) below for the
+full mechanics:
+
+- **Activity log** — every create/update/delete/restore on a workspace, page,
+  graph, node, edge, or attack chain, with author + timestamp + a reversible
+  field delta (or a full entity snapshot for deletes). Surfaced as a feed and as
+  per-entity "Last edited by …" badges; reversible entries get a **Restore**
+  button.
+- **Page version history** — long-form page bodies get auto-snapshots ~2 minutes
+  after you stop typing (20 most-recent kept) plus unlimited **named** versions.
+  Restoring swaps the body in one CRDT transaction so all collaborators roll back
+  together.
+
+### Export & import
+
+- **Markdown** — per page (single `.md` or a `.zip`).
+- **GraphML / JSON** — per attack narrative.
+- **Lossless workspace ZIP** — the full workspace (every entity as JSON, plus
+  per-page raw CRDT state and human-readable `.md`/`.graphml` companions), with
+  *import-as-new* (re-IDed) or *replace-existing* modes.
+- **Attack-path bundle** — an XML document combining path metadata, a filtered
+  GraphML, and the linked write-up pages as markdown.
+
+### Accounts, roles & settings
+
+- **Auth** — username/password login (no self-signup; admins create accounts). A
+  bootstrap `admin` account is created on first launch.
+- **Admin panel** (admins only) — create/delete users, reset passwords, toggle
+  admin. The server blocks deleting yourself or the last admin.
+- **Profile** — your presence **color** and your per-account **code accent**.
+- **Theme** (admins only) — the workspace-wide accent color (saved server-side,
+  applied to every client). Plus a per-client **dark/light** toggle.
+
+---
+
+## Keyboard shortcuts & gestures
+
+"Mod" = **Ctrl** on Windows/Linux, **⌘** on macOS. Editor shortcuts marked ⚙ are
+rebindable per account via the Keybinds dialog (gear icon in the floating format
+panel).
+
+| Context | Shortcut / gesture | Action |
+| --- | --- | --- |
+| Global | `Mod+K` | Command palette (or insert link if text is selected) |
+| Global | `←` / `→` | Cycle tabs in the active pane |
+| Global | `Alt+W` | Close active tab |
+| Global | Browser back/forward | Navigate tab history |
+| Editor | `Mod+B` ⚙ / `Mod+I` ⚙ / `Mod+Shift+X` ⚙ | Bold / Italic / Strikethrough |
+| Editor | `Mod+E` ⚙ | Inline code |
+| Editor | `Mod+Shift+K` ⚙ | Insert link |
+| Editor | `Mod+Shift+H` ⚙ | Highlight (yellow) |
+| Editor | `` ` `` around a selection | Wrap selection as inline code |
+| Editor | `/` | Slash block-insert menu |
+| Editor | **double `Esc`** | Enter block-selection mode |
+| Block mode | `↑`/`↓`, `Shift+↑`/`↓`, `Mod+A` | Move / extend / select-all blocks |
+| Block mode | `Backspace`/`Delete`, `Enter`, `Esc`/click | Delete / edit / exit |
+| Code block | `Mod+Shift+L` ⚙ | Focus language picker |
+| Language picker | `↑`/`↓`, `Enter`, `Esc` | Navigate / select / close |
+| Graph | `Mod+F` | Node search (↑/↓, Enter to focus) |
+| Graph | `Delete` | Delete selected node/edge |
+| Graph | double-click node · shift-click · right-click | Open page · multi-select · context menu |
+| Nmap | `Ctrl+Shift+click` a machine card | Open machine in a new tab |
+| Findings / Timeline | `Shift+click` a row | Focus the node on its graph |
+
+---
+
+## How it works (runtime)
 
 BTCT is two cooperating processes packaged into one Docker image:
 
 1. **Bun HTTP/WebSocket server** (`server/`)
-   - Serves a REST API for auth (`/api/login`, `/api/me`, admin routes).
-   - Serves the built Vite client (`STATIC_DIR=/app/dist`) on the same port.
-   - Hosts a Yjs WebSocket endpoint at `/yjs/<roomname>?token=<jwt>` that
-     proxies clients into shared CRDT documents via
-     `y-websocket/bin/utils.setupWSConnection`.
-   - Stores users in `bun:sqlite` at `/data/data.sqlite`. Passwords are
-     PBKDF2‑SHA256 (200 000 iterations); session tokens are HMAC‑SHA256.
+   - REST API for auth (`/api/login`, `/api/me`, `/api/me/profile`, admin routes,
+     `/api/settings`) — see the [API reference](#server--http-api-reference).
+   - Serves the built Vite client (`STATIC_DIR=/app/dist`) on the same port, with
+     SPA fallback to `index.html`.
+   - Hosts a Yjs WebSocket endpoint at `/yjs/<roomname>?token=<jwt>` that proxies
+     clients into shared CRDT documents via `y-websocket/bin/utils.setupWSConnection`.
+     The JWT is verified once at the WS upgrade.
+   - Stores users + settings in `bun:sqlite` at `/data/data.sqlite`. Passwords are
+     PBKDF2‑SHA256 (200 000 iterations); session tokens are HMAC‑SHA256 (7-day TTL).
    - Persists all Yjs rooms to `/data/yjs/` via LevelDB (`YPERSISTENCE`).
 
 2. **Vite/React client** (`src/`)
-   - Loads, authenticates against `/api/login`, then opens a WebSocket
-     connection to `/yjs/...` for live collaboration.
-   - Maintains **one shared Yjs doc** (`btct-shared`) holding workspaces,
-     pages, graphs, nodes, edges, attack chains, change logs, page
-     snapshots, and nmap scans + machines. Every collaboratively-edited
-     text field (page title, slug, node label, etc.) is a `Y.Text` keyed
-     `<entity>:<id>:<field>`, so two users typing in the same field merge
-     character-by-character.
-   - Maintains **per-page Y.Docs** for the markdown body, cached in
-     IndexedDB so editors render instantly and sync in the background.
-   - Awareness pushes `{ id, name, color }` per user, rendered as live
-     carets and a presence row.
+   - Authenticates against `/api/login`, then opens WebSockets to `/yjs/...`.
+   - Holds **one shared Yjs doc** (room `btct-shared`) with all workspaces, pages,
+     graphs, nodes, edges, attack chains, change logs, page snapshots, and nmap
+     scans + machines. Every collaboratively-edited text field is a `Y.Text` keyed
+     `<entity>:<id>:<field>`.
+   - Holds **one Y.Doc per page** (room = the page id) for the markdown body,
+     cached in IndexedDB.
+   - Awareness pushes `{ id, name, color }`, rendered as carets + a presence row.
 
-When a user drags a node, edits a page, or imports an nmap XML, the change
-is written to the appropriate Yjs structure → broadcast over the WS → all
-other peers' Zustand stores re-derive their UI from the merged doc state.
-Auth and admin actions go through normal REST.
+When a user drags a node, edits a page, or imports nmap XML, the change is written
+to the appropriate Yjs structure → broadcast over the WS → every peer's Zustand
+store re-derives its UI from the merged doc state. Auth/admin/settings go through
+normal REST.
 
 ---
 
 ## Tech stack
 
 ### Client
-- **Vite 8** + **React 19** + **TypeScript strict**
-- **Milkdown 7 (Crepe)** + `@milkdown/plugin-collab` for the page editor
-- **@xyflow/react 12** for the graph canvas (with `dagre` for auto-layout)
+- **Vite 8** + **React 19** + **TypeScript (strict)**
+- **Milkdown 7 (Crepe)** + `@milkdown/plugin-collab` + **CodeMirror 6** code blocks
+  (`@codemirror/language-data`, GitHub-Dark token theme)
+- **@xyflow/react 12** graph canvas with **`@dagrejs/dagre`** auto-layout
 - **Yjs 13** + **y-websocket 2** + **y-prosemirror 1** + **y-indexeddb 9**
-- **Zustand 5** for app state
+- **Zustand 5** for app/auth/theme state
 - **Tailwind CSS 4** + **Radix UI** primitives + **lucide-react** icons
 - **cmdk** command palette, **JSZip** export bundles, **date-fns** timestamps
 - **Vitest 4** unit tests
 
 ### Server (`server/`)
-- **Bun 1.3** runtime (uses `bun:sqlite`)
+- **Bun 1.3** runtime (`bun:sqlite`)
 - Plain `node:http` + `ws.WebSocketServer`
 - `y-websocket/bin/utils.setupWSConnection` for every Yjs room
-- **`y-leveldb`** for durable Yjs persistence (enabled via `YPERSISTENCE`)
+- **`y-leveldb`** for durable Yjs persistence (via `YPERSISTENCE`)
 - PBKDF2-SHA256 password hashing, HMAC-SHA256 signed bearer tokens
 
 ### Packaging / deployment
 - **Docker** + **docker compose** (multi-stage `Dockerfile`)
 - Single image serves API + WebSocket + static client on one port
-- Persistent SQLite + Yjs LevelDB volume at `/data`
-- `Start-BTCT.ps1` + `Install-BTCTShortcut.ps1` → one-click desktop launcher
-- `Backup-BTCT.ps1` + `Restore-BTCT.ps1` → volume-level backup/restore
-- `Publish-BTCT.ps1` (Windows) → tags + pushes to GitHub
-- `update-btct` (Linux) → fetches the tag, rebuilds the container
+- Persistent SQLite + Yjs LevelDB on the `btct-data` volume at `/data`
+- PowerShell automation: `Start-BTCT.ps1`, `Install-BTCTShortcut.ps1`,
+  `Backup-BTCT.ps1`, `Restore-BTCT.ps1`, `Publish-BTCT.ps1`
+
+---
+
+## Architecture & internals (for developers & LLMs)
+
+> This section is the orientation guide for anyone (human or AI) changing the
+> code. Read [Conventions & invariants](#conventions--invariants-read-before-changing-anything)
+> before you touch the data layer — several non-obvious rules keep collaboration
+> from corrupting.
+
+### The mental model
+
+There is **no application database in the traditional sense.** The "database" is
+a set of **Yjs CRDT documents** synced over WebSockets and cached in IndexedDB.
+The flow for any data change is always:
+
+```
+UI event → repo/store action → write to a Y.Map / Y.Text  (inside doc.transact)
+        → y-websocket broadcasts to the server + peers
+        → each client's Y observer fires
+        → shared-bindings re-derives Zustand state (debounced)
+        → React re-renders
+```
+
+The Bun server is intentionally thin: it does **auth + static hosting + a Yjs
+relay with on-disk persistence**. It does *not* understand pages, graphs, or
+findings — those only exist inside the CRDT documents the clients share.
+
+### The two-tier Yjs/CRDT design
+
+| | Shared doc | Per-page doc |
+| --- | --- | --- |
+| Room name | `btct-shared` | the page's `id` |
+| Holds | all entity records + every collaborative text field | one page body |
+| Structure | one `Y.Map` per table + one `texts` `Y.Map` of `Y.Text`s | a `prosemirror` `Y.XmlFragment` |
+| Edited by | repos / stores | Milkdown collab plugin |
+| Cache | IndexedDB `btct-btct-shared` | IndexedDB `btct-page-<id>` |
+| Files | `src/realtime/shared-doc.ts` | `src/realtime/yjs-providers.ts` |
+
+- **Records** are plain JSON in a per-table `Y.Map` keyed by `id`
+  (last-writer-wins). Tables: `workspaces`, `pages`, `graphs`, `graphNodes`,
+  `graphEdges`, `attackChains`, `changeLogs`, `pageSnapshots`, `nmapScans`,
+  `nmapMachines`.
+- **Collaborative text fields** are `Y.Text`s in the single `texts` map, keyed
+  `<entity>:<id>:<field>` (e.g. `page:<id>:title`, `node:<id>:label`). A
+  `mirrorTextsToRecords` observer writes each `Y.Text`'s value back into the JSON
+  record's field, so the rest of the app (sidebar, search, exports) can read plain
+  JSON. The collaborative fields are: page `title`/`slug`, node `label`, edge
+  `label`, workspace `name`, graph `name`, nmap scan `name`, nmap machine
+  `hostname`, attack-chain `name`.
+- **Page bodies** never go in the shared doc. They live in the per-page doc and
+  are checkpointed via [page snapshots](#edit-history--versioning-detail).
+
+### Data model
+
+All types live in [src/types/index.ts](src/types/index.ts). IDs are UUIDv4.
+Fields shown as *(Y.Text)* are collaborative; everything else is last-writer-wins.
+
+| Entity | Key fields |
+| --- | --- |
+| **Workspace** | `id`, `name` *(Y.Text)*, `description`, timestamps |
+| **Page** | `id`, `workspaceId`, `parentId`, `title` *(Y.Text)*, `slug` *(Y.Text)*, `icon`, `tags[]`, `content` (markdown), `sortOrder`, `isGraphPage`, timestamps |
+| **Graph** (narrative) | `id`, `workspaceId`, `name` *(Y.Text)*, timestamps |
+| **GraphNode** | `id`, `graphId`, `type` (`host`\|`credential`\|`service`\|`finding`\|`pivot`), `label` *(Y.Text)*, `position{x,y}`, `data` (type-specific), `linkedPageId`, `discoveredAt`, timestamps |
+| **GraphEdge** | `id`, `graphId`, `sourceNodeId`, `targetNodeId`, `edgeType` (AdminTo\|HasSession\|MemberOf\|Exploits\|PivotsTo\|Custom), `label` *(Y.Text)*, `linkedPageId?`, timestamps |
+| **AttackChain** | `id`, `workspaceId`, `graphId`, `name` *(Y.Text)*, `nodeIds[]` (ordered), `linkedPageId`, timestamps |
+| **NmapScan** | `id`, `workspaceId`, `name` *(Y.Text)*, `importedAt`, `rawXml?` |
+| **NmapMachine** | `id`, `scanId`, `ip`, `hostname` *(Y.Text)*, `os` (windows\|linux\|attacker\|unknown), `ports[]`, `linkedNodeId?`, timestamps |
+| **ChangeLogEntry** | `id`, `workspaceId`, `action`, `target`, `targetId`, `summary`, `timestamp`, author (`userId`/`userName`/`userColor`), `field?`, `prevValue?`, `newValue?`, `reversible` |
+| **PageSnapshot** | `id`, `pageId`, `workspaceId`, `timestamp`, author, `label?`, `updateBase64` (`Y.encodeStateAsUpdate`), `byteLength` |
+
+Node `data` is polymorphic — `HostData` / `CredentialData` / `ServiceData` /
+`FindingData` / `PivotData` (fields listed in the [graph feature
+tour](#attack-narrative-graph)). Cast explicitly when reading.
+
+### Data layer: database, repos, stores
+
+- **[src/db/database.ts](src/db/database.ts)** — a Dexie-*shaped* API
+  (`get`/`add`/`put`/`update`/`delete`/`where().equals()`) backed by the shared
+  Y.Maps instead of IndexedDB tables. Every write is wrapped in a Yjs transaction.
+- **`src/db/*-repo.ts`** — one repo per entity (`pageRepo`, `graphRepo`,
+  `graphNodeRepo`, `graphEdgeRepo`, `attackChainRepo`, `workspaceRepo`,
+  `changelogRepo`, `pageSnapshotRepo`, `nmapScanRepo`/`nmapMachineRepo`). Repos do
+  CRUD + queries, **pre-seed `Y.Text`s on create**, and cascade deletes (deleting
+  a node removes its edges, unlinks nmap, drops it from chains, and deletes its
+  hidden page).
+- **[src/stores/app-store.ts](src/stores/app-store.ts)** — the Zustand store:
+  workspaces, pages, graphs, tabs, pane layout, selection, search, change log,
+  nmap, attack chains. Mutating actions call the repos **and** the `log()` helper
+  to write a change-log entry.
+- **[src/stores/shared-bindings.ts](src/stores/shared-bindings.ts)** —
+  `bindSharedSubscriptions()` wires each table's `Y.Map.observe` to a debounced
+  store reload (`queueMicrotask`), so a burst of CRDT changes coalesces into one
+  re-render.
+- **[src/realtime/use-y-text.ts](src/realtime/use-y-text.ts)** —
+  `useYTextInput(key, initial)` binds an `<input>` to a `Y.Text` with diff-based
+  deltas and caret-preservation on remote edits.
+
+### Editor internals
+
+The page editor ([src/components/editor/PageEditor.tsx](src/components/editor/PageEditor.tsx))
+mounts one Crepe instance per page, with the Toolbar feature disabled and these
+custom plugins layered on:
+
+- [src/lib/highlight-plugin.ts](src/lib/highlight-plugin.ts) — the 7-color
+  `highlight` mark + `ToggleHighlight` command. **Session-only**: its
+  `parseMarkdown` is a no-op and `toMarkdown` drops the mark (keeps the text).
+- [src/lib/code-theme.ts](src/lib/code-theme.ts) — CodeMirror language list +
+  a class-based `HighlightStyle` (`Prec.highest`) whose colors come from
+  `--code-*` CSS vars; `applyCodeAccent(hex)` live-retints `--code-keyword`.
+- [src/lib/editor-keybinds.ts](src/lib/editor-keybinds.ts) —
+  `codeBlockShellDefault` (schema default language = shell), `userKeybindsPlugin`
+  (runs *before* commonmark's keymap so rebinds win; also implements
+  backtick-wrap), and `focusLanguageKeymap` + `installLanguagePickerNav()` for the
+  language picker.
+- [src/lib/editor-prefs.ts](src/lib/editor-prefs.ts) — `EditorPrefs` shape,
+  defaults, and the `parseShortcut`/`matchShortcut`/`shortcutFromEvent` helpers.
+- [src/lib/block-select.ts](src/lib/block-select.ts) — the Notion-style block
+  selection plugin (its own selection state + node decorations).
+- [src/lib/active-editor.ts](src/lib/active-editor.ts) — module-level handle to
+  the focused editor so `App.tsx` can hijack `Mod+K` for link insertion.
+
+Live settings (keybinds, code accent) are applied through **module-level refs**
+updated by an effect in `App.tsx` — never by rebuilding the editor, which would
+tear down the Yjs collab binding.
+
+### Server & HTTP API reference
+
+Base URL defaults to the same origin. Bearer token from `/api/login`
+(`Authorization: Bearer <jwt>`, 7-day TTL). Implemented in
+[server/index.mjs](server/index.mjs); auth crypto in
+[server/auth.mjs](server/auth.mjs); SQLite in [server/db.mjs](server/db.mjs).
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/healthz` | — | Liveness probe (`{ ok: true }`) |
+| `GET` | `/api/settings` | — | Public theme color (so login paints correctly) |
+| `POST` | `/api/settings/theme` | admin | Set the global accent color (SQLite) |
+| `POST` | `/api/login` | — | Authenticate → `{ token, user }` |
+| `GET` | `/api/me` | yes | Current user |
+| `POST` | `/api/me/profile` | yes | Update own `color` and/or `prefs` (`codeAccent` + `keybinds`) |
+| `GET` | `/api/admin/users` | admin | List users |
+| `POST` | `/api/admin/users` | admin | Create user (username 3–32, password ≥8) |
+| `DELETE` | `/api/admin/users/:id` | admin | Delete user (not self / not last admin) |
+| `POST` | `/api/admin/users/:id/password` | admin | Reset a user's password |
+| WS | `/yjs/<room>?token=<jwt>` | yes (at upgrade) | Yjs CRDT relay; rooms = `btct-shared` + one per page id |
+
+The `users` table is `(id, username [NOCASE unique], salt, hash, iter, color,
+avatar, is_admin, prefs [JSON], created_at)` — the `prefs` column is added by an
+idempotent migration. Per-account editor prefs (`codeAccent`, `keybinds`) are
+validated at the REST edge and stored as a JSON blob. The `settings` table is a
+simple key/value store (currently just `theme_color`).
+
+**Environment variables:** `AUTH_SECRET` (required in prod; HMAC key — random &
+ephemeral if unset, which silently invalidates tokens on restart), `HOST`,
+`PORT`, `STATIC_DIR`, `DB_PATH`, `YPERSISTENCE` (LevelDB dir — **set it or Yjs
+rooms are memory-only**), `ALLOWED_ORIGIN` (CORS; unset = same-origin),
+`ADMIN_USERNAME`/`ADMIN_PASSWORD` (bootstrap admin, default `admin`/`changeme!`).
+Client build-time: `VITE_API_URL`, `VITE_WS_URL` (default same-origin).
+
+### Key files map
+
+```
+src/
+  App.tsx                     Root: auth gate, global hotkeys (Mod+K, tab nav),
+                              browser-history tab nav, applies per-account prefs
+  api/client.ts               REST client base
+  auth/                       auth-store.ts (Zustand + REST), LoginScreen.tsx
+  components/
+    editor/PageEditor.tsx     Milkdown/Crepe editor + floating format panel
+    editor/KeybindsDialog.tsx Per-account keybind capture UI
+    graph/                    GraphCanvas + nodes/ + edges/ + palette + ctx menu
+                              + Node/EdgeProperties
+    findings/                 FindingsCollector.tsx, AttackTimeline.tsx
+    nmap/NmapScanView.tsx     XML import, machine grid/detail, host-node linking
+    sidebar/                  LeftSidebar (tree/nav), RightSidebar (properties),
+                              AdminPanel, ProfileEditor, ThemePicker,
+                              ChangeLogPanel, PageHistoryPanel, BacklinksPanel,
+                              LastEditedBadge
+    ui/                       TabBar, SplitContainer (panes), MainContent,
+                              CommandPalette, WorkspaceSelector, ExportDialog
+  db/                         database.ts (Y.Map-backed table API) + *-repo.ts
+  export/                     markdown.ts, graphml.ts, bundle.ts, workspace-zip.ts
+  lib/                        editor-* + highlight-plugin + code-theme +
+                              block-select + active-editor + auto-layout +
+                              pathfinding + nmap-parser + pane-layout + theme +
+                              utils
+  realtime/                   shared-doc.ts (shared Y.Doc + Y.Text registry),
+                              yjs-providers.ts (per-page docs), page-snapshots.ts,
+                              use-y-text.ts, PresenceAvatars.tsx
+  stores/                     app-store.ts, shared-bindings.ts, theme-store.ts
+  test/                       Vitest suites + fixtures
+  types/index.ts              All shared types + default factories
+server/
+  index.mjs                   HTTP + WS entry, all REST routes, static serving
+  auth.mjs                    PBKDF2 hashing + HMAC token sign/verify
+  db.mjs                      bun:sqlite users + settings, prefs migration
+```
+
+### Conventions & invariants (read before changing anything)
+
+1. **Pre-seed `Y.Text`s in `create()`.** When a repo creates an entity, it must
+   `getOrInitYText(textKey(entity, id, field), initial)` for each collaborative
+   field, or two clients can race and orphan a text. To add a new collaborative
+   field you must touch *all four* of: `TEXT_FIELDS_BY_ENTITY` and
+   `TEXT_FIELD_TO_TABLE` in [shared-doc.ts](src/realtime/shared-doc.ts), the repo
+   `create()`, and the UI (`useYTextInput`).
+2. **Reads use the JSON record, not the `Y.Text`.** The mirror observer keeps them
+   in sync; don't read `texts` directly outside the editor/input layer.
+3. **Never rebuild the editor to apply settings.** Keybinds and code accent flow
+   through module-level refs + CSS vars precisely so the Yjs collab binding
+   survives. Rebuilding mid-session breaks live cursors and can drop edits.
+4. **Page bodies aren't in the change log.** Per-keystroke logging would be noise;
+   rollback for bodies is via page snapshots instead.
+5. **Highlight marks are intentionally not persisted** (no CommonMark syntax).
+6. **Deletes cascade and are logged with a full snapshot** so they're restorable.
+7. **The server is dumb about domain data.** Don't add page/graph logic to the
+   server; it only relays Yjs, serves static files, and does auth/settings.
+8. **DB migrations must be idempotent** — guard every `ALTER TABLE` with a column
+   check (see the `prefs`/`avatar`/`is_admin` migration in `db.mjs`).
+9. **Set `AUTH_SECRET` and `YPERSISTENCE`** in any real deployment, or tokens and
+   rooms evaporate on restart.
+
+### Recipes: how to extend
+
+- **New entity type** → add the type + factory in `types/index.ts`; add a
+  `*-repo.ts`; register the table name in `shared-doc.ts`; add a `Table<T>` in
+  `database.ts`; add store actions in `app-store.ts`; wire a subscription in
+  `shared-bindings.ts`; pre-seed any `Y.Text` fields.
+- **New collaborative text field** → see invariant #1.
+- **New graph node type** → extend `NODE_TYPES` + a `*Data` interface + factory;
+  add `components/graph/nodes/<X>Node.tsx` and register it; add a palette entry;
+  add a property-fields case (graph `NodeProperties` and the page editor).
+- **New edge type** → add to `EDGE_TYPES`; it auto-appears in the type selector.
+- **New editor shortcut/action** → add to `KeybindAction` + `DEFAULT_KEYBINDS` +
+  `KEYBIND_ACTIONS` in `editor-prefs.ts`; implement in `runAction()` in
+  `editor-keybinds.ts`; add a button to the floating panel.
+- **New HTTP endpoint** → add a branch in `server/index.mjs`, gate with
+  `authFromHeader`/`requireAdmin`, parse with `readJsonBody`, reply with
+  `sendJson`.
+- **New export format** → add `src/export/<fmt>.ts`, export from `export/index.ts`,
+  and include it in the workspace ZIP if appropriate.
 
 ---
 
 ## Repository layout
 
 ```
-src/
-  api/                REST client for the auth server
-  auth/               Auth store + login screen
-  components/
-    editor/           Milkdown page editor + floating format panel
-    graph/            React Flow canvas, custom nodes/edges, palette
-    findings/         AttackTimeline, FindingsCollector
-    nmap/             Drag-drop import + per-machine view
-    sidebar/          Left tree, right properties + backlinks + change log
-                      + page history + last-edited badges
-    ui/               TabBar, SplitContainer, MainContent, CommandPalette
-  db/                 Repository layer over the shared Yjs doc, including
-                      pageSnapshotRepo (page-body version history)
-  export/             Markdown / GraphML / lossless workspace zip exporters
-  lib/                Pathfinding, dagre layout, nmap parser, helpers
-  realtime/           Shared doc, per-page providers, presence,
-                      page-snapshots module (capture/restore)
-  stores/             Zustand store + Yjs ↔ store bindings
-                      (includes restoreFromLog action)
-  test/               Vitest suites + fixtures
-  types/              Shared TypeScript types
+src/                       Client (see "Key files map" above for detail)
 server/
-  index.mjs           HTTP + WS entry
-  auth.mjs            PBKDF2 + HMAC token helpers
-  db.mjs              bun:sqlite user table
-Dockerfile               Multi-stage build (client → server-deps → runtime)
-docker-compose.yml       Single-container deployment
-Start-BTCT.ps1           One-click launcher (Docker + browser)
-Install-BTCTShortcut.ps1 Drops a Desktop shortcut to the launcher
-Backup-BTCT.ps1          Tar the btct-data volume to a timestamped .tgz
-Restore-BTCT.ps1         Restore a .tgz back into the volume
-Publish-BTCT.ps1         Windows release script (auto-bumps patch tag)
+  index.mjs                HTTP + WS entry
+  auth.mjs                 PBKDF2 + HMAC token helpers
+  db.mjs                   bun:sqlite users + settings
+Dockerfile                 Multi-stage build (client → server-deps → runtime)
+docker-compose.yml         Single-container deployment
+Start-BTCT.ps1             One-click launcher (Docker + browser; popup if running)
+Install-BTCTShortcut.ps1   Drops a Desktop shortcut to the launcher
+Backup-BTCT.ps1            Tar the btct-data volume to a timestamped .tgz
+Restore-BTCT.ps1           Restore a .tgz back into the volume
+Publish-BTCT.ps1           Windows release script (auto-bumps patch tag)
 ```
-
----
-
-## One-click launcher (Windows)
-
-After the first-time setup below, the app launches via a Desktop
-shortcut. To install:
-
-```powershell
-.\Install-BTCTShortcut.ps1
-```
-
-That creates a `Been There, Conquered That` shortcut on your Desktop.
-Double-clicking it runs [`Start-BTCT.ps1`](Start-BTCT.ps1), which:
-
-1. Starts Docker Desktop if it isn't already running.
-2. Generates a `.env` with a fresh `AUTH_SECRET` on first launch.
-3. `docker compose up -d` (no-op if already running).
-4. Polls `/healthz` until the server answers.
-5. Opens http://localhost:8080 in your default browser.
-
-Pass `-Update` to either script to also `git pull` and rebuild before
-starting (slower; only needed when you actually want a new version):
-
-```powershell
-.\Start-BTCT.ps1 -Update
-.\Install-BTCTShortcut.ps1 -Update   # makes every click an updating click
-```
-
----
-
-## What persists (and what doesn't)
-
-All your data lives in a single named Docker volume, `btct-data`, mounted
-at `/data` inside the container:
-
-| Data                                                          | Path inside container | Survives `up -d --build` |
-| ------------------------------------------------------------- | --------------------- | ------------------------ |
-| User accounts (passwords, admin flag, color)                  | `/data/data.sqlite`   | yes                      |
-| Notes, pages, graphs, attack chains, nmap scans (Yjs LevelDB) | `/data/yjs/`          | yes                      |
-| Activity log (every change, with author + timestamp)          | `/data/yjs/`          | yes                      |
-| Page-body version history (point-in-time snapshots)           | `/data/yjs/`          | yes                      |
-
-So **every code update, image rebuild, or container restart preserves
-all of your data.** The only commands that destroy it are:
-
-- `docker compose down -v` (explicitly wipes named volumes)
-- Manually `docker volume rm beenthereconqueredthat_btct-data`
-
-Neither `Start-BTCT.ps1`, `Install-BTCTShortcut.ps1`, nor any update flow
-ever runs those.
-
-> Yjs persistence is provided by y-leveldb, enabled via the
-> `YPERSISTENCE=/data/yjs` env var on the server. Without it, the
-> server would hold rooms only in memory and rely on clients to re-seed
-> from their IndexedDB cache — fragile across restarts. With it, the
-> server is the source of truth on disk.
-
----
-
-## Backups & restore
-
-True full-volume backup that captures every byte in `/data` (users,
-notes, snapshots, everything):
-
-```powershell
-# Snapshot the live volume to a timestamped .tgz under ./backups
-.\Backup-BTCT.ps1
-
-# Tag the snapshot for context (recommended before risky operations)
-.\Backup-BTCT.ps1 -Tag "before-import"
-```
-
-Restore (destructive — wipes current contents, prompts for confirmation):
-
-```powershell
-.\Restore-BTCT.ps1 -ArchivePath .\backups\btct-backup-20260521-031530.tgz
-```
-
-The restore script stops the container, replaces the volume contents
-with the archive's, and brings the container back up. Pass `-Force` to
-skip the "type `restore` to continue" prompt.
-
-Schedule periodic backups with Windows Task Scheduler — point it at
-`pwsh.exe -File C:\path\to\Backup-BTCT.ps1` on whatever cadence makes
-sense (nightly is a sensible default for active engagements).
-
----
-
-## Edit history & rollback
-
-BTCT records who did what to every entity in your workspace, and lets
-you roll back specific actions. There are two complementary systems:
-
-### Activity log (who edited what, when)
-
-Every create / update / delete on a workspace, page, graph, node, edge,
-or attack chain writes a `changeLogs` entry into the shared Yjs doc
-with:
-
-- **Author** — the userId/username/color of whoever made the change,
-  captured at write time so the history survives a user being renamed
-  or removed.
-- **Timestamp** — millisecond epoch.
-- **Field-level delta** — for updates that touch a single named field
-  (page title, node label, edge label, attack-chain name), the previous
-  and new values are stored verbatim. That delta is what makes the
-  entry reversible.
-- **Full entity snapshot** — for deletes, the full prior JSON of the
-  entity is stored so it can be re-created with all child references
-  intact.
-
-The activity log surfaces in two places:
-
-1. **Right sidebar → History panel** — a real-time feed of every change
-   in the active workspace, newest first. Each entry shows the author's
-   color dot + name, a human-readable summary (e.g. `Renamed node "web01"
-   → "web01.corp"`), and how long ago it happened.
-2. **`Last edited by X · Tm ago` badge** — appears in the right sidebar
-   when a node, edge, or page is selected. Shows the most recent author
-   to touch that specific entity.
-
-### Restore from history
-
-Reversible entries (single-field updates with captured prev/new, and
-deletes with the full prior JSON) get a **Restore** button next to them
-in the History panel. Clicking it:
-
-- For **updates**: re-applies the previous value of the changed field.
-- For **deletes**: re-creates the entity from the captured snapshot,
-  reusing the original ID so other entities (graph nodes pointing to a
-  page, attack chains referencing a node) keep resolving cleanly.
-
-Restores themselves are recorded as `restore` action entries for full
-audit traceability.
-
-### Page version history (body snapshots)
-
-Long-form page bodies live in their own per-page Yjs doc, separate from
-the metadata in the shared doc. The activity log only sees high-level
-events for these ("Updated page content"), so page bodies have a
-dedicated **Page Versions** panel in the right sidebar (visible when a
-page tab is active). It shows two kinds of snapshots:
-
-- **Auto-saved snapshots** — captured automatically ~2 minutes after
-  the last keystroke. Up to the 20 most-recent auto snapshots per page
-  are kept; older autos are pruned as new ones land.
-- **Named versions** — typed a label into the input and clicked **Save**.
-  Never pruned automatically.
-
-Each snapshot stores the full `Y.encodeStateAsUpdate(pageDoc)` bytes
-(base64) — that's the whole CRDT state, including formatting marks and
-collab history. Restoring a snapshot:
-
-1. Decodes the bytes into a throwaway Y.Doc.
-2. Deep-clones its `prosemirror` XML fragment.
-3. Atomically replaces the live page doc's body with the clone inside
-   one Yjs transaction.
-
-Because the swap is one transaction, every connected collaborator sees
-the same rollback in real time. The previous live state is left in the
-Yjs update log on disk — restoring is non-destructive in the CRDT sense.
-
----
-
-## Lossless workspace export & import
-
-The **Full Workspace → ZIP** button (Export / Import dialog) writes
-every entity tied to the active workspace into a single zip, including:
-
-- `workspace.json`, `pages.json`, `graphs.json`, `graphNodes.json`,
-  `graphEdges.json`, `attackChains.json`, `nmapScans.json`,
-  `nmapMachines.json`, `changeLogs.json`, `pageSnapshots.json`
-- `pageYjsUpdates.json` — per-page `Y.encodeStateAsUpdate(pageDoc)`
-  bytes (base64) for true CRDT-level body roundtrip
-- Human-readable companion outputs: `pages/<title>.md`,
-  `graphs/<name>.graphml`
-- `manifest.json` — schema version + counts
-
-On import you choose:
-
-- **Import as new** (default): if the workspace ID already exists,
-  generates a fresh workspace ID and remaps `workspaceId` on every
-  child entity. Child entity IDs stay the same when they don't collide
-  with anything in another workspace, so internal references survive.
-- **Replace existing**: wipes the existing workspace's entities first,
-  then re-imports with original IDs. Destructive — use when you really
-  do mean "restore this workspace from this zip."
-
-For full-system backups (users + all workspaces + everything else),
-use [`Backup-BTCT.ps1`](#backups--restore) instead — the in-app zip is
-per-workspace and excludes the SQLite users DB.
 
 ---
 
 ## Run locally on Windows with Docker Desktop
 
-This is the simplest path: one container, one command, persistent data.
+The simplest path: one container, one command, persistent data.
 
 ### Prerequisites
-- **Docker Desktop for Windows** (with WSL2 backend) — installed and running
+- **Docker Desktop for Windows** (WSL2 backend) — installed and running
 - **Git for Windows**
-- **PowerShell 7+** (the built-in Windows PowerShell 5 also works)
+- **PowerShell 5.1** (bundled) or **PowerShell 7+**
 
 ### First-time setup
 
@@ -353,17 +594,13 @@ cd BeenThereConqueredThat
 # 2. Install the Desktop shortcut (also generates .env on first launch).
 .\Install-BTCTShortcut.ps1
 
-# 3. Double-click the new "Been There, Conquered That" shortcut on your
-#    Desktop. First launch builds the image (couple of minutes).
+# 3. Double-click the new "Been There, Conquered That" shortcut on your Desktop.
+#    First launch builds the image (a couple of minutes).
 ```
 
-Default bootstrap admin:
-- **Username:** `admin`
-- **Password:** `changeme!`
-
-Change it immediately from the in-app admin panel. (Override the
-defaults by setting `ADMIN_USERNAME` / `ADMIN_PASSWORD` in `.env`
-*before* the very first start.)
+Default bootstrap admin — **`admin` / `changeme!`** — change it immediately from
+the in-app admin panel. (Override by setting `ADMIN_USERNAME` / `ADMIN_PASSWORD`
+in `.env` *before* the very first start.)
 
 ### Useful commands
 
@@ -382,12 +619,11 @@ docker run --rm -it -v beenthereconqueredthat_btct-data:/data alpine ls -la /dat
 ```
 
 ### LAN access from teammates
-The compose file binds `8080` on all interfaces, so any machine on your
-LAN can hit `http://<your-windows-ip>:8080`. Allow it through Windows
-Defender Firewall (TCP 8080 inbound) the first time someone connects.
+Compose binds `8080` on all interfaces, so any machine on the LAN can hit
+`http://<your-windows-ip>:8080`. Allow it through Windows Defender Firewall
+(TCP 8080 inbound) the first time someone connects.
 
 ### Dev mode (hot reload, without Docker)
-For Vite HMR during active development, run the two processes directly:
 
 ```powershell
 bun install
@@ -408,38 +644,133 @@ Then open http://127.0.0.1:5173.
 
 ---
 
-## Releases
+## One-click launcher (Windows)
+
+After setup, the app launches via a Desktop shortcut:
+
+```powershell
+.\Install-BTCTShortcut.ps1
+```
+
+Double-clicking the shortcut runs [`Start-BTCT.ps1`](Start-BTCT.ps1), which:
+
+1. Starts Docker Desktop if it isn't already running (waits up to 120 s).
+2. **If the `btct` container is already running, pops up "already started" and
+   exits** (pass `-Update` to force a rebuild anyway).
+3. Generates a `.env` with a fresh `AUTH_SECRET` on first launch.
+4. `docker compose up -d`.
+5. Polls `/healthz` until the server answers.
+6. Opens http://localhost:8080 in your default browser.
+
+Pass `-Update` to also `git pull` and rebuild before starting:
+
+```powershell
+.\Start-BTCT.ps1 -Update
+.\Install-BTCTShortcut.ps1 -Update   # makes every click an updating click
+```
+
+---
+
+## What persists (and what doesn't)
+
+All data lives in a single named Docker volume, `btct-data`, mounted at `/data`:
+
+| Data | Path | Survives `up -d --build` |
+| --- | --- | --- |
+| User accounts + per-account prefs + settings | `/data/data.sqlite` | yes |
+| Notes, pages, graphs, chains, nmap scans (Yjs LevelDB) | `/data/yjs/` | yes |
+| Activity log (every change, author + timestamp) | `/data/yjs/` | yes |
+| Page-body version history (point-in-time snapshots) | `/data/yjs/` | yes |
+
+So **every code update, image rebuild, or container restart preserves all your
+data.** The only commands that destroy it are `docker compose down -v` or manually
+`docker volume rm beenthereconqueredthat_btct-data`. No launcher/update flow ever
+runs those.
+
+> Yjs persistence is provided by y-leveldb (enabled via `YPERSISTENCE=/data/yjs`).
+> Without it, rooms live only in memory and rely on clients to re-seed from
+> IndexedDB — fragile across restarts. With it, the server is the source of truth
+> on disk.
+
+---
+
+## Backups & restore
+
+Full-volume backup capturing every byte in `/data` (users, notes, snapshots,
+everything):
+
+```powershell
+# Snapshot the live volume to a timestamped .tgz under ./backups
+.\Backup-BTCT.ps1
+
+# Tag the snapshot for context (recommended before risky operations)
+.\Backup-BTCT.ps1 -Tag "before-import"
+```
+
+Restore (destructive — wipes current contents, prompts for confirmation):
+
+```powershell
+.\Restore-BTCT.ps1 -ArchivePath .\backups\btct-backup-20260521-031530.tgz
+```
+
+The restore script stops the container, replaces the volume contents with the
+archive's, and brings the container back up. Pass `-Force` to skip the
+"type `restore` to continue" prompt. Schedule periodic backups with Windows Task
+Scheduler pointing at `pwsh.exe -File C:\path\to\Backup-BTCT.ps1` (nightly is a
+sensible default during active engagements).
+
+For *per-workspace* portability (no users/SQLite) use the in-app
+[Lossless workspace ZIP](#export--import) instead.
+
+<a id="edit-history--versioning-detail"></a>
+### Edit history & rollback (mechanics)
+
+BTCT records who did what to every entity and lets you roll back specific actions.
+
+**Activity log** — every create/update/delete/restore on a workspace, page,
+graph, node, edge, or attack chain writes a `changeLogs` entry into the shared
+doc with the author (captured at write time so it survives a user being
+renamed/removed), a millisecond timestamp, a **field-level delta** (prev + new
+for single-field updates — what makes it reversible), and a **full entity
+snapshot** for deletes. It surfaces as the right-sidebar **History** feed and as
+per-entity *Last edited by …* badges. Reversible entries get a **Restore** button:
+updates re-apply the previous value; deletes re-create the entity from the
+snapshot (reusing the original ID so references resolve). Restores are themselves
+logged.
+
+**Page version history** — page bodies live in their own per-page Yjs doc, so the
+right sidebar has a dedicated **Page Versions** panel for them. It shows
+**auto-saved** snapshots (captured ~2 minutes after the last keystroke; 20
+most-recent kept per page) and **named** versions (never pruned). Each snapshot
+stores the full `Y.encodeStateAsUpdate(pageDoc)` bytes (base64). Restoring decodes
+the bytes, clones the `prosemirror` fragment, and swaps it into the live doc in a
+single Yjs transaction — so every connected collaborator sees the same rollback in
+real time, non-destructively (prior state stays in the CRDT update log).
+
+---
+
+## Releases & production deploy
 
 ### Push a release to GitHub (Windows)
 
-The `Publish-BTCT.ps1` script auto-bumps the patch version of the latest
-`vMAJOR.MINOR.PATCH` tag. Pass `-Tag` only to override (e.g. cut a minor/major
-bump).
+`Publish-BTCT.ps1` auto-bumps the patch of the latest `vMAJOR.MINOR.PATCH` tag;
+pass `-Tag` to override (minor/major bump).
 
 ```powershell
-# Auto-bump patch from the latest tag (most common case)
-.\Publish-BTCT.ps1 -Message "Add foo and fix bar"
-
-# Explicit override for a minor or major bump
-.\Publish-BTCT.ps1 -Message "Big rewrite" -Tag v0.4.0
+.\Publish-BTCT.ps1 -Message "Add foo and fix bar"        # auto-bump patch
+.\Publish-BTCT.ps1 -Message "Big rewrite" -Tag v0.4.0    # explicit
 ```
 
-What it does:
-1. `git fetch --tags` so the bump is based on the real latest tag.
-2. Finds the highest `vMAJOR.MINOR.PATCH` tag and bumps patch by 1
-   (or starts at `v0.1.0` if there are none).
-3. `git add -A` and commits the staged changes (skips if nothing to stage).
-4. `git push origin main`.
-5. `git tag -fa <tag>` and `git push origin <tag> --force`.
-6. Prints the matching `update-btct <tag>` command for the Linux host.
+It `git fetch --tags`, bumps from the real latest tag (or starts at `v0.1.0`),
+commits staged changes, pushes `main`, force-tags, pushes the tag, and prints the
+matching `update-btct <tag>` command for the Linux host.
 
 ### Deploy / update on a Linux production host
 
-Production runs the same `Dockerfile` + `docker-compose.yml` as your
-Windows dev box, just on a Linux server, behind a TLS reverse proxy
-(nginx / Caddy / Traefik) for HTTPS termination.
+Production runs the same `Dockerfile` + `docker-compose.yml`, on a Linux server,
+behind a TLS reverse proxy (nginx / Caddy / Traefik) for HTTPS.
 
-One-time server setup on the Linux host:
+One-time setup:
 
 ```bash
 sudo apt update
@@ -447,8 +778,7 @@ sudo apt install -y docker.io docker-compose-plugin git curl
 sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
 
-sudo mkdir -p /opt/btct
-sudo chown $USER:$USER /opt/btct
+sudo mkdir -p /opt/btct && sudo chown $USER:$USER /opt/btct
 git clone https://github.com/<you>/BeenThereConqueredThat.git /opt/btct
 cd /opt/btct
 
@@ -492,52 +822,47 @@ EOF
 sudo chmod +x /usr/local/bin/update-btct
 ```
 
-Update flow each release:
-
-```powershell
-# On Windows
-.\Publish-BTCT.ps1 -Message "Whatever changed"
-# → "[Publish-BTCT] bumping v0.3.5 -> v0.3.6"
-```
-
-```bash
-# On Linux
-update-btct v0.3.6
-```
-
-SQLite + Yjs data live in the `btct-data` volume, not in the image, so
-they survive every redeploy.
+Each release: `Publish-BTCT.ps1 -Message "…"` on Windows → `update-btct v0.3.6` on
+Linux. SQLite + Yjs data live in the `btct-data` volume, not the image, so they
+survive every redeploy.
 
 ---
 
 ## Tests
+
 ```powershell
-bun install               # one-time
-bun run test
+bun install        # one-time
+bun run test       # vitest run
 ```
+
+Unit suites live in [src/test/](src/test/) (pure logic: pane layout, pathfinding,
+auto-layout, nmap parser, markdown/graphml export, editor-prefs shortcut parsing,
+etc.). The full build is `bun run build` (`tsc -b && vite build`).
 
 ---
 
 ## Security posture
 
-This is a LAN tool for trusted operators. It is NOT hardened for hostile
-internet exposure. Known limitations / gaps:
+This is a LAN tool for trusted operators. It is **not** hardened for hostile
+internet exposure. Known gaps:
 
-- **Tokens stored in `localStorage`** — XSS in the editor would leak them.
-- **No CSRF protection on `/api/*`** beyond bearer-token convention.
+- **Tokens in `localStorage`** — XSS in the editor would leak them.
+- **No CSRF protection** on `/api/*` beyond the bearer-token convention.
 - **No rate limiting** on `/api/login` (PBKDF2 is the only brute-force cost).
 - **No account lockout, MFA, or self-service password reset.**
-- **Yjs WebSocket auth checks the JWT once at upgrade** — revoked accounts
-  keep editing until the connection drops.
-- **No per-workspace authorisation** — every authenticated user sees every
+- **Yjs WS auth is checked once at upgrade** — a revoked account keeps editing
+  until the socket drops.
+- **No per-workspace authorization** — every authenticated user sees every
   workspace.
-- **`AUTH_SECRET` defaults to a random ephemeral value** when unset; tokens
-  are silently invalidated on restart. Always set it in `.env`.
+- **`AUTH_SECRET` defaults to a random ephemeral value** when unset; tokens are
+  silently invalidated on restart. Always set it in `.env`.
 - **HTTPS / WSS is not built in** — terminate TLS in nginx/Caddy.
 - **No CSP / Trusted Types.** Treat untrusted markdown as untrusted.
 
-Threat model: trusted teammates on a LAN segment during an engagement.
-Anything beyond that needs additional work.
+Threat model: trusted teammates on a LAN segment during an engagement. Anything
+beyond that needs additional work.
+
+---
 
 ## License
 

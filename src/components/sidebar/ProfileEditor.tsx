@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '@/auth/auth-store';
+import { resolvePrefs } from '@/lib/editor-prefs';
+import { applyCodeAccent } from '@/lib/code-theme';
 
 const COLOR_PRESETS = [
   '#ef4444', '#f59e0b', '#10b981', '#3b82f6',
@@ -13,22 +15,41 @@ const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 export function ProfileEditor({ onClose }: { onClose: () => void }) {
   const user = useAuthStore((s) => s.user) as AuthUser;
   const updateProfile = useAuthStore((s) => s.updateProfile);
+  const resolved = resolvePrefs(user);
 
   const [color, setColor] = useState(user.color);
+  const [codeAccent, setCodeAccent] = useState(resolved.codeAccent);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const dirty = color !== user.color;
+  // Live-preview the code accent against real code blocks while the dialog is
+  // open; revert on unmount unless the change was saved.
+  const initialCodeAccent = useRef(resolved.codeAccent);
+  const saved = useRef(false);
+  useEffect(() => () => {
+    if (!saved.current) applyCodeAccent(initialCodeAccent.current);
+  }, []);
+  const handleCodeAccentChange = (v: string) => {
+    setCodeAccent(v);
+    if (HEX_RE.test(v)) applyCodeAccent(v);
+  };
+
+  const dirty = color !== user.color || codeAccent.toLowerCase() !== resolved.codeAccent.toLowerCase();
 
   const handleSave = async () => {
     if (!HEX_RE.test(color)) {
       setError('color must be a #RRGGBB hex value');
       return;
     }
+    if (!HEX_RE.test(codeAccent)) {
+      setError('code accent must be a #RRGGBB hex value');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      await updateProfile({ color });
+      await updateProfile({ color, prefs: { codeAccent, keybinds: resolved.keybinds } });
+      saved.current = true;
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'save failed');
@@ -92,6 +113,41 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
                 type="text"
                 value={color}
                 onChange={(e) => setColor(e.target.value)}
+                placeholder="#rrggbb"
+                className="flex-1 rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1.5 font-mono text-xs outline-none focus:border-[hsl(var(--primary))]"
+              />
+            </div>
+          </div>
+
+          {/* Code accent — tints syntax highlighting in code blocks. Previews
+              live against any open code blocks while this dialog is open. */}
+          <div>
+            <label className="mb-1 block text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+              Code Accent
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {COLOR_PRESETS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => handleCodeAccentChange(c)}
+                  title={c}
+                  className={`h-6 w-6 rounded-full border transition ${codeAccent.toLowerCase() === c.toLowerCase() ? 'border-white ring-2 ring-white/40' : 'border-[hsl(var(--border))] hover:border-white/60'}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="color"
+                value={HEX_RE.test(codeAccent) ? codeAccent : '#f59e0b'}
+                onChange={(e) => handleCodeAccentChange(e.target.value)}
+                className="h-8 w-10 cursor-pointer rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))]"
+              />
+              <input
+                type="text"
+                value={codeAccent}
+                onChange={(e) => handleCodeAccentChange(e.target.value)}
                 placeholder="#rrggbb"
                 className="flex-1 rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1.5 font-mono text-xs outline-none focus:border-[hsl(var(--primary))]"
               />
