@@ -26,6 +26,7 @@ reporting, and Google-Docs-style live co-editing across every machine on the LAN
   - [Recon & reporting (nmap, findings, timeline)](#recon--reporting-nmap-findings-timeline)
   - [AI assistant (Claude)](#ai-assistant-claude)
   - [MCP server (connect an external client)](#mcp-server-connect-an-external-client)
+  - [Command log (team shell-command capture)](#command-log-team-shell-command-capture)
   - [Real-time collaboration](#real-time-collaboration)
   - [Workspaces, navigation & layout](#workspaces-navigation--layout)
   - [Edit history & versioning](#edit-history--versioning)
@@ -107,10 +108,13 @@ The Pages section has a dedicated **Typst** tab — a [typst.app](https://typst.
 split view for the [Typst](https://typst.app) typesetting language, **compiled and
 rendered entirely in the browser** (no calls to typst.app or any remote service):
 
-- **Side-by-side editor + preview** — the raw Typst source in a collaborative
-  CodeMirror editor on the left, the live-rendered document (SVG) on the right.
-  Drag the divider to resize, or hit the **Code** toggle to hide the editor and
-  see the preview full-width. Zoom the preview in/out.
+- **Three resizable panes** — the raw Typst source in a collaborative
+  CodeMirror editor on the left, the live-rendered document (SVG) in the
+  middle, and the assets rail on the right. Drag either divider to resize
+  (double-click one to reset it), or use the **Code** / **Assets** toggles to
+  hide a pane entirely. Widths and visibility persist per browser, and both
+  rails re-fit themselves if the window gets too narrow to hold them. Zoom the
+  preview in/out.
 - **Local WebAssembly compiler** — bundled [`typst.ts`](https://github.com/Myriad-Dreamin/typst.ts)
   (compiler + renderer wasm) ships with the app, and the default Typst font set
   is embedded in the compiler, so it renders **fully offline / air-gapped** — no
@@ -123,7 +127,77 @@ rendered entirely in the browser** (no calls to typst.app or any remote service)
   persisted exactly like every other field in BTCT. One Typst scratchpad per
   workspace; open it from the **Pages** sidebar, the command palette
   (*Open Typst Document*), or `Ctrl/⌘+K`.
+- **Find & replace** — `Ctrl/⌘+F` opens a search panel scoped to the Typst
+  editor (`Enter` / `Shift+Enter` to step through matches, `Ctrl/⌘+Alt+F` to
+  replace). Occurrences of the current selection are highlighted as you go.
+- **Screenshots go into declared figure slots, not wherever the caret is** —
+  drag image files onto the **Assets** rail (or use *Add*) and a window opens
+  with the crop editor on the left and the document's **figure locations** on
+  the right. Pick a slot, hit *Place in figure*, done.
+
+  A slot is a call to the `image-placeholder` helper:
+
+  ```typst
+  #image-placeholder("Authentication bypass on /admin")
+  ```
+
+  which renders a captioned grey "insert screenshot here" box until an image
+  is assigned — and once one is, **the image is placed inside that same
+  bordered frame**, scaled to fit, rather than replacing it. The figure keeps
+  a consistent size and border whether or not it has been filled in, so a
+  *missing* screenshot is
+  obvious in the rendered PDF rather than silently absent, and captions and
+  figure numbering stay consistent no matter who fills the report in. Placing
+  is reversible (*Unplace* empties the slot but keeps it), and you can create
+  a new slot from inside the same window. Documents that already define their
+  own `image-placeholder` are upgraded in place on first use, but **only if
+  the definition is one BTCT generated** — if you've customized the styling,
+  it's left alone.
+- **Rename after import** — click the filename in the crop window to rename an
+  image. Every `#image-placeholder(…, path: …)` and hand-written
+  `#image("/assets/…")` reference in the document is repointed automatically.
+  The extension isn't editable: Typst picks its decoder from it and the stored
+  bytes are normalized to match, so letting it drift would break the render.
+- **Click the preview to jump to the source** — clicking anywhere on the
+  rendered page moves the editor caret to the matching place in the code (and
+  opens the code pane if it's hidden). Clicking a heading's auto-generated
+  number lands on the heading itself; clicking blank space does nothing rather
+  than jumping somewhere arbitrary.
+- **Framing is WYSIWYG** — the crop window is a *viewport*, not a free
+  selection. The frame is drawn to the figure box's real proportions,
+  computed from the document's own `#set page(...)` and the slot's height, and
+  the image pans and scales behind it. What sits inside the frame is exactly
+  what the PDF shows: scale past the border and it's clipped there, scale
+  smaller and the placeholder grey shows through. Drag to reposition, scroll
+  to zoom, or use **Fill** / **Fit all** / **Auto** (which trims uniform
+  borders first, then re-frames).
+
+  Because the stored crop carries the box's aspect ratio, the bytes drop into
+  the figure with no letterboxing and no distortion — a change from earlier
+  builds, where a 16:9 screenshot in the default 2.9:1 box used only ~61% of
+  the width.
+- **Per-figure size** — each figure's height is adjustable from the crop
+  window (presets plus a slider). The frame reshapes live and the ratio is
+  shown, so you can make one figure a wide banner and the next a tall
+  portrait; placing writes `height:` onto that one slot.
+
+  The crop is stored as a *normalized rectangle on the asset record*, never
+  baked into the file: the upload is immutable, so framing can always be
+  redone and re-cropping never degrades the image.
+- **Custom fonts** — drop `.ttf` / `.otf` / `.woff` / `.woff2` / `.ttc` files
+  onto the same rail. BTCT reads the family name straight out of the font with
+  the compiler's own parser (so the name shown is the one Typst will match),
+  and the *+* button inserts `#set text(font: "…")` at your cursor. Custom
+  fonts are added *alongside* the built-in Typst faces, so installing your
+  client's brand font never costs you New Computer Modern.
+- **Shared assets** — image and font *metadata* (name, crop rect, family) lives
+  in the shared Yjs doc, so a crop you make appears on every teammate's preview
+  live. The bytes themselves are stored server-side on the `/data` volume
+  rather than in the CRDT — a report with thirty multi-MB screenshots would
+  otherwise be broadcast to and permanently cached by every connected client.
 - **Export** — one-click **PDF** and **SVG** export of the compiled document.
+  Both compile the same virtual file at the same filesystem root, so an
+  `#image(…)` that renders in the preview renders identically in the PDF.
 
 ### Attack-narrative graph
 
@@ -282,6 +356,44 @@ that MCP is **Enabled** in the admin panel, that the **token** matches
 (`curl -s -o /dev/null -w "%{http_code}" -X POST <origin>/mcp` → `401` means the
 endpoint is up and rejecting an unauthenticated request, which is expected).
 
+### Command log (team shell-command capture)
+
+A running record of the commands the team actually executed on their own boxes —
+so the report's evidence trail writes itself instead of being reconstructed from
+memory. Open it from the sidebar (**Command Log**) or the command palette.
+
+- **How it's fed.** Each operator runs a small standalone Python agent
+  (`cmdlog-agent/`) on their Kali box. A shell hook (bash/zsh) captures each
+  whitelisted command as it's typed and the agent ships it to BTCT with the
+  operator name, hostname, working directory, start time, **exit code, and
+  duration**. A long scan appears the moment it starts and its result fills in
+  when it finishes. Nothing changes about how operators type commands.
+- **Whitelist-driven.** Only tools on the whitelist are logged (nmap, gobuster,
+  hydra, sqlmap, crackmapexec, impacket, …); everything else you type is ignored
+  and never leaves the box. Admins edit the whitelist in **Admin → Command Log**,
+  and every agent picks up the change within ~60s.
+- **Secrets are redacted** before they leave the operator's box — passwords, hashes,
+  auth headers, and URL credentials become `«REDACTED»`; the unredacted line stays
+  in a local log on that box. Redaction is tool-aware (`nmap -p 1-65535` keeps its
+  ports; `mysql -pSECRET` is scrubbed).
+- **Live + filterable.** The viewer filters by operator, tool, host, status
+  (running / success / failed), time window, and free-text command search, and
+  **exports the filtered set as CSV or JSON** for the report. New commands push in
+  live with no reload.
+- **Manual entries.** Not everything is captured by the agent — an **Add entry**
+  button lets you hand-enter a command as any operator (command, tool, host, cwd,
+  start time, exit code, duration). Manual entries go through the same durable
+  path (SQLite + CRDT) and are never redacted.
+- **Setup.** Turn it on in **Admin → Command Log** (mints a shared ingest token),
+  then on each box: `python3 -m btct_agent install --server http://<host>:8080
+  --token <token> --operator <you>` and `python3 -m btct_agent run`. See
+  [`cmdlog-agent/README.md`](cmdlog-agent/README.md).
+
+Storage is split on purpose: the server keeps a **durable SQLite archive** of every
+command (unbounded, queried over REST with filters) and mirrors only the most recent
+~500 per workspace into the shared CRDT for the live view — so the collaborative doc
+stays bounded while no history is ever lost.
+
 ### Real-time collaboration
 
 Everything is live and multi-user over the LAN:
@@ -387,6 +499,11 @@ panel).
 | Block mode | `Backspace`/`Delete`, `Enter`, `Esc`/click | Delete / edit / exit |
 | Code block | `Mod+Shift+L` ⚙ | Focus language picker |
 | Language picker | `↑`/`↓`, `Enter`, `Esc` | Navigate / select / close |
+| Typst preview | click | Jump the editor caret to that spot in the source |
+| Typst editor | `Mod+F` | Find (`Enter`/`Shift+Enter` = next/previous match) |
+| Typst editor | `Mod+Alt+F` | Find & replace |
+| Typst editor | `Esc` | Close the search panel |
+| Place-screenshot window | `Enter` / `Esc` | Place into the selected figure / cancel |
 | Graph | `Mod+F` | Node search (↑/↓, Enter to focus) |
 | Graph | `Delete` | Delete selected node/edge |
 | Graph | double-click node · shift-click · right-click | Open page · multi-select · context menu |
@@ -527,6 +644,8 @@ Fields shown as *(Y.Text)* are collaborative; everything else is last-writer-win
 | **NmapMachine** | `id`, `scanId`, `ip`, `hostname` *(Y.Text)*, `os` (windows\|linux\|attacker\|unknown), `ports[]`, `linkedNodeId?`, timestamps |
 | **ChangeLogEntry** | `id`, `workspaceId`, `action`, `target`, `targetId`, `summary`, `timestamp`, author (`userId`/`userName`/`userColor`), `field?`, `prevValue?`, `newValue?`, `reversible` |
 | **PageSnapshot** | `id`, `pageId`, `workspaceId`, `timestamp`, author, `label?`, `updateBase64` (`Y.encodeStateAsUpdate`), `byteLength` |
+| **TypstAsset** | `id` (= server blob id), `workspaceId`, `kind` (`image`\|`font`), `filename` (also the `/assets/<name>` path in the Typst VFS), `mime`, `size`, `width?`/`height?`, `crop?` (`CropRect`, normalized 0..1 — `null` = full image), `fontFamily?`, timestamps. **Metadata only — the bytes live server-side.** |
+| **CommandLogEntry** | `id` (agent-generated, the idempotency key), `workspaceId`, `operator`, `command` (redacted), `tool`, `cwd?`, `host?`, `localUser?`, `shellPid?`, `startedAt`, `receivedAt`, `exitCode?` (`null` = still running), `durationMs?`, `redacted?`. **No Y.Text fields** — all LWW JSON. Written **only by the server ingest endpoint**; the shared-doc copy is a bounded live window over the SQLite archive. |
 
 Node `data` is polymorphic — `HostData` / `CredentialData` / `ServiceData` /
 `FindingData` / `PivotData` (fields listed in the [graph feature
@@ -610,10 +729,22 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `GET` | `/api/ai/sessions/:id` | yes | Get one session incl. messages (404 if not the caller's) |
 | `POST` | `/api/ai/sessions/:id` | yes | Create/update a session (`{ title, messages }`) — upsert, scoped to caller |
 | `DELETE` | `/api/ai/sessions/:id` | yes | Delete one of the caller's sessions |
+| `POST` | `/api/assets?workspaceId&kind&filename` | yes | Upload one Typst asset. Body is **raw bytes** (not multipart/JSON). `kind` = `image`\|`font`; max 25 MB; extension must be allowed. An image's extension is corrected to match its actual magic number → `{ asset }` |
+| `GET` | `/api/assets?workspaceId=…` | yes | Metadata inventory of a workspace's assets |
+| `GET` | `/api/assets/:id` | yes | The raw asset bytes (`Cache-Control: immutable` — bytes never change for an id) |
+| `DELETE` | `/api/assets/:id` | uploader/admin | Delete the row **and** the file on disk |
 | `GET` | `/api/mcp/config` | admin | MCP server config incl. the bearer token (so it can be copied) |
 | `POST` | `/api/mcp/config` | admin | Enable/disable + set mode (`read`/`edit`); mints a token on first enable |
 | `POST` | `/api/mcp/token` | admin | Regenerate (rotate) the MCP bearer token |
 | `POST` | `/mcp` | MCP token | Streamable-HTTP MCP endpoint (own bearer auth). Read tools always; write tools in `edit` mode |
+| `POST` | `/api/cmdlog/events` | ingest token | Batch ingest from a capture agent (`{ workspace?, events[] }`); upserts by id into SQLite + the CRDT live window |
+| `GET` | `/api/cmdlog/whitelist` | ingest token | Tool whitelist the agent fetches + refreshes |
+| `GET` | `/api/cmdlog/query` | yes | Filtered read of the durable archive (`workspaceId, operator, tool, host, from, to, q, status, limit`) |
+| `POST` | `/api/cmdlog/manual` | yes | Hand-enter one command-log record (as any operator); writes to SQLite + the CRDT live window, never redacted |
+| `GET` | `/api/cmdlog/config` | admin | Command-log config incl. token, whitelist, default workspace |
+| `POST` | `/api/cmdlog/config` | admin | Enable/disable, set whitelist + default workspace (mints a token on first enable) |
+| `POST` | `/api/cmdlog/token` | admin | Regenerate (rotate) the ingest token |
+| `DELETE` | `/api/cmdlog/logs?workspaceId=…` | admin | Purge a workspace's command-log archive |
 | WS | `/yjs/<room>?token=<jwt>` | yes (at upgrade) | Yjs CRDT relay; rooms = `btct-shared` + one per page id |
 
 The `users` table is `(id, username [NOCASE unique], salt, hash, iter, color,
@@ -626,12 +757,29 @@ write-only and never returned to clients — and the MCP server config
 (`mcp_enabled`, `mcp_mode`, `mcp_token`; the token is admin-readable so it can be
 copied into a client). The `chat_sessions` table
 (`id, user_id, title, messages [JSON], created_at, updated_at`) holds each
-account's durable Claude conversations, scoped and pruned per user.
+account's durable Claude conversations, scoped and pruned per user. The
+`assets` table (`id, workspace_id, kind, filename, mime, size, uploaded_by,
+created_at`) is the server's inventory of the Typst blobs it stores; the bytes
+live as files under `ASSETS_DIR` named by the row's uuid. This is the **only**
+place the server holds workspace content on disk, and it stays deliberately
+dumb about meaning — the crop rectangle and display name are CRDT records, not
+columns here. See [server/assets.mjs](server/assets.mjs). The `command_logs`
+table (`id, workspace_id, operator, command, tool, cwd, host, local_user,
+shell_pid, started_at, received_at, exit_code, duration_ms, redacted`) is the
+**durable, unbounded archive** of every command captured by the cmdlog agents;
+rows are upserted by the agent-generated `id` (so a start event and its later
+exit/duration completion merge, and a replayed batch is a no-op), and the shared
+Yjs doc mirrors only the most recent ~500 per workspace for the live view. Ingest
+uses a static bearer token (`cmdlog_enabled`/`cmdlog_token`/`cmdlog_whitelist`/
+`cmdlog_workspace` in `settings`, token admin-readable). See
+[server/cmdlog.mjs](server/cmdlog.mjs).
 
 **Environment variables:** `AUTH_SECRET` (required in prod; HMAC key — random &
 ephemeral if unset, which silently invalidates tokens on restart), `HOST`,
-`PORT`, `STATIC_DIR`, `DB_PATH`, `YPERSISTENCE` (LevelDB dir — **set it or Yjs
-rooms are memory-only**), `ALLOWED_ORIGIN` (CORS; unset = same-origin),
+`PORT`, `STATIC_DIR`, `DB_PATH`, `ASSETS_DIR` (Typst image/font blobs; defaults
+to `assets/` beside `DB_PATH`, i.e. `/data/assets` in Docker), `YPERSISTENCE`
+(LevelDB dir — **set it or Yjs rooms are memory-only**),
+`ALLOWED_ORIGIN` (CORS; unset = same-origin),
 `ADMIN_USERNAME`/`ADMIN_PASSWORD` (bootstrap admin, default `admin`/`changeme!`).
 Client build-time: `VITE_API_URL`, `VITE_WS_URL` (default same-origin).
 
@@ -650,8 +798,15 @@ src/
                               + Node/EdgeProperties
     findings/                 FindingsCollector.tsx, AttackTimeline.tsx
     nmap/NmapScanView.tsx     XML import, machine grid/detail, host-node linking
-    typst/                    TypstView (split editor+preview tab), TypstEditor
-                              (collab CodeMirror), TypstPreview (local SVG render)
+    ai/                       AiAssistant (chat pane), ThinkingIndicator
+                              (agent activity), markdown.tsx (shiki renderer)
+    typst/                    TypstView (3-pane editor+preview+assets tab,
+                              resizable) TypstEditor (collab CodeMirror +
+                              Mod+F search),
+                              TypstPreview (local SVG render), TypstAssetsPanel
+                              (image/font drop zone), PlaceScreenshotDialog
+                              (viewport editor + figure-slot picker),
+                              FigureViewport (the framing surface)
     sidebar/                  LeftSidebar (tree/nav), RightSidebar (properties),
                               AdminPanel, ProfileEditor, ThemePicker,
                               ChangeLogPanel, PageHistoryPanel, BacklinksPanel,
@@ -663,9 +818,16 @@ src/
   lib/                        editor-* + highlight-plugin + code-theme +
                               block-select + active-editor + auto-layout +
                               pathfinding + nmap-parser + pane-layout + theme +
-                              typst-compiler (local WASM compile→SVG/PDF) +
-                              typst-language (CodeMirror Typst highlighting) +
-                              utils
+                              typst-compiler (local WASM compile→SVG/PDF, shadow
+                              FS + custom fonts) + typst-language (CodeMirror
+                              Typst highlighting) + typst-assets (upload/fetch/
+                              crop/border-detect) + crop-math (pure crop
+                              geometry) + typst-placeholders (figure-slot
+                              scanning + source rewriting) + pane-resize (pane
+                              width clamping + layout persistence) +
+                              image-format (magic-number sniffing) +
+                              typst-source-map (preview click → source offset)
+                              + typst-geometry (page/figure box sizing) + utils
   realtime/                   shared-doc.ts (shared Y.Doc + Y.Text registry),
                               yjs-providers.ts (per-page docs), page-snapshots.ts,
                               use-y-text.ts, PresenceAvatars.tsx
@@ -675,8 +837,16 @@ src/
 server/
   index.mjs                   HTTP + WS entry, all REST routes, static serving
   auth.mjs                    PBKDF2 hashing + HMAC token sign/verify
-  db.mjs                      bun:sqlite users + settings, prefs migration
+  db.mjs                      bun:sqlite users + settings + assets + command_logs, migrations
+  assets.mjs                  Typst image/font blob store (disk + metadata rows)
+  cmdlog.mjs                  Command-log ingest + config (SQLite archive + CRDT live window)
+cmdlog-agent/                 Standalone Python 3 shell-capture agent (own README + tests)
+  btct_agent/                 matcher, redactor, spool, shipper, daemon, installer, hooks/
 ```
+
+> Adding a file under `server/` means adding a `COPY server/<file>.mjs` line to
+> the [Dockerfile](Dockerfile) — server files are copied individually, so a new
+> one is silently missing from the image otherwise.
 
 ### Conventions & invariants (read before changing anything)
 
@@ -696,10 +866,60 @@ server/
 5. **Highlight marks are intentionally not persisted** (no CommonMark syntax).
 6. **Deletes cascade and are logged with a full snapshot** so they're restorable.
 7. **The server is dumb about domain data.** Don't add page/graph logic to the
-   server; it only relays Yjs, serves static files, and does auth/settings.
-8. **DB migrations must be idempotent** — guard every `ALTER TABLE` with a column
+   server; it only relays Yjs, serves static files, does auth/settings, and
+   stores opaque asset blobs. The three deliberate exceptions are the AI
+   assistant (which reads/writes the CRDT in-process),
+   [assets.mjs](server/assets.mjs) — only *storage*: it knows a blob's size and
+   mime, never what it means — and [cmdlog.mjs](server/cmdlog.mjs), which ingests
+   externally-produced command records into SQLite + the CRDT (it validates and
+   stores, and knows nothing about what a command means). Server-side CRDT writes
+   must honour the Y.Text rule; command logs sidestep it by having **no** Y.Text
+   fields (all LWW JSON, like typst assets).
+8. **Binary content never goes in the CRDT.** Images and fonts are uploaded to
+   the server and referenced from the shared doc by id; only small metadata
+   records sync. Base64 blobs in the shared doc get broadcast to *and
+   permanently cached by* every connected client. The one exception is page
+   snapshots, which are intentionally-bounded Yjs update bytes.
+9. **Crops are render-time transforms, never destructive edits.** A `CropRect`
+   is stored on the asset record and applied when the bytes are handed to the
+   compiler. Never re-upload cropped pixels over the original — it would make
+   the crop irreversible and degrade the image on each pass.
+10. **Typst assets have no `Y.Text` fields, deliberately.** Filenames and crop
+   rects are last-writer-wins JSON: concurrent character-by-character editing
+   of a filename isn't a workflow worth supporting, so invariant 1 doesn't
+   apply to `typstAssets`.
+11. **Preview and PDF must compile the same virtual path.** Both go through
+   `/main.typ` in [typst-compiler.ts](src/lib/typst-compiler.ts). If they
+   diverge, relative `#image(…)` paths resolve differently and PDF export
+   breaks *only for documents that use assets* — a nasty, late-surfacing bug.
+12. **Programmatic source edits go through `replaceYTextContent`**, which
+   splices a minimal delta. Never clear-and-reinsert a Y.Text: it deletes
+   every character and re-adds it, destroying collaborators' cursors and
+   making the change unmergeable with a concurrent edit.
+13. **Re-scan slots after any other source rewrite.** `ScreenshotSlot` carries
+   raw character offsets, so upgrading the helper (which shifts everything
+   below it) invalidates every offset measured beforehand. `ensureHelper()`
+   first, *then* `findScreenshotSlots()`, then `setSlotPath()` — matching
+   slots across the rewrite by their `index`, not their offsets.
+14. **Pane drags write to the DOM, not to React state.** `TypstView` sets the
+   pane's `style.width` directly per animation frame and commits to state
+   once on pointer-up. A re-render mid-drag would reconcile the whole tab
+   every frame and — the real hazard — risk remounting the CodeMirror host,
+   dropping the Yjs collab binding and every remote cursor with it.
+15. **Mounted bytes must match the extension they're mounted at.** Typst
+   selects its image decoder from the file extension, so PNG bytes at a
+   `.jpg` path fail with `Illegal start bytes: 8950`. `resolveAssetBytes()`
+   encodes crops to the format the *filename* claims (not always PNG) and
+   re-encodes uncropped bytes that disagree with their extension, so a
+   mislabelled upload self-heals. GIF and SVG are passed through untouched —
+   a canvas can't produce them. See [image-format.ts](src/lib/image-format.ts).
+16. **Only the preview may coalesce compiles.** `compileTypstSvg(src, {
+   coalesce: true })` skips a queued compile that a newer one has superseded.
+   Exports must never pass it: an export queued behind a preview would be
+   silently dropped and reported as a failure.
+17. **DB migrations must be idempotent** — guard every `ALTER TABLE` with a column
    check (see the `prefs`/`avatar`/`is_admin` migration in `db.mjs`).
-9. **Set `AUTH_SECRET` and `YPERSISTENCE`** in any real deployment, or tokens and
+18. **Set `AUTH_SECRET` and `YPERSISTENCE`** in any real deployment, or tokens and
    rooms evaporate on restart.
 
 ### Recipes: how to extend
@@ -732,6 +952,8 @@ server/
   index.mjs                HTTP + WS entry
   auth.mjs                 PBKDF2 + HMAC token helpers
   db.mjs                   bun:sqlite users + settings
+  cmdlog.mjs               Command-log ingest + config
+cmdlog-agent/              Standalone Python 3 command-capture agent (stdlib only)
 Dockerfile                 Multi-stage build (client → server-deps → runtime)
 docker-compose.yml         Single-container deployment
 Start-BTCT.ps1             One-click launcher (Docker + browser; popup if running)
@@ -849,6 +1071,8 @@ All data lives in a single named Docker volume, `btct-data`, mounted at `/data`:
 | Notes, pages, graphs, chains, nmap scans (Yjs LevelDB) | `/data/yjs/` | yes |
 | Activity log (every change, author + timestamp) | `/data/yjs/` | yes |
 | Page-body version history (point-in-time snapshots) | `/data/yjs/` | yes |
+| Typst screenshots + custom fonts (raw bytes) | `/data/assets/` | yes |
+| Typst asset metadata (names, crop rects, font families) | `/data/yjs/` | yes |
 
 So **every code update, image rebuild, or container restart preserves all your
 data.** The only commands that destroy it are `docker compose down -v` or manually

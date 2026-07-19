@@ -26,6 +26,7 @@ const KIND_LABEL: Record<TabKind, string> = {
   timeline: 'Timeline',
   typst: 'Typst',
   ai: 'Claude',
+  cmdlog: 'Command Log',
 };
 
 function whereLabel(peer: PeerPresence): string {

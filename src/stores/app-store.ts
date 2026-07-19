@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain } from '@/types';
-import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo } from '@/db';
+import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, TypstAssetKind, CropRect, CommandLogEntry } from '@/types';
+import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo, typstAssetRepo, commandLogRepo } from '@/db';
 import type { LogAuthor, LogDelta } from '@/db/changelog-repo';
 import { db } from '@/db/database';
 import { useAuthStore } from '@/auth/auth-store';
@@ -178,6 +178,19 @@ interface AppState {
   pendingHighlightChainId: ID | null;
   setPendingHighlightChainId: (id: ID | null) => void;
 
+  // Typst assets (report screenshots + custom fonts)
+  typstAssets: TypstAsset[];
+  loadTypstAssets: () => Promise<void>;
+  addTypstAsset: (file: File, kind: TypstAssetKind) => Promise<TypstAsset>;
+  setTypstAssetCrop: (id: ID, crop: CropRect | null) => Promise<void>;
+  /** Rename an asset's file stem. Returns the resulting filename. */
+  renameTypstAsset: (id: ID, stem: string) => Promise<string>;
+  deleteTypstAsset: (id: ID) => Promise<void>;
+
+  // Command log (team pentest command activity — ingested server-side, read-only here)
+  commandLogs: CommandLogEntry[];
+  loadCommandLogs: () => Promise<void>;
+
   // Database
   deleteDatabase: () => Promise<void>;
 }
@@ -235,12 +248,14 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   setActiveWorkspace: (id) => {
-    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], graphs: [], graphNodes: [], graphEdges: [], attackChains: [], nmapScans: [], nmapMachines: [] });
+    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], graphs: [], graphNodes: [], graphEdges: [], attackChains: [], nmapScans: [], nmapMachines: [], typstAssets: [], commandLogs: [] });
     // Reload workspace-scoped lists for the newly-active workspace so stale
     // entries from the previous workspace don't appear before the per-view
     // useEffects fire (and so newly-created scans never inherit the prior
     // workspace's list in state).
     void get().loadNmapScans();
+    void get().loadTypstAssets();
+    void get().loadCommandLogs();
   },
 
   createWorkspace: async (name, description) => {
@@ -1018,6 +1033,130 @@ export const useAppStore = create<AppState>((set, get) => {
   pendingHighlightChainId: null,
   setPendingHighlightChainId: (id) => set({ pendingHighlightChainId: id }),
 
+  // Typst assets. Only metadata lives in the shared doc — the bytes are on
+  // the server (see lib/typst-assets.ts + server/assets.mjs).
+  typstAssets: [],
+  loadTypstAssets: async () => {
+    const wsId = get().activeWorkspaceId;
+    if (!wsId) return;
+    set({ typstAssets: await typstAssetRepo.getByWorkspace(wsId) });
+  },
+
+  // Command log — the shared-doc live window. The full archive is fetched over
+  // REST by the view; this loader keeps the store in sync as agents ship
+  // commands (wired in shared-bindings.ts). Read-only: clients never write.
+  commandLogs: [],
+  loadCommandLogs: async () => {
+    const wsId = get().activeWorkspaceId;
+    if (!wsId) return;
+    set({ commandLogs: await commandLogRepo.getByWorkspace(wsId) });
+  },
+
+  addTypstAsset: async (file: File, kind: TypstAssetKind) => {
+    const wsId = get().activeWorkspaceId;
+    if (!wsId) throw new Error('No active workspace');
+    const { uploadAsset, readImageSize, readFontFamily } = await import('@/lib/typst-assets');
+
+    // Reserve a collision-free name *before* uploading so two screenshots
+    // dropped with the same name don't fight over one Typst VFS path.
+    const filename = await typstAssetRepo.uniqueFilename(wsId, file.name);
+    const uploaded = await uploadAsset(file, { workspaceId: wsId, kind, filename });
+
+    // Best-effort enrichment: dimensions drive the crop UI's aspect ratio,
+    // and the font family is what the operator types into `#set text(font:)`.
+    // Neither is worth failing the upload over.
+    let width: number | null = null;
+    let height: number | null = null;
+    let fontFamily: string | null = null;
+    if (kind === 'image' && file.type !== 'image/svg+xml') {
+      try { const s = await readImageSize(file); width = s.width; height = s.height; }
+      catch { /* dimensions stay unknown; the cropper falls back to the rendered size */ }
+    }
+    if (kind === 'font') {
+      try { fontFamily = await readFontFamily(new Uint8Array(await file.arrayBuffer())); }
+      catch { /* family stays unknown; the UI shows the filename instead */ }
+    }
+
+    const asset = await typstAssetRepo.create({
+      id: uploaded.id,
+      workspaceId: wsId,
+      kind,
+      filename: uploaded.filename,
+      mime: uploaded.mime,
+      size: uploaded.size,
+      width,
+      height,
+      fontFamily,
+    });
+    set((s) => ({ typstAssets: [...s.typstAssets, asset] }));
+    log('create', 'page', asset.id, `Added Typst ${kind} "${asset.filename}"`);
+    return asset;
+  },
+  setTypstAssetCrop: async (id: ID, crop: CropRect | null) => {
+    const prev = get().typstAssets.find((a) => a.id === id)?.crop ?? null;
+    await typstAssetRepo.setCrop(id, crop);
+    set((s) => ({
+      typstAssets: s.typstAssets.map((a) => (a.id === id ? { ...a, crop } : a)),
+    }));
+    const name = get().typstAssets.find((a) => a.id === id)?.filename ?? id;
+    log(
+      'update',
+      'page',
+      id,
+      crop ? `Cropped "${name}"` : `Cleared crop on "${name}"`,
+      { field: 'crop', prevValue: encodeValue(prev), newValue: encodeValue(crop) },
+    );
+  },
+  renameTypstAsset: async (id: ID, stem: string) => {
+    const wsId = get().activeWorkspaceId;
+    const asset = get().typstAssets.find((a) => a.id === id);
+    if (!wsId || !asset) throw new Error('asset not found');
+
+    // The extension is deliberately not editable. It's what tells Typst which
+    // decoder to use, and the bytes are normalized to match it — letting
+    // someone rename shot.png to shot.jpg would reintroduce exactly the
+    // decode failure that normalization exists to prevent.
+    const dot = asset.filename.lastIndexOf('.');
+    const ext = dot > 0 ? asset.filename.slice(dot) : '';
+
+    // Same rules as the server's sanitizer, since this becomes a path in the
+    // compiler's virtual filesystem.
+    const safeStem = stem.trim().replace(/[^A-Za-z0-9._-]/g, '_').replace(/^[.]+/, '').slice(0, 80);
+    if (!safeStem) throw new Error('name cannot be empty');
+
+    const desired = safeStem + ext;
+    if (desired === asset.filename) return asset.filename;
+
+    const filename = await typstAssetRepo.uniqueFilename(wsId, desired);
+    await typstAssetRepo.rename(id, filename);
+    set((s) => ({
+      typstAssets: s.typstAssets.map((a) => (a.id === id ? { ...a, filename } : a)),
+    }));
+    log('update', 'page', id, `Renamed Typst image "${asset.filename}" → "${filename}"`, {
+      field: 'filename',
+      prevValue: encodeValue(asset.filename),
+      newValue: encodeValue(filename),
+    });
+    return filename;
+  },
+  deleteTypstAsset: async (id: ID) => {
+    const asset = get().typstAssets.find((a) => a.id === id);
+    const { deleteAssetBytes, forgetAsset } = await import('@/lib/typst-assets');
+    // Drop the bytes first: if that fails we keep the record, leaving the
+    // asset usable rather than stranding a document reference to a file the
+    // compiler can no longer resolve.
+    await deleteAssetBytes(id);
+    forgetAsset(id);
+    await typstAssetRepo.remove(id);
+    set((s) => ({ typstAssets: s.typstAssets.filter((a) => a.id !== id) }));
+    log(
+      'delete',
+      'page',
+      id,
+      `Deleted Typst ${asset?.kind ?? 'asset'} "${asset?.filename ?? id}"`,
+    );
+  },
+
   // Database
   deleteDatabase: async () => {
     await db.delete();
@@ -1033,6 +1172,8 @@ export const useAppStore = create<AppState>((set, get) => {
       nmapScans: [],
       nmapMachines: [],
       attackChains: [],
+      typstAssets: [],
+      commandLogs: [],
       tabs: [],
       activeTabId: null,
       paneLayout: createLeaf(),

@@ -206,9 +206,16 @@ export async function handleAiChat(req, res, { user, body, setCors }) {
           out = { error: String(e?.message || e) };
           isErr = true;
         }
+        // Tell the client the call finished so its activity indicator can move
+        // off "running <tool>" — otherwise a slow round looks stuck on the
+        // last tool right through the model's next thinking pass.
+        send(res, { type: 'tool_done', name: block.name, ok: !isErr });
         results.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(out ?? null), is_error: isErr });
       }
       convo.push({ role: 'user', content: results });
+      // Another pass over the tool results is about to start. `round` is what
+      // lets the UI distinguish a quick answer from extended research.
+      send(res, { type: 'round', n: rounds });
     }
     send(res, { type: 'done' });
   } catch (e) {

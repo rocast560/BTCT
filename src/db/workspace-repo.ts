@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './database';
+import { getOrInitYText, setYTextValue, textKey } from '@/realtime/shared-doc';
 import type { Workspace } from '@/types';
 
 export const workspaceRepo = {
@@ -21,11 +22,14 @@ export const workspaceRepo = {
       updatedAt: now,
     };
     await db.workspaces.add(workspace);
+    getOrInitYText(textKey('workspace', workspace.id, 'name'), workspace.name); // invariant #1
     return workspace;
   },
 
   async update(id: string, data: Partial<Pick<Workspace, 'name' | 'description'>>): Promise<void> {
     await db.workspaces.update(id, { ...data, updatedAt: Date.now() });
+    // `name` is a collaborative Y.Text — keep it in sync (invariant #2).
+    if (data.name !== undefined) setYTextValue('workspace', id, 'name', data.name);
   },
 
   async remove(id: string): Promise<void> {

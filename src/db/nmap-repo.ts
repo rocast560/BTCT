@@ -1,7 +1,7 @@
 import { db } from './database';
 import type { NmapScan, NmapMachine, ID } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
-import { getOrInitYText, textKey } from '@/realtime/shared-doc';
+import { getOrInitYText, setYTextValue, textKey } from '@/realtime/shared-doc';
 
 export const nmapScanRepo = {
   /** Create an empty Nmap group (no XML yet). */
@@ -13,6 +13,9 @@ export const nmapScanRepo = {
       importedAt: Date.now(),
     };
     await db.nmapScans.add(scan);
+    // Pre-seed the collaborative name Y.Text (invariant #1) so a later rename
+    // has a Y.Text to update and the mirror never reverts it.
+    getOrInitYText(textKey('nmapScan', scan.id, 'name'), scan.name);
     return scan;
   },
 
@@ -26,6 +29,7 @@ export const nmapScanRepo = {
       rawXml,
     };
     await db.nmapScans.add(scan);
+    getOrInitYText(textKey('nmapScan', scan.id, 'name'), scan.name);
     return scan;
   },
 
@@ -35,6 +39,9 @@ export const nmapScanRepo = {
 
   async rename(id: ID, name: string): Promise<void> {
     await db.nmapScans.update(id, { name });
+    // `name` is a collaborative Y.Text — update it too or the mirror reverts
+    // the record on the next sync/reload (invariant #2).
+    setYTextValue('nmapScan', id, 'name', name);
   },
 
   async delete(id: ID): Promise<void> {
@@ -69,6 +76,9 @@ export const nmapMachineRepo = {
 
   async update(id: ID, data: Partial<Pick<NmapMachine, 'hostname' | 'os'>>): Promise<void> {
     await db.nmapMachines.update(id, { ...data, updatedAt: Date.now() });
+    // hostname is a collaborative Y.Text — keep it in sync when set here (the
+    // inline editor uses useYTextInput, but a programmatic set must too).
+    if (data.hostname !== undefined) setYTextValue('nmapMachine', id, 'hostname', data.hostname);
   },
 
   /** Upsert machines by IP within a group. Existing IPs get their ports/os/hostname updated. */

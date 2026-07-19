@@ -43,6 +43,26 @@ function diff(oldStr: string, newStr: string): { index: number; remove: number; 
   };
 }
 
+/**
+ * Rewrite a Y.Text to `next` using a single minimal delta rather than a
+ * clear-and-reinsert.
+ *
+ * Used for programmatic edits to a whole document (assigning a screenshot to
+ * a figure slot, upgrading a helper definition). Replacing the full text
+ * would delete every character and re-add it, which blows away collaborators'
+ * cursors, floods the CRDT with garbage, and makes the change unmergeable
+ * with a concurrent edit. Splicing only the changed span leaves untouched
+ * regions — and anyone typing in them — alone.
+ */
+export function replaceYTextContent(ytext: Y.Text, next: string): void {
+  const d = diff(ytext.toString(), next);
+  if (!d) return;
+  sharedTransact(() => {
+    if (d.remove > 0) ytext.delete(d.index, d.remove);
+    if (d.insert.length > 0) ytext.insert(d.index, d.insert);
+  });
+}
+
 export function useYTextInput(
   key: string,
   initial: string,

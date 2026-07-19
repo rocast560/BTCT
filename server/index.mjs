@@ -27,6 +27,22 @@ import {
 } from './db.mjs';
 import { getAiConfig, setAiConfig, testAiConnection, handleAiChat } from './ai.mjs';
 import { getMcpConfig, setMcpConfig, regenerateMcpToken, handleMcp } from './mcp.mjs';
+import {
+  getCmdlogConfig,
+  setCmdlogConfig,
+  regenerateCmdlogToken,
+  handleCmdlogEvents,
+  handleCmdlogWhitelist,
+  handleCmdlogQuery,
+  handleCmdlogManual,
+  handleCmdlogClear,
+} from './cmdlog.mjs';
+import {
+  handleAssetUpload,
+  handleAssetGet,
+  handleAssetList,
+  handleAssetDelete,
+} from './assets.mjs';
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const DEFAULT_THEME_COLOR = '#f59e0b'; // yellow-orange (amber-500)
@@ -85,7 +101,7 @@ ensureBootstrapAdmin();
 function setCors(res) {
   if (!ALLOWED_ORIGIN) return; // same-origin deployment: no CORS headers needed
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Max-Age', '600');
 }
@@ -405,6 +421,81 @@ const httpServer = http.createServer(async (req, res) => {
         deleteChatSession(claims.uid, id);
         return sendJson(res, 200, { ok: true });
       }
+    }
+
+    // ── Binary assets (Typst screenshots + custom fonts) ───────────────
+    // Any authenticated user can upload/read; deletes are restricted to the
+    // uploader or an admin (enforced in the handler). Bodies are raw bytes,
+    // so these routes bypass readJsonBody entirely.
+    if (req.url?.split('?')[0] === '/api/assets') {
+      const claims = authFromHeader(req);
+      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
+      const user = getUserById(claims.uid);
+      if (!user) return sendJson(res, 401, { error: 'unauthorized' });
+      if (req.method === 'POST') {
+        return handleAssetUpload(req, res, { user, sendJson });
+      }
+      if (req.method === 'GET') {
+        return handleAssetList(req, res, { sendJson });
+      }
+    }
+    if (req.url?.startsWith('/api/assets/')) {
+      const claims = authFromHeader(req);
+      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
+      const user = getUserById(claims.uid);
+      if (!user) return sendJson(res, 401, { error: 'unauthorized' });
+      const id = decodeURIComponent(req.url.slice('/api/assets/'.length).split('?')[0]);
+      if (!id) return sendJson(res, 400, { error: 'missing asset id' });
+      if (req.method === 'GET' || req.method === 'HEAD') {
+        return handleAssetGet(req, res, id, { sendJson });
+      }
+      if (req.method === 'DELETE') {
+        return handleAssetDelete(req, res, id, { user, sendJson });
+      }
+    }
+
+    // ── Command log (team pentest command activity from btct-cmdlog agents) ──
+    // Ingest + whitelist authenticate with the static ingest token (checked in
+    // the handlers). Query is any-authenticated-user. Config is admin-only.
+    if (req.method === 'POST' && req.url === '/api/cmdlog/events') {
+      return handleCmdlogEvents(req, res, { sendJson, readJsonBody });
+    }
+    if (req.method === 'GET' && req.url?.split('?')[0] === '/api/cmdlog/whitelist') {
+      return handleCmdlogWhitelist(req, res, { sendJson });
+    }
+    if (req.method === 'GET' && req.url?.split('?')[0] === '/api/cmdlog/query') {
+      const claims = authFromHeader(req);
+      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
+      if (!getUserById(claims.uid)) return sendJson(res, 401, { error: 'unauthorized' });
+      return handleCmdlogQuery(req, res, { sendJson });
+    }
+    if (req.method === 'POST' && req.url === '/api/cmdlog/manual') {
+      const claims = authFromHeader(req);
+      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
+      if (!getUserById(claims.uid)) return sendJson(res, 401, { error: 'unauthorized' });
+      return handleCmdlogManual(req, res, { sendJson, readJsonBody });
+    }
+    if (req.method === 'GET' && req.url === '/api/cmdlog/config') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      return sendJson(res, 200, getCmdlogConfig());
+    }
+    if (req.method === 'POST' && req.url === '/api/cmdlog/config') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      const body = await readJsonBody(req, 32 * 1024);
+      try { return sendJson(res, 200, setCmdlogConfig(body)); }
+      catch (e) { return sendJson(res, 400, { error: String(e?.message || e) }); }
+    }
+    if (req.method === 'POST' && req.url === '/api/cmdlog/token') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      return sendJson(res, 200, { token: regenerateCmdlogToken() });
+    }
+    if (req.method === 'DELETE' && req.url?.split('?')[0] === '/api/cmdlog/logs') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      return handleCmdlogClear(req, res, { sendJson });
     }
 
     // ── MCP server (connect an external MCP client, e.g. Claude Code CLI) ──

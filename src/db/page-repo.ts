@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from './database';
 import type { Page, PartialBlockContent } from '@/types';
 import { normalizePageContent } from '@/export/markdown';
-import { getOrInitYText, textKey } from '@/realtime/shared-doc';
+import { getOrInitYText, setYTextValue, textKey } from '@/realtime/shared-doc';
 
 function normalize(p: Page): Page {
   const md = normalizePageContent(p.content);
@@ -92,6 +92,9 @@ export const pageRepo = {
       patch.content = normalizePageContent(data.content);
     }
     await db.pages.update(id, patch);
+    // title/slug are collaborative Y.Texts — keep them in sync (invariant #2).
+    if (typeof data.title === 'string') setYTextValue('page', id, 'title', data.title);
+    if (typeof data.slug === 'string') setYTextValue('page', id, 'slug', data.slug);
   },
 
   async remove(id: string): Promise<void> {

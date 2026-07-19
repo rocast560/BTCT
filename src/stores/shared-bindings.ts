@@ -37,6 +37,8 @@ export function bindSharedSubscriptions(): () => void {
   unsubs.push(subscribeTable('changeLogs',   debounce(() => { void s().loadChangeLogs(); })));
   unsubs.push(subscribeTable('nmapScans',    debounce(() => { void s().loadNmapScans(); })));
   unsubs.push(subscribeTable('attackChains', debounce(() => { void s().loadAttackChains(); })));
+  unsubs.push(subscribeTable('typstAssets',  debounce(() => { void s().loadTypstAssets(); })));
+  unsubs.push(subscribeTable('commandLogs',  debounce(() => { void s().loadCommandLogs(); })));
 
   // For graph nodes/edges + nmap machines we re-run the corresponding
   // detail loader if a relevant entity is currently being viewed. The

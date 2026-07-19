@@ -49,6 +49,8 @@ COPY server/db.mjs      /app/server/db.mjs
 COPY server/ai.mjs      /app/server/ai.mjs
 COPY server/yjs-data.mjs /app/server/yjs-data.mjs
 COPY server/mcp.mjs     /app/server/mcp.mjs
+COPY server/assets.mjs  /app/server/assets.mjs
+COPY server/cmdlog.mjs  /app/server/cmdlog.mjs
 
 # Copy the static client build.
 COPY --from=client-build /app/dist /app/dist

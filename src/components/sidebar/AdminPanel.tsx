@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw } from 'lucide-react';
-import { useAuthStore, type AdminUserRow, type AiConfig, type McpConfig } from '@/auth/auth-store';
+import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw, Terminal } from 'lucide-react';
+import { useAuthStore, type AdminUserRow, type AiConfig, type McpConfig, type CmdlogConfig } from '@/auth/auth-store';
+import { useAppStore } from '@/stores';
 
 /**
  * Admin-only modal panel for managing user accounts. Lists every user, lets
@@ -120,6 +121,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
 
           {/* MCP server configuration */}
           <McpConfigSection />
+
+          {/* Command-log ingest configuration */}
+          <CmdlogConfigSection />
 
           {/* Create-user form */}
           <form
@@ -512,6 +516,138 @@ function McpConfigSection() {
             <div className="flex items-start gap-1.5">
               <code className="flex-1 overflow-x-auto whitespace-pre rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-[10px] text-white/80">{connectCmd}</code>
               <button onClick={() => copy(connectCmd)} title="Copy command" className="rounded-md border border-white/10 p-1.5 hover:bg-white/10"><Copy size={11} /></button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(msg || err) && (
+        <div className={`mt-2 text-[11px] ${err ? 'text-[hsl(var(--status-red))]' : 'text-white/60'}`}>{err || msg}</div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Admin config for the team command log: enable ingest (mints the shared
+ * bearer token operators launch the capture agent with), edit the whitelist of
+ * tools that get logged, pick the default target workspace, and copy a
+ * ready-to-run agent install command.
+ */
+function CmdlogConfigSection() {
+  const cmdlogGetConfig = useAuthStore((s) => s.cmdlogGetConfig);
+  const cmdlogSaveConfig = useAuthStore((s) => s.cmdlogSaveConfig);
+  const cmdlogRegenerateToken = useAuthStore((s) => s.cmdlogRegenerateToken);
+  const workspaces = useAppStore((s) => s.workspaces);
+
+  const [cfg, setCfg] = useState<CmdlogConfig | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
+  const [wlText, setWlText] = useState('');
+
+  useEffect(() => {
+    void cmdlogGetConfig().then((c) => { setCfg(c); setWlText(c.whitelist.join('\n')); }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const token = cfg?.token || '';
+  const installCmd = `python3 -m btct_agent install --server ${origin} --token ${token || '<token>'} --operator <you>`;
+
+  const save = async (patch: Parameters<typeof cmdlogSaveConfig>[0], note: string) => {
+    setBusy(true); setErr(null); setMsg(null);
+    try { const c = await cmdlogSaveConfig(patch); setCfg(c); setWlText(c.whitelist.join('\n')); setMsg(note); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'save failed'); }
+    finally { setBusy(false); }
+  };
+  const saveWhitelist = () => {
+    const tools = wlText.split(/[\n,]/).map((t) => t.trim().toLowerCase()).filter(Boolean);
+    void save({ whitelist: tools }, `Whitelist saved (${tools.length} tools)`);
+  };
+  const regen = async () => {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const { token: t } = await cmdlogRegenerateToken();
+      setCfg((c) => (c ? { ...c, token: t, configured: true } : c));
+      setRevealed(true); setMsg('Token regenerated');
+    } catch (e) { setErr(e instanceof Error ? e.message : 'failed'); }
+    finally { setBusy(false); }
+  };
+  const copy = (text: string) => {
+    try { void navigator.clipboard.writeText(text); setMsg('Copied'); } catch { /* ignore */ }
+  };
+
+  return (
+    <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
+      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/70">
+        <Terminal size={12} className="text-[hsl(var(--status-green))]" /> Command Log
+      </div>
+      <p className="mb-2 text-[10px] text-white/50">
+        Let operators' Kali boxes ship whitelisted shell commands into the Command Log tab. Each operator runs the capture agent with the token below.
+      </p>
+
+      <label className="flex items-center gap-2 text-[11px] text-white/70">
+        <input
+          type="checkbox"
+          checked={!!cfg?.enabled}
+          onChange={(e) => void save({ enabled: e.target.checked }, e.target.checked ? 'Ingest enabled' : 'Ingest disabled')}
+        />
+        Enabled
+      </label>
+      <div className="mt-1 text-[11px]">
+        {cfg?.configured
+          ? <span style={{ color: '#4ade80' }}>Ready ✓</span>
+          : <span className="text-white/50">Not configured — enable to generate a token</span>}
+      </div>
+
+      {cfg?.configured && (
+        <div className="mt-3 space-y-3">
+          <div>
+            <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/50">Ingest token (treat like a password)</label>
+            <div className="flex items-center gap-1.5">
+              <input
+                readOnly
+                type={revealed ? 'text' : 'password'}
+                value={token}
+                className="flex-1 rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs outline-none"
+              />
+              <button onClick={() => setRevealed((r) => !r)} className="rounded-md border border-white/10 px-2 py-1.5 text-[10px] hover:bg-white/10">{revealed ? 'Hide' : 'Reveal'}</button>
+              <button onClick={() => copy(token)} title="Copy token" className="rounded-md border border-white/10 p-1.5 hover:bg-white/10"><Copy size={11} /></button>
+              <button onClick={() => void regen()} disabled={busy} title="Regenerate" className="rounded-md border border-white/10 p-1.5 hover:bg-white/10"><RefreshCw size={11} /></button>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/50">Default workspace (where commands land)</label>
+            <select
+              value={cfg.workspaceId ?? ''}
+              onChange={(e) => void save({ workspaceId: e.target.value || null }, 'Default workspace set')}
+              className="w-full rounded-md border border-white/10 bg-black/40 px-2 py-1.5 text-xs outline-none"
+            >
+              <option value="">— none (uses first workspace) —</option>
+              {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/50">Whitelist (one tool per line)</label>
+            <textarea
+              value={wlText}
+              onChange={(e) => setWlText(e.target.value)}
+              rows={5}
+              spellCheck={false}
+              className="w-full rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-[11px] outline-none"
+            />
+            <button onClick={saveWhitelist} disabled={busy} className="mt-1 rounded-md border border-white/10 px-2.5 py-1 text-[11px] hover:bg-white/10">Save whitelist</button>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/50">Install on a Kali box</label>
+            <div className="flex items-start gap-1.5">
+              <code className="flex-1 overflow-x-auto whitespace-pre rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-[10px] text-white/80">{installCmd}</code>
+              <button onClick={() => copy(installCmd)} title="Copy command" className="rounded-md border border-white/10 p-1.5 hover:bg-white/10"><Copy size={11} /></button>
             </div>
           </div>
         </div>

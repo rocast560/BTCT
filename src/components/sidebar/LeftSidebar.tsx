@@ -26,6 +26,7 @@ import {
   LogOut,
   Palette,
   Sparkles,
+  Terminal,
 } from 'lucide-react';
 import type { Page, Graph, NmapScan, AttackChain } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -207,6 +208,10 @@ export function LeftSidebar() {
     openTab({ id: uuidv4(), kind: 'ai', entityId: 'ai', title: 'Claude' });
   };
 
+  const openCommandLog = () => {
+    openTab({ id: uuidv4(), kind: 'cmdlog', entityId: 'cmdlog', title: 'Command Log' });
+  };
+
   const openChain = async (chain: AttackChain) => {
     // Left-click opens (or lazily creates) the chain's writeup page so the
     // user can document the attack steps. Highlighting on the graph is now
@@ -354,6 +359,13 @@ export function LeftSidebar() {
               >
                 <FileType2 size={12} className="text-[hsl(var(--status-purple))]" />
                 <span className="truncate">Typst</span>
+              </button>
+              <button
+                onClick={openCommandLog}
+                className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--status-green))]/30 bg-[hsl(var(--status-green))]/10 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--status-green))]/20"
+              >
+                <Terminal size={12} className="text-[hsl(var(--status-green))]" />
+                <span className="truncate">Command Log</span>
               </button>
               {rootPages.map((page) => (
                 <PageTreeItem

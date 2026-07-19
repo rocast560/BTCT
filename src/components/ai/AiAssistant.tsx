@@ -17,6 +17,7 @@ import { useAppStore } from '@/stores';
 import { useAuthStore, type AiConfig } from '@/auth/auth-store';
 import { useChatStore } from '@/stores/chat-store';
 import { Markdown } from './markdown';
+import { ThinkingIndicator, type AgentPhase } from './ThinkingIndicator';
 
 const API = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || '';
 
@@ -41,7 +42,11 @@ export function AiAssistant() {
   const [config, setConfig] = useState<AiConfig | null>(null);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
-  const [toolNote, setToolNote] = useState<string | null>(null);
+  // What the agent is doing right now, plus how much work this turn has done.
+  // Driven by the SSE stream; see ThinkingIndicator for how it's presented.
+  const [phase, setPhase] = useState<AgentPhase>({ kind: 'idle' });
+  const [steps, setSteps] = useState(0);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -52,7 +57,7 @@ export function AiAssistant() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, streaming, toolNote]);
+  }, [messages, streaming, phase]);
 
   // ── Streaming: batch SSE deltas and flush on animation frames into the store
   // so markdown re-parses at most ~once per frame instead of once per token. ──
@@ -81,7 +86,11 @@ export function AiAssistant() {
     const history = useChatStore.getState().messages.slice(0, -1);
     setInput('');
     setStreaming(true);
-    setToolNote(null);
+    // The model is reached before a single token comes back, so the turn
+    // starts in "thinking" rather than idle.
+    setPhase({ kind: 'thinking' });
+    setSteps(0);
+    setStartedAt(Date.now());
 
     try {
       const token = useAuthStore.getState().token;
@@ -109,8 +118,15 @@ export function AiAssistant() {
           if (!line) continue;
           let ev: { type: string; text?: string; name?: string; error?: string };
           try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
-          if (ev.type === 'text' && ev.text) { setToolNote(null); appendText(ev.text); }
-          else if (ev.type === 'tool' && ev.name) setToolNote(`Running ${ev.name}…`);
+          // Text arriving means the answer is visibly streaming — the
+          // indicator would just duplicate what the user can already see.
+          if (ev.type === 'text' && ev.text) { setPhase({ kind: 'idle' }); appendText(ev.text); }
+          else if (ev.type === 'tool' && ev.name) {
+            setPhase({ kind: 'tool', name: ev.name });
+            setSteps((n) => n + 1);
+          }
+          else if (ev.type === 'tool_done') setPhase({ kind: 'reading' });
+          else if (ev.type === 'round') setPhase({ kind: 'thinking' });
           else if (ev.type === 'error' && ev.error) appendText(`\n\n⚠️ ${ev.error}`);
         }
       }
@@ -120,7 +136,8 @@ export function AiAssistant() {
       if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       flush();
       setStreaming(false);
-      setToolNote(null);
+      setPhase({ kind: 'idle' });
+      setStartedAt(null);
       void useChatStore.getState().finishTurn(); // persist the turn (even if it errored)
     }
   };
@@ -216,16 +233,20 @@ export function AiAssistant() {
               </div>
             ) : (
               <div className="max-w-[90%] rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-xs leading-relaxed">
-                {m.content ? <Markdown text={m.content} /> : (streaming && i === messages.length - 1 ? <span className="text-[hsl(var(--muted-foreground))]">…</span> : null)}
+                {m.content
+                  ? <Markdown text={m.content} />
+                  : (streaming && i === messages.length - 1
+                      ? <span className="text-[hsl(var(--muted-foreground))]">…</span>
+                      : null)}
               </div>
             )}
           </div>
         ))}
-        {toolNote && (
-          <div className="flex items-center gap-1.5 px-1 text-[10px] text-[hsl(var(--muted-foreground))]">
-            <Loader2 size={11} className="animate-spin" /> {toolNote}
-          </div>
-        )}
+        {/* Activity readout. Sits below the transcript so it's visible whether
+            the turn has produced any text yet or is between tool rounds. */}
+        <div className="flex justify-start">
+          <ThinkingIndicator phase={phase} steps={steps} startedAt={startedAt} />
+        </div>
       </div>
 
       <div className="border-t border-[hsl(var(--border))] p-2">

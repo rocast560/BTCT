@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './database';
 import type { GraphEdge, EdgeType } from '@/types';
-import { getOrInitYText, textKey } from '@/realtime/shared-doc';
+import { getOrInitYText, setYTextValue, textKey } from '@/realtime/shared-doc';
 
 export const graphEdgeRepo = {
   async getByGraph(graphId: string): Promise<GraphEdge[]> {
@@ -38,6 +38,8 @@ export const graphEdgeRepo = {
 
   async update(id: string, data: Partial<Omit<GraphEdge, 'id' | 'graphId' | 'createdAt'>>): Promise<void> {
     await db.graphEdges.update(id, { ...data, updatedAt: Date.now() });
+    // `label` is a collaborative Y.Text — keep it in sync (invariant #2).
+    if (typeof data.label === 'string') setYTextValue('edge', id, 'label', data.label);
   },
 
   async remove(id: string): Promise<void> {

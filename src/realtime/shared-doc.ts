@@ -49,6 +49,8 @@ export const TABLE_NAMES = [
   'pageSnapshots',
   'nmapScans',
   'nmapMachines',
+  'typstAssets',
+  'commandLogs',
 ] as const;
 export type TableName = (typeof TABLE_NAMES)[number];
 
@@ -212,6 +214,38 @@ export function getOrInitYText(key: string, initial: string): Y.Text {
   // After the transaction, re-fetch — another peer may have set a
   // different Y.Text into the slot.
   return c.texts.get(key) ?? t!;
+}
+
+/**
+ * Programmatically set a collaborative text field to `value`.
+ *
+ * Repos MUST call this (not just `db.table.update`) whenever they change a
+ * field that is registered as a Y.Text in `TEXT_FIELDS_BY_ENTITY`. The mirror
+ * observer treats the Y.Text as the source of truth and copies it back into the
+ * JSON record — so a record-only write is silently reverted on the next sync
+ * (e.g. a hard reload). This keeps the two in agreement.
+ *
+ * The write is a **minimal common-prefix/suffix splice**, never a
+ * clear-and-reinsert (invariant #3b), so a concurrent typist in the same field
+ * keeps their caret and the edit stays mergeable.
+ */
+export function setYTextValue(entity: string, id: string, field: string, value: string): void {
+  const t = getOrInitYText(textKey(entity, id, field), value);
+  const cur = t.toString();
+  if (cur === value) return;
+  let start = 0;
+  const min = Math.min(cur.length, value.length);
+  while (start < min && cur.charCodeAt(start) === value.charCodeAt(start)) start++;
+  let curEnd = cur.length;
+  let valEnd = value.length;
+  while (curEnd > start && valEnd > start && cur.charCodeAt(curEnd - 1) === value.charCodeAt(valEnd - 1)) {
+    curEnd--;
+    valEnd--;
+  }
+  sharedTransact(() => {
+    if (curEnd - start > 0) t.delete(start, curEnd - start);
+    if (valEnd - start > 0) t.insert(start, value.slice(start, valEnd));
+  });
 }
 
 /**

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/stores';
-import { X, FileText, Network, PanelLeftOpen, PanelRightOpen, Radar, Monitor, Bug, Clock, FileType2, Sparkles } from 'lucide-react';
+import { X, FileText, Network, PanelLeftOpen, PanelRightOpen, Radar, Monitor, Bug, Clock, FileType2, Sparkles, Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TAB_DRAG_TYPE } from './SplitContainer';
 
@@ -72,7 +72,7 @@ export function TabBar() {
             )}
             onClick={() => setActiveTab(tab.id)}
           >
-            {tab.kind === 'page' ? <FileText size={11} /> : tab.kind === 'nmap-machine' ? <Monitor size={11} /> : tab.kind === 'nmap' ? <Radar size={11} /> : tab.kind === 'findings' ? <Bug size={11} /> : tab.kind === 'timeline' ? <Clock size={11} /> : tab.kind === 'typst' ? <FileType2 size={11} /> : tab.kind === 'ai' ? <Sparkles size={11} /> : <Network size={11} />}
+            {tab.kind === 'page' ? <FileText size={11} /> : tab.kind === 'nmap-machine' ? <Monitor size={11} /> : tab.kind === 'nmap' ? <Radar size={11} /> : tab.kind === 'findings' ? <Bug size={11} /> : tab.kind === 'timeline' ? <Clock size={11} /> : tab.kind === 'typst' ? <FileType2 size={11} /> : tab.kind === 'ai' ? <Sparkles size={11} /> : tab.kind === 'cmdlog' ? <Terminal size={11} /> : <Network size={11} />}
             <span className="max-w-[140px] truncate">{tab.title}</span>
             <button
               onClick={(e) => {

@@ -17,7 +17,8 @@
 import { getSharedDoc, sharedTransact, type TableName } from '@/realtime/shared-doc';
 import type {
   Workspace, Page, Graph, GraphNode, GraphEdge,
-  ChangeLogEntry, NmapScan, NmapMachine, AttackChain, PageSnapshot,
+  ChangeLogEntry, NmapScan, NmapMachine, AttackChain, PageSnapshot, TypstAsset,
+  CommandLogEntry,
 } from '@/types';
 
 type Row = { id: string };
@@ -182,6 +183,8 @@ class AppDatabase {
   pageSnapshots = new Table<PageSnapshot> ('pageSnapshots');
   nmapScans     = new Table<NmapScan>     ('nmapScans');
   nmapMachines  = new Table<NmapMachine>  ('nmapMachines');
+  typstAssets   = new Table<TypstAsset>   ('typstAssets');
+  commandLogs   = new Table<CommandLogEntry>('commandLogs');
 
   /**
    * Yjs has no transactional rollback, but it does batch updates: every

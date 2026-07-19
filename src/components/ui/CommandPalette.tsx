@@ -2,7 +2,7 @@ import { useAppStore } from '@/stores';
 import { Command } from 'cmdk';
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { FileText, FileType2, Network, Plus, Settings, Users, Sparkles } from 'lucide-react';
+import { FileText, FileType2, Network, Plus, Settings, Users, Sparkles, Terminal } from 'lucide-react';
 
 export function CommandPalette() {
   const {
@@ -82,6 +82,12 @@ export function CommandPalette() {
                 className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
               >
                 <Sparkles size={14} /> Ask Claude (AI Assistant)
+              </Command.Item>
+              <Command.Item
+                onSelect={() => { openTab({ id: uuidv4(), kind: 'cmdlog', entityId: 'cmdlog', title: 'Command Log' }); setCommandPaletteOpen(false); }}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
+              >
+                <Terminal size={14} /> Open Command Log
               </Command.Item>
               <Command.Item
                 onSelect={() => { setFollowPanelOpen(true); setCommandPaletteOpen(false); }}

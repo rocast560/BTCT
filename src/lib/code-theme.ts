@@ -71,6 +71,30 @@ function canonicalLanguage(raw: unknown): string {
   return SHELL_ALIASES.has(lang) ? 'shell' : lang;
 }
 
+/**
+ * The display name `@codemirror/language-data` uses for a language, matched
+ * case-insensitively against both names and aliases — `shell`, `sh` and
+ * `bash` all resolve to `Shell`.
+ *
+ * The code block's language button prints the stored attribute verbatim while
+ * the picker lists these canonical names, so storing anything else makes a
+ * freshly-inserted block read `shell` and the same block read `Shell` the
+ * moment you pick from the dropdown. Returns null when nothing matches, so
+ * callers can leave an unknown language untouched rather than mangling it.
+ */
+export function displayLanguageName(raw: unknown): string | null {
+  const needle = String(raw ?? '').trim().toLowerCase();
+  if (!needle) return null;
+  for (const lang of languages) {
+    if (lang.name.toLowerCase() === needle) return lang.name;
+    if (lang.alias?.some((a) => a.toLowerCase() === needle)) return lang.name;
+  }
+  return null;
+}
+
+/** Canonical display name for the language new code blocks start in. */
+export const DEFAULT_CODE_LANGUAGE = displayLanguageName('shell') ?? 'Shell';
+
 // Stamps each code block's DOM node with `data-language` (via a node
 // decoration) so index.css can give specific languages their own look — e.g.
 // the Linux-terminal palette for shell. Recomputed when a block's language

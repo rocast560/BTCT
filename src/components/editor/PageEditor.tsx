@@ -27,7 +27,14 @@ import {
   focusLanguageKeymap,
 } from '@/lib/editor-keybinds';
 import { blockSelectPlugin } from '@/lib/block-select';
+import {
+  DEFAULT_HEADER_LABELS,
+  insertTable,
+  TABLE_ICON,
+  tableHeaderStatePlugin,
+} from '@/lib/table-plugin';
 import { KeybindsDialog } from '@/components/editor/KeybindsDialog';
+import type { Ctx } from '@milkdown/ctx';
 import { setActiveMilkdownEditor } from '@/lib/active-editor';
 import { useAppStore } from '@/stores';
 import { normalizePageContent } from '@/export/markdown';
@@ -44,6 +51,21 @@ import type {
 } from '@/types';
 import { Monitor, Key, Cog, Bug, ArrowRightLeft, ArrowLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+
+/**
+ * Minimal shape of Crepe's slash-menu builder.
+ *
+ * Crepe keeps `GroupBuilder`/`SlashMenuItem` internal to the package, so this
+ * types just the two calls we make rather than reaching into its internals.
+ */
+interface TableMenuBuilder {
+  getGroup: (key: string) => {
+    addItem: (
+      key: string,
+      item: { label: string; icon: string; onRun: (ctx: Ctx) => void },
+    ) => unknown;
+  };
+}
 
 export function PageEditor({ pageId }: { pageId: string }) {
   // Read the page reactively from the shared store so remote edits
@@ -361,6 +383,30 @@ function MarkdownEditor({
           languages: codeLanguages,
           extensions: [codeSyntaxThemeExtension, focusLanguageKeymap],
         },
+        // Two table variants in the slash menu. GFM always writes a header
+        // row, so the difference is whether that row starts with content:
+        // seeded column names render as a shaded header, a blank row renders
+        // flat (see lib/table-plugin.ts).
+        [Crepe.Feature.BlockEdit]: {
+          advancedGroup: {
+            // Replace Crepe's built-in entry so the shaded variant is the one
+            // that seeds labels; the plain variant is added alongside it.
+            table: null,
+          },
+          buildMenu: (builder: TableMenuBuilder) => {
+            const advanced = builder.getGroup('advanced');
+            advanced.addItem('table-header', {
+              label: 'Table',
+              icon: TABLE_ICON,
+              onRun: (ctx) => insertTable(ctx, DEFAULT_HEADER_LABELS),
+            });
+            advanced.addItem('table-plain', {
+              label: 'Plain table',
+              icon: TABLE_ICON,
+              onRun: (ctx) => insertTable(ctx, null),
+            });
+          },
+        },
       },
     });
     crepe.editor
@@ -375,6 +421,7 @@ function MarkdownEditor({
       .use(userKeybindsPlugin)
       .use(blockSelectPlugin)
       .use(codeLanguageAttrPlugin)
+      .use(tableHeaderStatePlugin)
       .use(collab)
       .config((ctx) => {
         ctx.get(listenerCtx).markdownUpdated((_, md) => {

@@ -588,10 +588,52 @@ button:focus-visible {
   border: 1px solid hsl(var(--border));
   padding: 6px 10px;
   text-align: left;
+  /* Pin the caret and the text to the foreground. Cells inherit `color` from
+     whatever they're nested in, and the shaded header sets its own
+     background — without this the caret is drawn in an inherited colour that
+     can land close enough to `--muted` to be invisible while you're typing
+     in the header row. */
+  color: hsl(var(--foreground));
+  caret-color: hsl(var(--foreground));
 }
+/* An empty cell still has to be tall enough to show a full-height caret;
+   ProseMirror's empty `<p>` would otherwise collapse to a sliver. */
+.milkdown-host .ProseMirror th > p,
+.milkdown-host .ProseMirror td > p {
+  margin: 0;
+  min-height: 1.4em;
+}
+/* Shaded header — the "Table" variant. */
 .milkdown-host .ProseMirror th {
   background-color: hsl(var(--muted));
   font-weight: 600;
+}
+/* "Plain table": GFM always emits a header row, so a table with no header is
+   one whose header row is blank. tableHeaderStatePlugin marks those (from the
+   DOM — Crepe's table NodeView swallows node decorations), and the blank row
+   is collapsed away so the table reads as ordinary rows with no shaded strip
+   on top. The row still exists in the document, so the markdown round-trips
+   and nothing shifts; it just takes up no space.
+
+   Type into it and the marker drops — it becomes a real header again. */
+.milkdown-host .ProseMirror table[data-blank-header='true'] th {
+  background-color: transparent;
+  font-weight: 400;
+  padding: 0;
+  border: none;
+  height: 0;
+  line-height: 0;
+  font-size: 0;
+}
+.milkdown-host .ProseMirror table[data-blank-header='true'] th > p {
+  min-height: 0;
+  margin: 0;
+  line-height: 0;
+}
+/* ProseMirror puts a trailing <br> in every empty paragraph; left alone it
+   would hold the collapsed row open. */
+.milkdown-host .ProseMirror table[data-blank-header='true'] th > p > br {
+  display: none;
 }
 .milkdown-host .ProseMirror img {
   max-width: 100%;

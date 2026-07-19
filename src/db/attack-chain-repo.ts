@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './database';
 import { pageRepo } from './page-repo';
+import { getOrInitYText, setYTextValue, textKey } from '@/realtime/shared-doc';
 import type { AttackChain, ID } from '@/types';
 
 export const attackChainRepo = {
@@ -33,11 +34,14 @@ export const attackChainRepo = {
       updatedAt: now,
     };
     await db.attackChains.add(chain);
+    getOrInitYText(textKey('attackChain', chain.id, 'name'), chain.name); // invariant #1
     return chain;
   },
 
   async update(id: ID, data: Partial<Pick<AttackChain, 'name' | 'nodeIds' | 'linkedPageId'>>): Promise<void> {
     await db.attackChains.update(id, { ...data, updatedAt: Date.now() });
+    // `name` is a collaborative Y.Text — keep it in sync (invariant #2).
+    if (data.name !== undefined) setYTextValue('attackChain', id, 'name', data.name);
   },
 
   async remove(id: ID): Promise<void> {

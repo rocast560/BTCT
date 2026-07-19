@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import { disposeSharedDoc } from '@/realtime/shared-doc';
 import { disposeAllPageDocs } from '@/realtime/yjs-providers';
 import type { EditorPrefs } from '@/lib/editor-prefs';
+import type { CommandLogEntry } from '@/types';
 
 // Default to same-origin so the same build works on any host. Set
 // VITE_API_URL / VITE_WS_URL only when the API lives on a different host.
@@ -20,7 +21,7 @@ function defaultWsUrl(): string {
   return `${proto}//${window.location.host}`;
 }
 
-const API_URL =
+export const API_URL =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ||
   defaultApiUrl();
 
@@ -75,6 +76,20 @@ export interface McpConfig {
 export interface McpConfigInput {
   enabled?: boolean;
   mode?: 'read' | 'edit';
+}
+
+/** Command-log ingest config (admin). `token` is the agent's bearer. */
+export interface CmdlogConfig {
+  enabled: boolean;
+  configured: boolean;
+  token: string | null;
+  whitelist: string[];
+  workspaceId: string | null;
+}
+export interface CmdlogConfigInput {
+  enabled?: boolean;
+  whitelist?: string[];
+  workspaceId?: string | null;
 }
 
 /** One durable Claude chat turn. */
@@ -179,6 +194,38 @@ interface AuthState {
   mcpGetConfig: () => Promise<McpConfig>;
   mcpSaveConfig: (patch: McpConfigInput) => Promise<McpConfig>;
   mcpRegenerateToken: () => Promise<{ token: string }>;
+  // Command-log ingest config (admin only) + archive query (any user).
+  cmdlogGetConfig: () => Promise<CmdlogConfig>;
+  cmdlogSaveConfig: (patch: CmdlogConfigInput) => Promise<CmdlogConfig>;
+  cmdlogRegenerateToken: () => Promise<{ token: string }>;
+  cmdlogQuery: (params: CmdlogQueryParams) => Promise<CommandLogEntry[]>;
+  cmdlogAddManual: (entry: CmdlogManualInput) => Promise<CommandLogEntry>;
+}
+
+/** A hand-entered command-log record (manual add). */
+export interface CmdlogManualInput {
+  workspaceId: string;
+  operator: string;
+  command: string;
+  tool?: string;
+  host?: string;
+  cwd?: string;
+  startedAt?: number;
+  exitCode?: number | null;
+  durationMs?: number | null;
+}
+
+/** Filters for the durable command-log archive (all optional but workspaceId). */
+export interface CmdlogQueryParams {
+  workspaceId: string;
+  operator?: string;
+  tool?: string;
+  host?: string;
+  from?: number;
+  to?: number;
+  q?: string;
+  status?: 'all' | 'success' | 'failed' | 'running';
+  limit?: number;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -304,5 +351,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   mcpRegenerateToken: async () => {
     return postJson<{ token: string }>('/api/mcp/token', {}, get().token);
+  },
+
+  cmdlogGetConfig: async () => {
+    return getJson<CmdlogConfig>('/api/cmdlog/config', get().token);
+  },
+  cmdlogSaveConfig: async (patch) => {
+    return postJson<CmdlogConfig>('/api/cmdlog/config', patch, get().token);
+  },
+  cmdlogRegenerateToken: async () => {
+    return postJson<{ token: string }>('/api/cmdlog/token', {}, get().token);
+  },
+  cmdlogQuery: async (params) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== '' && !(k === 'status' && v === 'all')) {
+        qs.set(k, String(v));
+      }
+    }
+    const data = await getJson<{ logs: CommandLogEntry[] }>(`/api/cmdlog/query?${qs.toString()}`, get().token);
+    return data.logs;
+  },
+  cmdlogAddManual: async (entry) => {
+    const data = await postJson<{ log: CommandLogEntry }>('/api/cmdlog/manual', entry, get().token);
+    return data.log;
   },
 }));

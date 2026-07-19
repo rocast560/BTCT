@@ -131,8 +131,55 @@ export interface GraphEdge {
   updatedAt: number;
 }
 
+// ---- Typst assets (report screenshots + custom fonts) ----
+
+export type TypstAssetKind = 'image' | 'font';
+
+/**
+ * A crop rectangle in *normalized* coordinates (0..1, relative to the
+ * original image). Normalized rather than pixels so the rect stays correct
+ * if the same record is ever reused at a different resolution, and so the
+ * cropper UI can work in whatever display size it happens to be laid out at.
+ */
+export interface CropRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Metadata for one uploaded asset. The bytes live on the server (see
+ * server/assets.mjs); this record is what syncs through the shared Yjs doc.
+ *
+ * `filename` doubles as the path inside the Typst virtual filesystem — an
+ * image called `login-bypass.png` is referenced as
+ * `#image("/assets/login-bypass.png")`.
+ *
+ * `crop` is applied at render time by re-encoding the image through a canvas
+ * before it's handed to the compiler. The upload is never modified, so a
+ * crop is always undoable and can be widened again later.
+ */
+export interface TypstAsset {
+  id: ID;
+  workspaceId: ID;
+  kind: TypstAssetKind;
+  filename: string;
+  mime: string;
+  size: number;
+  /** Natural pixel dimensions. Images only; absent until first decode. */
+  width?: number | null;
+  height?: number | null;
+  /** Normalized crop rect, or null/absent for "use the whole image". */
+  crop?: CropRect | null;
+  /** Family name parsed from the font file — what you pass to `#set text(font:)`. */
+  fontFamily?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ---- UI State Types ----
-export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline' | 'typst' | 'ai';
+export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline' | 'typst' | 'ai' | 'cmdlog';
 
 export interface TabItem {
   id: string;
@@ -190,6 +237,30 @@ export interface ChangeLogEntry {
   // enough state captured (prevValue for update, full entity JSON for
   // delete) to put the entity back.
   reversible?: boolean;
+}
+
+// ---- Command Log ----
+// One whitelisted pentest command captured by a btct-cmdlog agent on an
+// operator's box. Written ONLY by the server ingest endpoint (never by a
+// client repo) into both SQLite (durable archive) and the shared doc's
+// `commandLogs` map (bounded live window). No Y.Text fields — every field is
+// plain LWW JSON, so invariant #1 does not apply. Optional fields are declared
+// `?: T | null` because a record may predate a field or the agent may omit it.
+export interface CommandLogEntry {
+  id: ID;                      // agent-generated; the idempotency key end to end
+  workspaceId: ID;
+  operator: string;            // self-asserted --operator name
+  command: string;             // redacted unless the agent ran --no-redact
+  tool: string;                // matched whitelist entry
+  cwd?: string | null;
+  host?: string | null;        // hostname of the operator's box
+  localUser?: string | null;
+  shellPid?: number | null;
+  startedAt: number;           // agent clock (epoch ms)
+  receivedAt: number;          // server clock (epoch ms)
+  exitCode?: number | null;    // null while the command is still running
+  durationMs?: number | null;
+  redacted?: boolean;
 }
 
 // Page-body snapshot — Yjs encodeStateAsUpdate bytes of a per-page Y.Doc

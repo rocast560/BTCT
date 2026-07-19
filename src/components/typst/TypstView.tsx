@@ -12,17 +12,45 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as Y from 'yjs';
-import { PanelLeftClose, PanelLeftOpen, FileDown, Image, FileText } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, FileDown, Image, FileText, Images } from 'lucide-react';
 import { useAppStore } from '@/stores';
 import { getSharedDoc, getOrInitYText, textKey } from '@/realtime/shared-doc';
-import { TypstEditor } from './TypstEditor';
-import { TypstPreview } from './TypstPreview';
-import { compileTypstPdf, compileTypstSvg, typstErrorMessage } from '@/lib/typst-compiler';
+import { replaceYTextContent } from '@/realtime/use-y-text';
+import { TypstEditor, revealTypstRange } from './TypstEditor';
+import { TypstPreview, type SourceCandidate } from './TypstPreview';
+import { TypstAssetsPanel } from './TypstAssetsPanel';
+import {
+  compileTypstPdf,
+  compileTypstSvg,
+  setTypstFonts,
+  setTypstShadowFiles,
+  typstErrorMessage,
+} from '@/lib/typst-compiler';
+import { assetPath, fetchAssetBytes, resolveAssetBytes } from '@/lib/typst-assets';
+import { PLACEHOLDER_HELPER } from '@/lib/typst-placeholders';
+import { findSourceRange, type SourceRange } from '@/lib/typst-source-map';
+import {
+  clampPaneWidth,
+  fitPanes,
+  loadTypstLayout,
+  saveTypstLayout,
+  PANE_DEFAULT,
+  type PaneKind,
+  type TypstLayout,
+} from '@/lib/pane-resize';
 
 // Starter document shown the first time a workspace's Typst doc is opened.
+//
+// Ships with the `image-placeholder` helper pre-defined: screenshots are
+// assigned to declared figure slots from the Assets rail rather than pasted
+// at the caret, so captions and numbering stay consistent. An unfilled slot
+// renders as a labelled grey box, making a missing screenshot obvious in the
+// PDF instead of silently absent.
 const DEFAULT_TYPST_TEMPLATE = `#set page(margin: 1.5cm)
 #set text(font: "New Computer Modern", size: 11pt)
 #set heading(numbering: "1.1")
+
+${PLACEHOLDER_HELPER}
 
 #align(center)[
   #text(size: 20pt, weight: "bold")[Engagement Report] \\
@@ -46,6 +74,8 @@ preview locally — no internet required.
 )
 
 Describe the finding, its impact, and remediation steps.
+
+#image-placeholder("Proof of exploitation")
 `;
 
 /** Bind to the per-workspace Typst source Y.Text, seeding it on first open. */
@@ -104,23 +134,82 @@ export function TypstView() {
   return <TypstWorkspaceView workspaceId={workspaceId} />;
 }
 
+/**
+ * Push the workspace's assets into the compiler's virtual filesystem and
+ * font set, and report a revision that changes whenever they do — so the
+ * preview recompiles after a drop or a crop, not just on a source edit.
+ *
+ * Images are resolved through `resolveAssetBytes`, which applies the crop
+ * rectangle before the bytes ever reach Typst. Everything is memoized by
+ * asset id + crop, so this is a no-op on re-renders where nothing moved.
+ */
+function useTypstAssetSync(workspaceId: string): number {
+  const assets = useAppStore((s) => s.typstAssets);
+  const loadTypstAssets = useAppStore((s) => s.loadTypstAssets);
+  const [revision, setRevision] = useState(0);
+
+  useEffect(() => { void loadTypstAssets(); }, [loadTypstAssets, workspaceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const images = assets.filter((a) => a.kind === 'image');
+      const fonts = assets.filter((a) => a.kind === 'font');
+
+      // allSettled: one asset whose bytes went missing (volume wiped, blob
+      // deleted out-of-band) must not take down every other image in the
+      // document. Failures are simply left unmounted, and Typst reports the
+      // unresolved path against the exact line that referenced it.
+      const [imageResults, fontResults] = await Promise.all([
+        Promise.allSettled(
+          images.map(async (a) => ({ path: assetPath(a), bytes: await resolveAssetBytes(a) })),
+        ),
+        Promise.allSettled(fonts.map((a) => fetchAssetBytes(a.id))),
+      ]);
+      if (cancelled) return;
+
+      const files = imageResults
+        .filter((r): r is PromiseFulfilledResult<{ path: string; bytes: Uint8Array }> =>
+          r.status === 'fulfilled')
+        .map((r) => r.value);
+      const fontBytes = fontResults
+        .filter((r): r is PromiseFulfilledResult<Uint8Array> => r.status === 'fulfilled')
+        .map((r) => r.value);
+
+      const filesChanged = setTypstShadowFiles(files);
+      const fontsChanged = setTypstFonts(fontBytes);
+      if (filesChanged || fontsChanged) setRevision((r) => r + 1);
+    })();
+    return () => { cancelled = true; };
+  }, [assets]);
+
+  return revision;
+}
+
 function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
   const ytext = useTypstSource(workspaceId);
   const [source, setSource] = useState('');
-  const [showEditor, setShowEditor] = useState(true);
-  const [editorPct, setEditorPct] = useState(0.5);
+  const [layout, setLayout] = useState<TypstLayout>(loadTypstLayout);
+  const { showEditor, showAssets } = layout;
   const [exporting, setExporting] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  // Resize bookkeeping. editorPctRef mirrors state so the drag handler can read
-  // the latest width without re-subscribing; pendingPctRef holds the in-flight
-  // value; rafRef coalesces mousemoves to one update per animation frame.
-  const editorPctRef = useRef(editorPct);
-  editorPctRef.current = editorPct;
-  const pendingPctRef = useRef(editorPct);
-  const rafRef = useRef(0);
-  // Teardown for an in-progress drag (removes the document listeners, the
-  // cursor lock, and any queued frame). Set while dragging, null otherwise, so
-  // the unmount effect can tear down a drag that's still active.
+  const editorPaneRef = useRef<HTMLDivElement>(null);
+  const assetsPaneRef = useRef<HTMLDivElement>(null);
+  const assetRevision = useTypstAssetSync(workspaceId);
+  // Mirrors `source` so the reveal callback can stay stable across keystrokes.
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+
+  // Live pane widths, mirrored into refs so the drag handler reads the current
+  // value without re-subscribing and without depending on a render.
+  const widthsRef = useRef({ editor: layout.editor, assets: layout.assets });
+  widthsRef.current = { editor: layout.editor, assets: layout.assets };
+  const visibleRef = useRef({ editor: showEditor, assets: showAssets });
+  visibleRef.current = { editor: showEditor, assets: showAssets };
+
+  // Teardown for an in-progress drag (removes the listeners, the cursor lock,
+  // and any queued frame). Set while dragging, null otherwise, so the unmount
+  // effect can tear down a drag that's still active.
   const dragCleanupRef = useRef<(() => void) | null>(null);
 
   // Mirror the Y.Text content into React state so the preview re-renders as
@@ -138,47 +227,155 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
   // global cursor/selection lock that mouseup would normally clear).
   useEffect(() => () => { dragCleanupRef.current?.(); }, []);
 
-  const startResize = useCallback((e: React.MouseEvent) => {
+  // Programmatic source rewrites (assigning a screenshot to a figure slot,
+  // adding a slot) go through a minimal CRDT delta rather than replacing the
+  // whole text, so a collaborator typing elsewhere keeps their cursor and
+  // their edit merges cleanly.
+  const applySource = useCallback((next: string) => {
+    if (ytext) replaceYTextContent(ytext, next);
+  }, [ytext]);
+
+  /**
+   * Click-to-source: jump the caret to whatever was clicked in the preview.
+   *
+   * Opens the code pane first if it's hidden — the whole point of the gesture
+   * is to land on the source, so silently doing nothing because the editor is
+   * collapsed would be the wrong call. The reveal is deferred a frame so the
+   * newly-mounted CodeMirror instance exists before we drive it.
+   */
+  const revealSource = useCallback((candidates: SourceCandidate[]) => {
+    let hit: SourceRange | null = null;
+    for (const c of candidates) {
+      hit = findSourceRange(sourceRef.current, c.text, c.occurrence);
+      if (hit) break;
+    }
+    if (!hit) return;
+    const range = hit;
+    if (!visibleRef.current.editor) {
+      setLayout((prev) => {
+        const merged = { ...prev, showEditor: true };
+        saveTypstLayout(merged);
+        return merged;
+      });
+      requestAnimationFrame(() => revealTypstRange(range.from, range.to));
+      return;
+    }
+    revealTypstRange(range.from, range.to);
+  }, []);
+
+  /**
+   * Drag one of the two dividers.
+   *
+   * The width is written straight to the pane's own style during the drag and
+   * committed to React state only on release, so a resize costs one style
+   * mutation per frame instead of a full re-render of the tab. That matters
+   * here more than in most layouts: a re-render mid-drag would reconcile the
+   * assets rail and — worse — risk remounting the CodeMirror host, which would
+   * drop the Yjs collab binding and every remote cursor with it.
+   *
+   * The container geometry is read once at drag start; reading it per-move
+   * forces a synchronous reflow on every event, which is most of the lag in a
+   * naive implementation.
+   */
+  const startResize = useCallback((which: PaneKind) => (e: React.PointerEvent) => {
     e.preventDefault();
     const container = containerRef.current;
     if (!container) return;
-    // Cache the container geometry once: reading it per-mousemove forces a
-    // synchronous layout (reflow) every event, which is a big part of the lag.
-    const rect = container.getBoundingClientRect();
-    pendingPctRef.current = editorPctRef.current;
-    // Suppress text selection + lock the cursor for the whole drag.
+    const paneEl = which === 'editor' ? editorPaneRef.current : assetsPaneRef.current;
+    if (!paneEl) return;
+
+    const containerWidth = container.getBoundingClientRect().width;
+    const startX = e.clientX;
+    const startWidth = widthsRef.current[which];
+    const other = which === 'editor'
+      ? (visibleRef.current.assets ? widthsRef.current.assets : 0)
+      : (visibleRef.current.editor ? widthsRef.current.editor : 0);
+
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';
 
-    // Commit at most once per frame. State stays the source of truth (so a
-    // remote edit re-rendering mid-drag can't desync the width), but rAF
-    // coalesces a burst of mousemoves into a single render + layout per frame.
-    const flush = () => {
-      rafRef.current = 0;
-      setEditorPct(pendingPctRef.current);
+    let frame = 0;
+    let next = startWidth;
+
+    const onMove = (ev: PointerEvent) => {
+      // The editor grows as the pointer moves right; the assets rail is on
+      // the far side, so it grows as the pointer moves left.
+      const delta = ev.clientX - startX;
+      const raw = which === 'editor' ? startWidth + delta : startWidth - delta;
+      next = clampPaneWidth(which, raw, containerWidth, other);
+      if (!frame) {
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          paneEl.style.width = `${next}px`;
+        });
+      }
     };
-    const onMove = (ev: MouseEvent) => {
-      const pct = (ev.clientX - rect.left) / rect.width;
-      pendingPctRef.current = Math.min(0.8, Math.max(0.2, pct));
-      if (!rafRef.current) rafRef.current = requestAnimationFrame(flush);
-    };
-    // Removes the document listeners + cursor lock + queued frame. Callable
-    // from both onUp (normal end) and the unmount effect (drag interrupted).
+
     const cleanup = () => {
-      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
+      if (frame) { cancelAnimationFrame(frame); frame = 0; }
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
       dragCleanupRef.current = null;
     };
+
     const onUp = () => {
-      setEditorPct(pendingPctRef.current);
       cleanup();
+      // Single commit: React state catches up to the DOM we've been driving.
+      setLayout((prev) => {
+        const merged = { ...prev, [which]: next };
+        saveTypstLayout(merged);
+        return merged;
+      });
     };
+
     dragCleanupRef.current = cleanup;
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  }, []);
+
+  /** Double-click a divider to restore that pane's default width. */
+  const resetPane = useCallback((which: PaneKind) => () => {
+    setLayout((prev) => {
+      const merged = { ...prev, [which]: PANE_DEFAULT[which] };
+      saveTypstLayout(merged);
+      return merged;
+    });
+  }, []);
+
+  const togglePane = useCallback((which: PaneKind) => () => {
+    setLayout((prev) => {
+      const key = which === 'editor' ? 'showEditor' : 'showAssets';
+      const merged = { ...prev, [key]: !prev[key] };
+      saveTypstLayout(merged);
+      return merged;
+    });
+  }, []);
+
+  // Keep both rails inside the container when it changes size (window resize,
+  // sidebar toggle, pane split). Without this a layout saved on a wide monitor
+  // can leave no room for the preview on a narrow one.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0;
+      if (width <= 0) return;
+      setLayout((prev) => {
+        const fitted = fitPanes(
+          { editor: prev.editor, assets: prev.assets },
+          { editor: prev.showEditor, assets: prev.showAssets },
+          width,
+        );
+        if (fitted.editor === prev.editor && fitted.assets === prev.assets) return prev;
+        return { ...prev, ...fitted };
+      });
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
   }, []);
 
   const exportPdf = useCallback(async () => {
@@ -221,12 +418,21 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setShowEditor((v) => !v)}
+            onClick={togglePane('editor')}
             title={showEditor ? 'Hide code editor' : 'Show code editor'}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))]"
           >
             {showEditor ? <PanelLeftClose size={13} /> : <PanelLeftOpen size={13} />}
             Code
+          </button>
+          <button
+            onClick={togglePane('assets')}
+            title={showAssets ? 'Hide assets panel' : 'Show assets panel'}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] ${
+              showAssets ? 'text-[hsl(var(--foreground))]' : 'text-[hsl(var(--muted-foreground))]'
+            }`}
+          >
+            <Images size={13} /> Assets
           </button>
           <div className="mx-1 h-4 w-px bg-[hsl(var(--border))]" />
           <button
@@ -248,27 +454,71 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
         </div>
       </div>
 
-      {/* Editor | Preview */}
+      {/* Editor | Preview | Assets.
+          `contain: layout paint` on each pane keeps a width change from
+          relayouting or repainting the other two — the preview's SVG in
+          particular can be a very large subtree. */}
       <div ref={containerRef} className="flex min-h-0 flex-1">
         {showEditor && (
           <>
-            <div className="min-w-0 overflow-hidden border-r border-[hsl(var(--border))]" style={{ width: `${editorPct * 100}%`, contain: 'layout paint' }}>
+            <div
+              ref={editorPaneRef}
+              className="min-w-0 shrink-0 overflow-hidden"
+              style={{ width: `${layout.editor}px`, contain: 'layout paint' }}
+            >
               {ytext ? (
                 <TypstEditor ytext={ytext} />
               ) : (
                 <div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">Loading…</div>
               )}
             </div>
-            <div
-              onMouseDown={startResize}
-              className="w-1 shrink-0 cursor-col-resize bg-[hsl(var(--border))] transition-colors hover:bg-[hsl(var(--primary))]"
-            />
+            <PaneDivider onPointerDown={startResize('editor')} onDoubleClick={resetPane('editor')} />
           </>
         )}
+
         <div className="min-w-0 flex-1 overflow-hidden" style={{ contain: 'layout paint' }}>
-          <TypstPreview source={source} />
+          <TypstPreview source={source} revision={assetRevision} onRevealSource={revealSource} />
         </div>
+
+        {showAssets && (
+          <>
+            <PaneDivider onPointerDown={startResize('assets')} onDoubleClick={resetPane('assets')} />
+            <div
+              ref={assetsPaneRef}
+              className="min-w-0 shrink-0 overflow-hidden"
+              style={{ width: `${layout.assets}px`, contain: 'layout paint' }}
+            >
+              <TypstAssetsPanel source={source} onSourceChange={applySource} />
+            </div>
+          </>
+        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Drag handle between two panes.
+ *
+ * The visible rule is 1px but the grab area is padded out to 9px via a
+ * transparent overlay — a 1px hit target is genuinely hard to grab, and
+ * widening the rule itself would put a chunky line through the layout.
+ */
+function PaneDivider({
+  onPointerDown,
+  onDoubleClick,
+}: {
+  onPointerDown: (e: React.PointerEvent) => void;
+  onDoubleClick: () => void;
+}) {
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      onDoubleClick={onDoubleClick}
+      title="Drag to resize · double-click to reset"
+      className="group relative w-px shrink-0 cursor-col-resize bg-[hsl(var(--border))]"
+    >
+      <div className="absolute inset-y-0 -left-1 -right-1 z-10 transition-colors group-hover:bg-[hsl(var(--primary))]/60" />
     </div>
   );
 }

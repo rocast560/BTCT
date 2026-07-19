@@ -3,7 +3,7 @@ import { db } from './database';
 import { pageRepo } from './page-repo';
 import type { GraphNode, NodeType, AnyNodeData } from '@/types';
 import { defaultNodeData } from '@/types';
-import { getOrInitYText, textKey } from '@/realtime/shared-doc';
+import { getOrInitYText, setYTextValue, textKey } from '@/realtime/shared-doc';
 
 export const graphNodeRepo = {
   async getByGraph(graphId: string): Promise<GraphNode[]> {
@@ -60,6 +60,8 @@ export const graphNodeRepo = {
 
   async update(id: string, data: Partial<Omit<GraphNode, 'id' | 'graphId' | 'createdAt'>>): Promise<void> {
     await db.graphNodes.update(id, { ...data, updatedAt: Date.now() });
+    // `label` is a collaborative Y.Text — keep it in sync (invariant #2).
+    if (typeof data.label === 'string') setYTextValue('node', id, 'label', data.label);
   },
 
   async remove(id: string): Promise<void> {

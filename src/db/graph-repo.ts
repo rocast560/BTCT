@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './database';
+import { getOrInitYText, setYTextValue, textKey } from '@/realtime/shared-doc';
 import type { Graph } from '@/types';
 
 export const graphRepo = {
@@ -21,11 +22,15 @@ export const graphRepo = {
       updatedAt: now,
     };
     await db.graphs.add(graph);
+    getOrInitYText(textKey('graph', graph.id, 'name'), graph.name); // invariant #1
     return graph;
   },
 
   async update(id: string, data: Partial<Pick<Graph, 'name'>>): Promise<void> {
     await db.graphs.update(id, { ...data, updatedAt: Date.now() });
+    // `name` is a collaborative Y.Text — update it too or the mirror reverts
+    // the record on reload (invariant #2).
+    if (data.name !== undefined) setYTextValue('graph', id, 'name', data.name);
   },
 
   async remove(id: string): Promise<void> {

@@ -29,8 +29,12 @@ const Y = require('yjs');
 const ROOM = 'btct-shared';
 const TABLE_NAMES = [
   'workspaces', 'pages', 'graphs', 'graphNodes', 'graphEdges',
-  'attackChains', 'changeLogs', 'nmapScans', 'nmapMachines',
+  'attackChains', 'changeLogs', 'nmapScans', 'nmapMachines', 'commandLogs',
 ];
+
+// The shared doc holds only a bounded live window of command logs per workspace
+// (the durable archive is SQLite). Keep memory + render cost small on clients.
+const CMDLOG_LIVE_CAP = 500;
 
 function textKey(entity, id, field) {
   return `${entity}:${id}:${field}`;
@@ -256,6 +260,38 @@ export async function recentChangelog(workspaceId, limit = 30) {
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, limit)
     .map((e) => ({ action: e.action, target: e.target, summary: e.summary, by: e.userName, at: e.timestamp }));
+}
+
+// ── Command log (team pentest command activity) ──
+// Batch-upsert records into the live window. Unlike the AI write helpers this
+// has NO Y.Text fields (like typstAssets) — every field is plain LWW JSON, so
+// invariant #1 doesn't apply. A completion event (exitCode/durationMs) is
+// merged over the existing start record by id. After each batch we prune the
+// oldest entries per workspace beyond CMDLOG_LIVE_CAP so the doc stays bounded.
+export async function appendCommandLogs(records) {
+  if (!records || !records.length) return;
+  const { doc, tables } = await shared();
+  doc.transact(() => {
+    for (const r of records) {
+      const existing = tables.commandLogs.get(r.id);
+      tables.commandLogs.set(r.id, existing ? { ...existing, ...r } : r);
+    }
+    pruneCommandLogs(tables.commandLogs);
+  });
+}
+
+function pruneCommandLogs(map) {
+  const byWs = new Map();
+  for (const rec of map.values()) {
+    const arr = byWs.get(rec.workspaceId) || [];
+    arr.push(rec);
+    byWs.set(rec.workspaceId, arr);
+  }
+  for (const arr of byWs.values()) {
+    if (arr.length <= CMDLOG_LIVE_CAP) continue;
+    arr.sort((a, b) => a.startedAt - b.startedAt); // oldest first
+    for (const rec of arr.slice(0, arr.length - CMDLOG_LIVE_CAP)) map.delete(rec.id);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

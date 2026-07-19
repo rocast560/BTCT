@@ -8,3 +8,5 @@ export { changeLogRepo } from './changelog-repo';
 export { pageSnapshotRepo, base64ToBytes } from './page-snapshot-repo';
 export { nmapScanRepo, nmapMachineRepo } from './nmap-repo';
 export { attackChainRepo } from './attack-chain-repo';
+export { typstAssetRepo } from './typst-asset-repo';
+export { commandLogRepo } from './command-log-repo';

@@ -29,6 +29,7 @@ import { $prose } from '@milkdown/utils';
 import { toggleHighlightCommand } from '@/lib/highlight-plugin';
 import { getActiveMilkdownEditor } from '@/lib/active-editor';
 import { selectBlockAt } from '@/lib/block-select';
+import { DEFAULT_CODE_LANGUAGE } from '@/lib/code-theme';
 import {
   DEFAULT_KEYBINDS,
   matchShortcut,
@@ -44,6 +45,14 @@ export function setEditorKeybinds(keybinds: Record<KeybindAction, string>): void
 }
 
 // ── /code defaults to shell ──────────────────────────────────────────────
+//
+// Stored in the picker's own casing (`Shell`, not `shell`). The language
+// button prints the stored attribute verbatim while the picker lists
+// `@codemirror/language-data` names, so a lowercase default made a new block
+// read `shell` until you touched the dropdown, at which point the same block
+// read `Shell`. Matching everywhere else — highlighting, the `data-language`
+// decoration, markdown fences — is case-insensitive, so this only affects
+// what's displayed.
 
 export const codeBlockShellDefault = codeBlockSchema.extendSchema((prev) => (ctx) => {
   const base = prev(ctx);
@@ -51,7 +60,7 @@ export const codeBlockShellDefault = codeBlockSchema.extendSchema((prev) => (ctx
     ...base,
     attrs: {
       ...base.attrs,
-      language: { ...(base.attrs?.language ?? {}), default: 'shell' },
+      language: { ...(base.attrs?.language ?? {}), default: DEFAULT_CODE_LANGUAGE },
     },
   };
 });
