@@ -43,9 +43,12 @@ ENV NODE_ENV=production \
 # Copy server source + its node_modules.
 COPY --from=server-deps /server/node_modules /app/server/node_modules
 COPY server/package.json /app/server/package.json
-COPY server/index.mjs /app/server/index.mjs
-COPY server/auth.mjs   /app/server/auth.mjs
-COPY server/db.mjs     /app/server/db.mjs
+COPY server/index.mjs   /app/server/index.mjs
+COPY server/auth.mjs    /app/server/auth.mjs
+COPY server/db.mjs      /app/server/db.mjs
+COPY server/ai.mjs      /app/server/ai.mjs
+COPY server/yjs-data.mjs /app/server/yjs-data.mjs
+COPY server/mcp.mjs     /app/server/mcp.mjs
 
 # Copy the static client build.
 COPY --from=client-build /app/dist /app/dist

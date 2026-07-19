@@ -50,6 +50,50 @@ export interface AdminUserRow {
   createdAt: number;
 }
 
+/** Public (key-free) view of the Claude assistant configuration. */
+export interface AiConfig {
+  enabled: boolean;
+  mode: 'view' | 'edit';
+  model: string;
+  configured: boolean;
+}
+
+export interface AiConfigInput {
+  apiKey?: string;
+  mode?: 'view' | 'edit';
+  model?: string;
+  enabled?: boolean;
+}
+
+/** MCP server config (admin). `token` is the bearer an MCP client uses. */
+export interface McpConfig {
+  enabled: boolean;
+  mode: 'read' | 'edit';
+  configured: boolean;
+  token: string | null;
+}
+export interface McpConfigInput {
+  enabled?: boolean;
+  mode?: 'read' | 'edit';
+}
+
+/** One durable Claude chat turn. */
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+/** Chat session metadata (list rows — no message bodies). */
+export interface ChatSessionMeta {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+/** A full chat session including its messages. */
+export interface ChatSessionFull extends ChatSessionMeta {
+  messages: ChatMessage[];
+}
+
 function loadStoredToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
@@ -122,6 +166,19 @@ interface AuthState {
   adminResetPassword: (id: number, password: string) => Promise<void>;
   // Self-service profile editing for any authenticated user.
   updateProfile: (changes: { color?: string; prefs?: EditorPrefs }) => Promise<AuthUser>;
+  // Claude assistant configuration (read: any user; write/test: admin only).
+  aiGetConfig: () => Promise<AiConfig>;
+  aiSaveConfig: (patch: AiConfigInput) => Promise<AiConfig>;
+  aiTestConnection: () => Promise<{ ok: boolean; model: string }>;
+  // Durable per-account Claude chat sessions.
+  aiListSessions: () => Promise<ChatSessionMeta[]>;
+  aiGetSession: (id: string) => Promise<ChatSessionFull>;
+  aiSaveSession: (id: string, data: { title: string; messages: ChatMessage[]; createdAt?: number }) => Promise<ChatSessionMeta>;
+  aiDeleteSession: (id: string) => Promise<void>;
+  // MCP server config (admin only).
+  mcpGetConfig: () => Promise<McpConfig>;
+  mcpSaveConfig: (patch: McpConfigInput) => Promise<McpConfig>;
+  mcpRegenerateToken: () => Promise<{ token: string }>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -211,5 +268,41 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.setItem(USER_KEY, JSON.stringify(data.user));
     set({ user: data.user });
     return data.user;
+  },
+
+  aiGetConfig: async () => {
+    return getJson<AiConfig>('/api/ai/config', get().token);
+  },
+  aiSaveConfig: async (patch) => {
+    return postJson<AiConfig>('/api/ai/config', patch, get().token);
+  },
+  aiTestConnection: async () => {
+    return postJson<{ ok: boolean; model: string }>('/api/ai/config/test', {}, get().token);
+  },
+
+  aiListSessions: async () => {
+    const data = await getJson<{ sessions: ChatSessionMeta[] }>('/api/ai/sessions', get().token);
+    return data.sessions;
+  },
+  aiGetSession: async (id) => {
+    const data = await getJson<{ session: ChatSessionFull }>(`/api/ai/sessions/${encodeURIComponent(id)}`, get().token);
+    return data.session;
+  },
+  aiSaveSession: async (id, body) => {
+    const data = await postJson<{ session: ChatSessionMeta }>(`/api/ai/sessions/${encodeURIComponent(id)}`, body, get().token);
+    return data.session;
+  },
+  aiDeleteSession: async (id) => {
+    await deleteJson(`/api/ai/sessions/${encodeURIComponent(id)}`, get().token);
+  },
+
+  mcpGetConfig: async () => {
+    return getJson<McpConfig>('/api/mcp/config', get().token);
+  },
+  mcpSaveConfig: async (patch) => {
+    return postJson<McpConfig>('/api/mcp/config', patch, get().token);
+  },
+  mcpRegenerateToken: async () => {
+    return postJson<{ token: string }>('/api/mcp/token', {}, get().token);
   },
 }));

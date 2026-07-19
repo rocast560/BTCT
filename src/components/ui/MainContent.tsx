@@ -4,6 +4,7 @@ import { GraphCanvas } from '@/components/graph/GraphCanvas';
 import { NmapScanView } from '@/components/nmap/NmapScanView';
 import { FindingsCollector } from '@/components/findings/FindingsCollector';
 import { AttackTimeline } from '@/components/findings/AttackTimeline';
+import { TypstView } from '@/components/typst/TypstView';
 
 export function MainContent() {
   const { tabs, activeTabId } = useAppStore();
@@ -29,6 +30,7 @@ export function MainContent() {
       {activeTab.kind === 'nmap' && <NmapScanView scanId={activeTab.entityId} />}
       {activeTab.kind === 'findings' && <FindingsCollector />}
       {activeTab.kind === 'timeline' && <AttackTimeline />}
+      {activeTab.kind === 'typst' && <TypstView />}
     </div>
   );
 }

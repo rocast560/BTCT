@@ -56,7 +56,7 @@ const OS_OPTIONS: { value: MachineOS; label: string }[] = [
 // ── Main view ──
 
 export function NmapScanView({ scanId }: { scanId: string }) {
-  const { nmapScans, nmapMachines, loadNmapScans, loadNmapMachines, importToNmapGroup, deleteNmapMachine, activeWorkspaceId, openTab, graphs, graphNodes, setPendingFocusNodeId } = useAppStore();
+  const { nmapScans, nmapMachines, loadNmapScans, loadNmapMachines, importToNmapGroup, deleteNmapMachine, activeWorkspaceId, openTab, graphs, graphNodes, setPendingFocusNodeId, setSelectedNmapMachineId } = useAppStore();
   const fileRef = useRef<HTMLInputElement>(null);
   const [selectedMachine, setSelectedMachine] = useState<NmapMachine | null>(null);
   const [view, setView] = useState<'list' | 'detail'>('list');
@@ -66,6 +66,12 @@ export function NmapScanView({ scanId }: { scanId: string }) {
   useEffect(() => {
     if (activeWorkspaceId) void loadNmapScans();
   }, [activeWorkspaceId, loadNmapScans]);
+
+  // Reset the broadcast host selection whenever we land on the list so a
+  // teammate following us doesn't get pinned to a previously-opened host.
+  useEffect(() => {
+    if (view === 'list') setSelectedNmapMachineId(null);
+  }, [view, scanId, setSelectedNmapMachineId]);
 
   useEffect(() => {
     if (scanId) void loadNmapMachines(scanId);
@@ -88,6 +94,7 @@ export function NmapScanView({ scanId }: { scanId: string }) {
   const openMachine = (m: NmapMachine) => {
     setSelectedMachine(m);
     setView('detail');
+    setSelectedNmapMachineId(m.id);
   };
 
   const openMachineInTab = (m: NmapMachine) => {

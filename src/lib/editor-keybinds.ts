@@ -223,11 +223,15 @@ function installLanguagePickerNav(): void {
   );
 }
 
-// Double-Esc inside a code block selects that block (Notion-style). Keys typed
-// in a code block never reach ProseMirror's block-select plugin, so we detect
-// the second Esc here and activate block selection on the enclosing block.
-const CODE_DOUBLE_ESC_MS = 500;
-let lastCodeEscAt = 0;
+// A single Escape inside a code block selects that block (Notion-style, mirrors
+// block-select.ts). Keys typed in a code block never reach ProseMirror's
+// block-select plugin, so we activate block selection on the enclosing block
+// here. The one case where Escape must NOT grab the block is when CodeMirror has
+// its own overlay open (autocomplete popup or search panel) — there the key
+// should close that, so we let it fall through.
+function codeMirrorOverlayOpen(cmView: CodeMirrorView): boolean {
+  return !!cmView.dom.querySelector('.cm-tooltip-autocomplete, .cm-panel');
+}
 
 function selectEnclosingCodeBlock(cmView: CodeMirrorView): boolean {
   const editor = getActiveMilkdownEditor();
@@ -260,14 +264,10 @@ export const focusLanguageKeymap = Prec.highest(
     {
       key: 'Escape',
       run: (cmView) => {
-        const now = Date.now();
-        if (now - lastCodeEscAt <= CODE_DOUBLE_ESC_MS) {
-          lastCodeEscAt = 0;
-          return selectEnclosingCodeBlock(cmView);
-        }
-        lastCodeEscAt = now;
-        // Let the first Esc fall through to CodeMirror (close autocomplete/search).
-        return false;
+        // Let CodeMirror handle Escape when it has an overlay to dismiss
+        // (autocomplete / search); otherwise select the enclosing code block.
+        if (codeMirrorOverlayOpen(cmView)) return false;
+        return selectEnclosingCodeBlock(cmView);
       },
     },
   ]),

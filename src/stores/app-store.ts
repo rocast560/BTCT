@@ -94,6 +94,22 @@ interface AppState {
   setActivePane: (paneId: string) => void;
   moveTabToPane: (tabId: string, targetPaneId: string, position: DropPosition) => void;
   updateSplitRatio: (splitId: string, ratio: number) => void;
+  /**
+   * Collapse every split pane into a single pane holding all current tabs
+   * (the "take over everything" follow layout). Tabs are preserved; only the
+   * split structure is removed. `activeTabId`, when given, becomes active.
+   */
+  mergePanesIntoOne: (activeTabId?: string | null) => void;
+
+  // Live presence / follow (ephemeral — not persisted)
+  followPanelOpen: boolean;
+  setFollowPanelOpen: (open: boolean) => void;
+  /** User id of the teammate currently being followed, or null. */
+  followingUserId: number | null;
+  setFollowingUserId: (userId: number | null) => void;
+  /** Currently-inspected nmap host id (broadcast for followers). */
+  selectedNmapMachineId: ID | null;
+  setSelectedNmapMachineId: (id: ID | null) => void;
 
   // UI
   leftSidebarOpen: boolean;
@@ -597,6 +613,21 @@ export const useAppStore = create<AppState>((set, get) => {
   updateSplitRatio: (splitId, ratio) => {
     set((s) => ({ paneLayout: updateRatio(s.paneLayout, splitId, ratio) }));
   },
+
+  mergePanesIntoOne: (activeTabId) => {
+    set((s) => {
+      const nextActive = activeTabId ?? s.activeTabId;
+      const leaf = createLeaf(s.tabs.map((t) => t.id), nextActive);
+      return { paneLayout: leaf, activePaneId: leaf.id, activeTabId: nextActive };
+    });
+  },
+
+  followPanelOpen: false,
+  setFollowPanelOpen: (open) => set({ followPanelOpen: open }),
+  followingUserId: null,
+  setFollowingUserId: (userId) => set({ followingUserId: userId }),
+  selectedNmapMachineId: null,
+  setSelectedNmapMachineId: (id) => set({ selectedNmapMachineId: id }),
 
   // UI
   leftSidebarOpen: true,

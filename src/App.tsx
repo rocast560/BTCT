@@ -8,7 +8,7 @@ import { CommandPalette } from '@/components/ui/CommandPalette';
 import { seedDemoWorkspace } from '@/db/seed';
 import { useAuthStore } from '@/auth/auth-store';
 import { useThemeStore } from '@/stores/theme-store';
-import { resolvePrefs } from '@/lib/editor-prefs';
+import { resolvePrefs, matchShortcut } from '@/lib/editor-prefs';
 import { applyCodeAccent } from '@/lib/code-theme';
 import { setEditorKeybinds } from '@/lib/editor-keybinds';
 import { LoginScreen } from '@/auth/LoginScreen';
@@ -16,6 +16,9 @@ import { getSharedDoc } from '@/realtime/shared-doc';
 import { bindSharedSubscriptions } from '@/stores/shared-bindings';
 import { getActiveMilkdownEditor, hasMilkdownSelection } from '@/lib/active-editor';
 import { callCommand } from '@milkdown/utils';
+import { startPresence } from '@/realtime/presence';
+import { useFollowEngine } from '@/realtime/use-follow';
+import { PresenceAvatars } from '@/realtime/PresenceAvatars';
 
 export function App() {
   const authStatus = useAuthStore((s) => s.status);
@@ -67,6 +70,16 @@ function AuthedApp() {
     rightSidebarOpen,
     workspaces,
   } = useAppStore();
+
+  // Live-follow engine: mirrors a followed teammate's view while active.
+  useFollowEngine();
+
+  // Broadcast this client's presence (identity + current view) into the
+  // shared Yjs awareness channel so teammates can see and follow us.
+  useEffect(() => {
+    const stop = startPresence();
+    return () => stop();
+  }, []);
 
   // On initial mount, auto-collapse the right Properties sidebar when the
   // viewport is narrow so the main editor stays readable. Runs once —
@@ -134,6 +147,33 @@ function AuthedApp() {
         e.preventDefault();
         const st = useAppStore.getState();
         st.setCommandPaletteOpen(!st.commandPaletteOpen);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // Global "active users / follow" shortcut (default Ctrl/⌘+Shift+U). The
+  // binding is user-configurable and read live from account prefs so a
+  // rebind takes effect without a reload.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const shortcut = resolvePrefs(useAuthStore.getState().user).keybinds.openFollowPanel;
+      if (!matchShortcut(e, shortcut)) return;
+      e.preventDefault();
+      const st = useAppStore.getState();
+      st.setFollowPanelOpen(!st.followPanelOpen);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // Claude assistant shortcut: Ctrl/⌘+Shift+A opens/focuses the Claude tab.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        useAppStore.getState().openTab({ id: crypto.randomUUID(), kind: 'ai', entityId: 'ai', title: 'Claude' });
       }
     };
     window.addEventListener('keydown', handler);
@@ -285,6 +325,7 @@ function AuthedApp() {
       </div>
       {rightSidebarOpen && <RightSidebar />}
       <CommandPalette />
+      <PresenceAvatars />
     </div>
   );
 }

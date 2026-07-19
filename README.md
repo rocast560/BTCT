@@ -21,8 +21,11 @@ reporting, and Google-Docs-style live co-editing across every machine on the LAN
 
 - [Feature tour](#feature-tour)
   - [Pages & the markdown editor](#pages--the-markdown-editor)
+  - [Typst documents (local typesetting)](#typst-documents-local-typesetting)
   - [Attack-narrative graph](#attack-narrative-graph)
   - [Recon & reporting (nmap, findings, timeline)](#recon--reporting-nmap-findings-timeline)
+  - [AI assistant (Claude)](#ai-assistant-claude)
+  - [MCP server (connect an external client)](#mcp-server-connect-an-external-client)
   - [Real-time collaboration](#real-time-collaboration)
   - [Workspaces, navigation & layout](#workspaces-navigation--layout)
   - [Edit history & versioning](#edit-history--versioning)
@@ -98,6 +101,30 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   property editors inline (host/service/finding/pivot fields, see below) plus a
   "Connected nodes" list and a "Narrative" button back to the canvas.
 
+### Typst documents (local typesetting)
+
+The Pages section has a dedicated **Typst** tab — a [typst.app](https://typst.app)-style
+split view for the [Typst](https://typst.app) typesetting language, **compiled and
+rendered entirely in the browser** (no calls to typst.app or any remote service):
+
+- **Side-by-side editor + preview** — the raw Typst source in a collaborative
+  CodeMirror editor on the left, the live-rendered document (SVG) on the right.
+  Drag the divider to resize, or hit the **Code** toggle to hide the editor and
+  see the preview full-width. Zoom the preview in/out.
+- **Local WebAssembly compiler** — bundled [`typst.ts`](https://github.com/Myriad-Dreamin/typst.ts)
+  (compiler + renderer wasm) ships with the app, and the default Typst font set
+  is embedded in the compiler, so it renders **fully offline / air-gapped** — no
+  internet needed during an engagement.
+- **Live errors** — Typst compile diagnostics (with `file:line` ranges) surface
+  in a banner while the last good render stays on screen, so a transient typo
+  doesn't blank the preview.
+- **Collaborative source** — the Typst source is a per-workspace `Y.Text` in the
+  shared doc, so it's character-by-character co-edited (with remote carets) and
+  persisted exactly like every other field in BTCT. One Typst scratchpad per
+  workspace; open it from the **Pages** sidebar, the command palette
+  (*Open Typst Document*), or `Ctrl/⌘+K`.
+- **Export** — one-click **PDF** and **SVG** export of the compiled document.
+
 ### Attack-narrative graph
 
 Each **Attack Narrative** is a graph canvas ([React Flow](https://reactflow.dev))
@@ -151,6 +178,110 @@ for modeling an engagement's attack path.
   node's incoming edges shown as lineage. **Copy as Markdown** exports the whole
   timeline as a hierarchical outline.
 
+### AI assistant (Claude)
+
+A built-in Claude assistant that can read — and, when allowed, edit — your live
+workspace, so you can explore a network and have it document findings as you go.
+
+- **Admin-configured, key stays server-side.** An admin opens **Admin panel →
+  Claude AI Assistant** to paste an **Anthropic API key** (write-only: the server
+  never returns it — you only see *Connected ✓ / Not configured*), pick a
+  **mode**, set the **model** (default `claude-opus-4-8`), toggle **Enabled**, and
+  **Test** the connection. The key is stored in the SQLite `settings` table and
+  never reaches the browser or the JS bundle.
+- **View vs Edit mode** (global, admin-set). **View** = read/analyze only.
+  **Edit** = also create/update pages, attack-narrative graphs, nodes, edges,
+  findings, and link nmap hosts to nodes. Write tools are only exposed — and are
+  re-checked server-side — in Edit mode. There are no delete tools.
+- **What it can see/do** (tools run in-process against the live shared CRDT, so
+  edits appear on everyone's canvas instantly and are recorded in the change log):
+  read pages/search, list & read attack-narrative graphs (nodes + edges),
+  findings (severity/CVSS), and nmap scans (hosts, open ports, service/version,
+  NSE script output); and in Edit mode **create a new attack narrative**, spawn
+  host/service/credential/finding/pivot **nodes**, connect them with **edges**,
+  add **findings**, create pages, and turn a scanned nmap host into a linked graph
+  node. Great for "read the latest scan, tell me what to hit first, then document
+  it in the graph."
+- **It's a normal tab/pane view.** Open it from the **left sidebar → Claude
+  Assistant**, the **command palette** (*Ask Claude*), or **`Mod+Shift+A`**. Like
+  Findings and the Attack Timeline it's a tab, so you can **split it into its own
+  pane**, move it between panes, or full-screen it.
+- **Live markdown replies with syntax highlighting.** Responses stream
+  token-by-token and render as markdown (headings, lists, tables, code) — batched
+  per animation frame so long, table-heavy answers stay fast and readable. Code
+  blocks are syntax-highlighted (shiki, many languages, grey theme).
+- **Durable chat history (per account).** Conversations are saved server-side per
+  user, so a chat **survives closing the Claude pane and refreshing the browser**,
+  and follows you across browsers/devices. **`+ New chat`** starts a fresh one and
+  the **History** switcher revisits, renames, or deletes past sessions (auto-titled
+  from your first message). Sessions store the plain conversation turns, so
+  reopening one and continuing keeps full context. Endpoints: `GET/POST/DELETE
+  /api/ai/sessions[/:id]` (each scoped to the caller's account).
+- **Usage vs config.** Any signed-in user can chat with the assistant; only admins
+  configure the key/mode/model. Endpoints: `GET/POST /api/ai/config` (config;
+  POST is admin-only) and `POST /api/ai/chat` (SSE stream) — see the
+  [API reference](#server--http-api-reference).
+
+### MCP server (connect an external client)
+
+BTCT can expose itself as a **hosted MCP (Model Context Protocol) server** so an
+external MCP client — e.g. the **Claude Code CLI** — can read (and, if allowed,
+write) all your workspace context: pages, attack-narrative graphs, attack chains,
+findings, the attack timeline, nmap scans/hosts, users, and the change log.
+
+- **Admin-configured, like the API key.** **Admin panel → MCP Server**: enable it,
+  toggle **Edit permissions** (Read-only vs Edit), and copy the generated **access
+  token** (Reveal / Copy / Regenerate). The token is stored server-side and is the
+  bearer the client authenticates with.
+- **Streamable HTTP at `POST /mcp`.** Stateless MCP over HTTP; auth is the bearer
+  token, checked with a constant-time compare. Read tools are always exposed; write
+  tools (create/update pages, graphs, nodes, edges, findings; nmap→node linking)
+  appear only in **Edit** mode — reconnect the client after toggling to pick up the
+  new tool set. It reuses the same tool catalog as the in-app assistant, so both
+  stay in sync.
+- **Scoping:** read tools return context across all workspaces; `list_users`
+  returns usernames/colors/roles only (never password hashes). Treat the token like
+  a password; **Regenerate** rotates it.
+
+**Connect & check from the Claude Code CLI**
+
+First get the token: Admin panel → **MCP Server** → **Enable** → **Reveal/Copy**
+(or copy the pre-filled connect command). Then, in a terminal:
+
+```bash
+# 1. Register BTCT as an MCP server. Use localhost if the CLI is on the same
+#    machine as the container; otherwise use the host's LAN IP (e.g. 192.168.x.x).
+claude mcp add --transport http btct http://localhost:8080/mcp \
+  --header "Authorization: Bearer <your-token>"
+#    Add --scope user to make it available in every project (default: this project only).
+
+# 2. Confirm it's registered and connected (look for a ✓ / "Connected").
+claude mcp list
+claude mcp get btct
+
+# 3. Start a session and inspect the server + its tools from inside it.
+claude
+#    then run the /mcp slash command in the session to see status + tool list.
+
+# Rotate the token or fix a bad connection: remove and re-add.
+claude mcp remove btct
+#    ...then re-run the `claude mcp add` command above with the current token.
+```
+
+Then just ask in plain language — Claude calls the tools automatically, e.g.
+*"Using the btct server, list my workspaces and their findings"* or *"show the hosts
+in the latest nmap scan."* Tools appear namespaced as `mcp__btct__list_workspaces`,
+`mcp__btct__get_graph`, etc. **Read** tools always work; **write** tools require
+**Edit** mode — after toggling Read↔Edit in the admin panel, reconnect
+(`claude mcp remove btct` + re-add, or restart the session) so the CLI re-fetches
+the tool list.
+
+**Troubleshooting:** if `claude mcp list` shows the server failed to connect, check
+that MCP is **Enabled** in the admin panel, that the **token** matches
+(Regenerate invalidates old ones), and that the **URL/port** is reachable
+(`curl -s -o /dev/null -w "%{http_code}" -X POST <origin>/mcp` → `401` means the
+endpoint is up and rejecting an unauthenticated request, which is expected).
+
 ### Real-time collaboration
 
 Everything is live and multi-user over the LAN:
@@ -160,7 +291,14 @@ Everything is live and multi-user over the LAN:
   people typing in the same field never clobber each other (Yjs `Y.Text` CRDTs).
 - **Live page co-editing** with remote carets and name tags (Google-Docs style),
   backed by a per-page CRDT document and Milkdown's collab plugin.
-- **Presence** — each user broadcasts `{ id, name, color }`.
+- **Presence & follow** — each user broadcasts `{ id, name, color }` plus their
+  current view. Press **`Mod+Shift+U`** (or the command palette → *Active Users /
+  Follow*) to open the active-users window and **follow** a teammate: your view
+  live-mirrors theirs — jumping to the graph node they select, scrolling to their
+  text caret, or opening the nmap host they're inspecting. If you have split panes
+  the first follow asks whether to drop the view into a pane or take over; per-
+  teammate **precision** (jump to their exact spot vs. just open their view) is set
+  in **Profile → Following**. Press **Stop** or navigate away to detach.
 - **Offline-first** — IndexedDB caches every doc so the UI renders instantly and
   reconciles when the connection returns.
 
@@ -169,9 +307,9 @@ Everything is live and multi-user over the LAN:
 - **Workspaces** — create/switch/delete from the sidebar footer; the active
   workspace is remembered across reloads. All pages/graphs/scans/findings are
   scoped to it.
-- **Tabs** — open pages, narratives, nmap groups/machines, Findings, and Timeline
-  as tabs. Cycle with **←/→**, close with **Alt+W**, and the **browser
-  back/forward** buttons walk your tab history.
+- **Tabs** — open pages, narratives, nmap groups/machines, Findings, Timeline,
+  the Typst editor, and the Claude assistant as tabs. Cycle with **←/→**, close
+  with **Alt+W**, and the **browser back/forward** buttons walk your tab history.
 - **Split panes** — drag a tab to a pane edge (left/right/top/bottom) to split;
   drag the divider to resize; emptying a pane collapses the split automatically.
 - **Command palette** — **Ctrl/⌘+K** to create pages/narratives, toggle dark
@@ -214,7 +352,10 @@ full mechanics:
 - **Auth** — username/password login (no self-signup; admins create accounts). A
   bootstrap `admin` account is created on first launch.
 - **Admin panel** (admins only) — create/delete users, reset passwords, toggle
-  admin. The server blocks deleting yourself or the last admin.
+  admin (the server blocks deleting yourself or the last admin), configure the
+  **Claude AI Assistant** (API key, View/Edit mode, model, enable — see
+  [AI assistant](#ai-assistant-claude)), and the **MCP Server** (enable, edit
+  permissions, access token — see [MCP server](#mcp-server-connect-an-external-client)).
 - **Profile** — your presence **color** and your per-account **code accent**.
 - **Theme** (admins only) — the workspace-wide accent color (saved server-side,
   applied to every client). Plus a per-client **dark/light** toggle.
@@ -230,6 +371,8 @@ panel).
 | Context | Shortcut / gesture | Action |
 | --- | --- | --- |
 | Global | `Mod+K` | Command palette (or insert link if text is selected) |
+| Global | `Mod+Shift+A` | Open / focus the **Claude assistant** tab |
+| Global | `Mod+Shift+U` | Open the **active-users / follow** window |
 | Global | `←` / `→` | Cycle tabs in the active pane |
 | Global | `Alt+W` | Close active tab |
 | Global | Browser back/forward | Navigate tab history |
@@ -291,6 +434,9 @@ normal REST.
 - **Vite 8** + **React 19** + **TypeScript (strict)**
 - **Milkdown 7 (Crepe)** + `@milkdown/plugin-collab` + **CodeMirror 6** code blocks
   (`@codemirror/language-data`, GitHub-Dark token theme)
+- **`@myriaddreamin/typst.ts`** in-browser (WASM) Typst compiler + renderer for
+  the local Typst tab; **`y-codemirror.next`** binds the Typst source CodeMirror
+  editor to a shared Yjs `Y.Text` for live co-editing
 - **@xyflow/react 12** graph canvas with **`@dagrejs/dagre`** auto-layout
 - **Yjs 13** + **y-websocket 2** + **y-prosemirror 1** + **y-indexeddb 9**
 - **Zustand 5** for app/auth/theme state
@@ -456,13 +602,31 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `POST` | `/api/admin/users` | admin | Create user (username 3–32, password ≥8) |
 | `DELETE` | `/api/admin/users/:id` | admin | Delete user (not self / not last admin) |
 | `POST` | `/api/admin/users/:id/password` | admin | Reset a user's password |
+| `GET` | `/api/ai/config` | yes | Claude assistant config — `{ enabled, mode, model, configured }` (never the key) |
+| `POST` | `/api/ai/config` | admin | Set the API key / mode (`view`\|`edit`) / model / enabled |
+| `POST` | `/api/ai/config/test` | admin | Live connection test with the stored key (no key returned) |
+| `POST` | `/api/ai/chat` | yes | Agentic chat over workspace data; **SSE** stream. Tool loop runs server-side against the live CRDT; write tools gated to `edit` mode |
+| `GET` | `/api/ai/sessions` | yes | List the caller's saved chat sessions (metadata, newest first) |
+| `GET` | `/api/ai/sessions/:id` | yes | Get one session incl. messages (404 if not the caller's) |
+| `POST` | `/api/ai/sessions/:id` | yes | Create/update a session (`{ title, messages }`) — upsert, scoped to caller |
+| `DELETE` | `/api/ai/sessions/:id` | yes | Delete one of the caller's sessions |
+| `GET` | `/api/mcp/config` | admin | MCP server config incl. the bearer token (so it can be copied) |
+| `POST` | `/api/mcp/config` | admin | Enable/disable + set mode (`read`/`edit`); mints a token on first enable |
+| `POST` | `/api/mcp/token` | admin | Regenerate (rotate) the MCP bearer token |
+| `POST` | `/mcp` | MCP token | Streamable-HTTP MCP endpoint (own bearer auth). Read tools always; write tools in `edit` mode |
 | WS | `/yjs/<room>?token=<jwt>` | yes (at upgrade) | Yjs CRDT relay; rooms = `btct-shared` + one per page id |
 
 The `users` table is `(id, username [NOCASE unique], salt, hash, iter, color,
 avatar, is_admin, prefs [JSON], created_at)` — the `prefs` column is added by an
 idempotent migration. Per-account editor prefs (`codeAccent`, `keybinds`) are
 validated at the REST edge and stored as a JSON blob. The `settings` table is a
-simple key/value store (currently just `theme_color`).
+simple key/value store: `theme_color`, the Claude assistant config
+(`anthropic_api_key`, `ai_mode`, `ai_model`, `ai_enabled`) — the key is
+write-only and never returned to clients — and the MCP server config
+(`mcp_enabled`, `mcp_mode`, `mcp_token`; the token is admin-readable so it can be
+copied into a client). The `chat_sessions` table
+(`id, user_id, title, messages [JSON], created_at, updated_at`) holds each
+account's durable Claude conversations, scoped and pruned per user.
 
 **Environment variables:** `AUTH_SECRET` (required in prod; HMAC key — random &
 ephemeral if unset, which silently invalidates tokens on restart), `HOST`,
@@ -486,6 +650,8 @@ src/
                               + Node/EdgeProperties
     findings/                 FindingsCollector.tsx, AttackTimeline.tsx
     nmap/NmapScanView.tsx     XML import, machine grid/detail, host-node linking
+    typst/                    TypstView (split editor+preview tab), TypstEditor
+                              (collab CodeMirror), TypstPreview (local SVG render)
     sidebar/                  LeftSidebar (tree/nav), RightSidebar (properties),
                               AdminPanel, ProfileEditor, ThemePicker,
                               ChangeLogPanel, PageHistoryPanel, BacklinksPanel,
@@ -497,6 +663,8 @@ src/
   lib/                        editor-* + highlight-plugin + code-theme +
                               block-select + active-editor + auto-layout +
                               pathfinding + nmap-parser + pane-layout + theme +
+                              typst-compiler (local WASM compile→SVG/PDF) +
+                              typst-language (CodeMirror Typst highlighting) +
                               utils
   realtime/                   shared-doc.ts (shared Y.Doc + Y.Text registry),
                               yjs-providers.ts (per-page docs), page-snapshots.ts,

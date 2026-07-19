@@ -19,11 +19,13 @@ import {
   Radar,
   Bug,
   FileText,
+  FileType2,
   Clock,
   Link2,
   Shield,
   LogOut,
   Palette,
+  Sparkles,
 } from 'lucide-react';
 import type { Page, Graph, NmapScan, AttackChain } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -197,6 +199,14 @@ export function LeftSidebar() {
     openTab({ id: uuidv4(), kind: 'timeline', entityId: 'timeline', title: 'Attack Timeline' });
   };
 
+  const openTypst = () => {
+    openTab({ id: uuidv4(), kind: 'typst', entityId: 'typst', title: 'Typst' });
+  };
+
+  const openAi = () => {
+    openTab({ id: uuidv4(), kind: 'ai', entityId: 'ai', title: 'Claude' });
+  };
+
   const openChain = async (chain: AttackChain) => {
     // Left-click opens (or lazily creates) the chain's writeup page so the
     // user can document the attack steps. Highlighting on the graph is now
@@ -330,6 +340,20 @@ export function LeftSidebar() {
               >
                 <Clock size={12} className="text-[hsl(var(--status-amber))]" />
                 <span className="truncate">Attack Timeline</span>
+              </button>
+              <button
+                onClick={openAi}
+                className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--primary))]/30 bg-[hsl(var(--primary))]/10 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--primary))]/20"
+              >
+                <Sparkles size={12} className="text-[hsl(var(--primary))]" />
+                <span className="truncate">Claude Assistant</span>
+              </button>
+              <button
+                onClick={openTypst}
+                className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--status-purple))]/30 bg-[hsl(var(--status-purple))]/10 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--status-purple))]/20"
+              >
+                <FileType2 size={12} className="text-[hsl(var(--status-purple))]" />
+                <span className="truncate">Typst</span>
               </button>
               {rootPages.map((page) => (
                 <PageTreeItem

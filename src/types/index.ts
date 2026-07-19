@@ -132,7 +132,7 @@ export interface GraphEdge {
 }
 
 // ---- UI State Types ----
-export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline';
+export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline' | 'typst' | 'ai';
 
 export interface TabItem {
   id: string;

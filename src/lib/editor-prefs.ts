@@ -19,13 +19,37 @@ export type KeybindAction =
   | 'inlineCode'
   | 'link'
   | 'highlight'
-  | 'focusLanguage';
+  | 'focusLanguage'
+  // Global (non-editor) shortcut: open the "active users / follow" window.
+  | 'openFollowPanel';
+
+/** How precisely to mirror a teammate when following them. */
+export type FollowPrecision = 'precise' | 'view';
+
+/**
+ * How a followed view is laid out when you already have split panes:
+ *   • 'split'    — drop the followed view into your active pane, keeping panes.
+ *   • 'takeover' — collapse to a single pane showing the followed view.
+ *   • null       — not yet chosen; prompt the first time you follow while split.
+ */
+export type FollowPanePlacement = 'split' | 'takeover' | null;
+
+export interface FollowPrefs {
+  /** Default precision for teammates with no explicit override. */
+  defaultPrecision: FollowPrecision;
+  /** Per-teammate precision overrides, keyed by user id (as a string). */
+  precisionByUserId: Record<string, FollowPrecision>;
+  /** Remembered pane-placement choice (see FollowPanePlacement). */
+  panePlacement: FollowPanePlacement;
+}
 
 export interface EditorPrefs {
   /** #RRGGBB base color for code-block syntax highlighting. */
   codeAccent: string;
   /** Action → canonical shortcut string (e.g. "Mod-Shift-l"). */
   keybinds: Record<KeybindAction, string>;
+  /** Live-follow preferences (presence / spectate feature). */
+  follow: FollowPrefs;
 }
 
 // GitHub Dark's keyword color. The rest of the code palette is fixed GitHub
@@ -41,11 +65,19 @@ export const DEFAULT_KEYBINDS: Record<KeybindAction, string> = {
   link: 'Mod-Shift-k',
   highlight: 'Mod-Shift-h',
   focusLanguage: 'Mod-Shift-l',
+  openFollowPanel: 'Mod-Shift-u',
+};
+
+export const DEFAULT_FOLLOW_PREFS: FollowPrefs = {
+  defaultPrecision: 'precise',
+  precisionByUserId: {},
+  panePlacement: null,
 };
 
 export const DEFAULT_EDITOR_PREFS: EditorPrefs = {
   codeAccent: DEFAULT_CODE_ACCENT,
   keybinds: { ...DEFAULT_KEYBINDS },
+  follow: { ...DEFAULT_FOLLOW_PREFS, precisionByUserId: {} },
 };
 
 // Human-readable labels + display order for the keybinds dialog.
@@ -57,6 +89,7 @@ export const KEYBIND_ACTIONS: ReadonlyArray<{ id: KeybindAction; label: string }
   { id: 'link', label: 'Link' },
   { id: 'highlight', label: 'Highlight (yellow)' },
   { id: 'focusLanguage', label: 'Focus code language' },
+  { id: 'openFollowPanel', label: 'Active users / follow' },
 ];
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -84,7 +117,29 @@ export function resolvePrefs(user: MaybeUser | null | undefined): EditorPrefs {
       if (typeof v === 'string' && v.trim()) keybinds[id] = v;
     }
   }
-  return { codeAccent, keybinds };
+
+  const follow: FollowPrefs = {
+    defaultPrecision: DEFAULT_FOLLOW_PREFS.defaultPrecision,
+    precisionByUserId: {},
+    panePlacement: DEFAULT_FOLLOW_PREFS.panePlacement,
+  };
+  const storedFollow = stored.follow;
+  if (storedFollow && typeof storedFollow === 'object' && !Array.isArray(storedFollow)) {
+    const sf = storedFollow as unknown as Record<string, unknown>;
+    if (sf.defaultPrecision === 'precise' || sf.defaultPrecision === 'view') {
+      follow.defaultPrecision = sf.defaultPrecision;
+    }
+    if (sf.panePlacement === 'split' || sf.panePlacement === 'takeover') {
+      follow.panePlacement = sf.panePlacement;
+    }
+    if (sf.precisionByUserId && typeof sf.precisionByUserId === 'object' && !Array.isArray(sf.precisionByUserId)) {
+      for (const [uid, v] of Object.entries(sf.precisionByUserId as Record<string, unknown>)) {
+        if (v === 'precise' || v === 'view') follow.precisionByUserId[uid] = v;
+      }
+    }
+  }
+
+  return { codeAccent, keybinds, follow };
 }
 
 // ── Shortcut parsing / matching ──────────────────────────────────────────

@@ -263,15 +263,28 @@ button:focus-visible {
   stroke: hsl(var(--primary)) !important;
 }
 
-/* Node search flash highlight. */
+/* Node search / navigate flash highlight.
+   Applied to the inner node element (not the square react-flow wrapper) and
+   drawn with a box-shadow ring so it hugs the node's rounded-xl border instead
+   of drawing a square box around it. The node's base `shadow-md` drop shadow
+   is preserved in every keyframe so it doesn't blink off during the flash. */
 @keyframes node-flash {
-  0%, 100% { outline: 3px solid transparent;        outline-offset: 2px; }
-  20%, 50% { outline: 3px solid hsl(var(--primary)); outline-offset: 2px; }
-  80%      { outline: 3px solid transparent;        outline-offset: 2px; }
+  0%, 100% {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1),
+                0 0 0 0 hsl(var(--primary) / 0);
+  }
+  20%, 50% {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1),
+                0 0 0 3px hsl(var(--primary)), 0 0 12px 1px hsl(var(--primary) / 0.5);
+  }
+  80% {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1),
+                0 0 0 0 hsl(var(--primary) / 0);
+  }
 }
-.node-flash-highlight {
+.node-flash-highlight > * {
   animation: node-flash 1.2s ease-in-out;
-  will-change: outline-color;
+  will-change: box-shadow;
 }
 
 /* ── Attack chain highlight ──
@@ -520,29 +533,28 @@ button:focus-visible {
 .milkdown-host .milkdown-code-block .cm-tok-variable { color: var(--code-variable); }
 .milkdown-host .milkdown-code-block .cm-tok-comment  { color: var(--code-comment); font-style: italic; }
 
-/* Linux-terminal look for shell / bash blocks. `data-language="shell"` is
-   stamped on the block by codeLanguageAttrPlugin (src/lib/code-theme.ts) for
-   any shell alias. A green-forward ANSI palette on a near-black surface,
-   overriding the default GitHub-Dark code colors for shell only. */
-.milkdown-host .milkdown-code-block[data-language="shell"] {
-  background-color: #0b0e0b;
+/* Shell / bash blocks use the same neutral grey GitHub-Dark palette as every
+   other language (driven by the --code-* vars above) rather than a green
+   terminal look — keeps code boxes consistent with the rest of the app. No
+   `data-language="shell"` overrides are needed; the general token rules apply. */
+
+/* Shiki-highlighted code blocks in the Claude assistant chat. Keep the github-
+   dark theme's token colors but drop them onto a neutral grey surface with
+   padding so they match the rest of the app's (grey, not green) code boxes. */
+.ai-code pre.shiki {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.35) !important;
+  overflow-x: auto;
+  font-size: 11px;
+  line-height: 1.5;
 }
-.milkdown-host .milkdown-code-block[data-language="shell"] .cm-editor {
-  color: #b5e853;                 /* base text / commands — terminal green */
-}
-.milkdown-host .milkdown-code-block[data-language="shell"] .cm-gutters {
+.ai-code pre.shiki code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: transparent;
-  color: #46553f;
-  border-right-color: #19241a;
 }
-.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-keyword  { color: #8ae234; } /* if / then / for / do … */
-.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-function { color: #8ae234; } /* builtins / commands */
-.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-string   { color: #e9c46a; } /* "strings" */
-.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-number   { color: #ad7fa8; }
-.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-variable { color: #34e2e2; } /* $VARS */
-.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-type     { color: #729fcf; }
-.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-operator { color: #d3d7cf; } /* | && > … */
-.milkdown-host .milkdown-code-block[data-language="shell"] .cm-tok-comment  { color: #7f9f7f; font-style: italic; } /* # comments */
 
 /* Keyboard navigation of the language picker (Ctrl+Shift+L → arrow keys).
    Highlight whichever list item currently has focus so the selection is

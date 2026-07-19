@@ -2,7 +2,7 @@ import { useAppStore } from '@/stores';
 import { Command } from 'cmdk';
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { FileText, Network, Plus, Settings } from 'lucide-react';
+import { FileText, FileType2, Network, Plus, Settings, Users, Sparkles } from 'lucide-react';
 
 export function CommandPalette() {
   const {
@@ -15,6 +15,7 @@ export function CommandPalette() {
     createGraph,
     activeWorkspaceId,
     toggleDarkMode,
+    setFollowPanelOpen,
   } = useAppStore();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +66,28 @@ export function CommandPalette() {
                 className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
               >
                 <Plus size={14} /> New Attack Narrative
+              </Command.Item>
+              <Command.Item
+                onSelect={() => {
+                  if (!activeWorkspaceId) return;
+                  openTab({ id: uuidv4(), kind: 'typst', entityId: 'typst', title: 'Typst' });
+                  setCommandPaletteOpen(false);
+                }}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
+              >
+                <FileType2 size={14} /> Open Typst Document
+              </Command.Item>
+              <Command.Item
+                onSelect={() => { openTab({ id: uuidv4(), kind: 'ai', entityId: 'ai', title: 'Claude' }); setCommandPaletteOpen(false); }}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
+              >
+                <Sparkles size={14} /> Ask Claude (AI Assistant)
+              </Command.Item>
+              <Command.Item
+                onSelect={() => { setFollowPanelOpen(true); setCommandPaletteOpen(false); }}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
+              >
+                <Users size={14} /> Active Users / Follow
               </Command.Item>
               <Command.Item
                 onSelect={() => { toggleDarkMode(); setCommandPaletteOpen(false); }}

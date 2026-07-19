@@ -45,6 +45,40 @@ describe('resolvePrefs', () => {
     const prefs = resolvePrefs({ prefs: { codeAccent: '#00ff88' } });
     expect(prefs.codeAccent).toBe('#00ff88');
   });
+
+  it('includes the openFollowPanel keybind by default', () => {
+    expect(resolvePrefs(null).keybinds.openFollowPanel).toBe(DEFAULT_KEYBINDS.openFollowPanel);
+  });
+
+  it('defaults follow prefs to precise / no overrides / unset placement', () => {
+    const follow = resolvePrefs(null).follow;
+    expect(follow.defaultPrecision).toBe('precise');
+    expect(follow.precisionByUserId).toEqual({});
+    expect(follow.panePlacement).toBeNull();
+  });
+
+  it('merges valid follow prefs and drops malformed ones', () => {
+    const follow = resolvePrefs({
+      prefs: {
+        follow: {
+          defaultPrecision: 'view',
+          panePlacement: 'takeover',
+          precisionByUserId: { '7': 'precise', '9': 'bogus' },
+        },
+      } as never,
+    }).follow;
+    expect(follow.defaultPrecision).toBe('view');
+    expect(follow.panePlacement).toBe('takeover');
+    expect(follow.precisionByUserId['7']).toBe('precise');
+    expect(follow.precisionByUserId['9']).toBeUndefined(); // malformed dropped
+  });
+
+  it('ignores an invalid panePlacement value', () => {
+    const follow = resolvePrefs({
+      prefs: { follow: { panePlacement: 'sideways' } } as never,
+    }).follow;
+    expect(follow.panePlacement).toBeNull();
+  });
 });
 
 describe('parseShortcut', () => {

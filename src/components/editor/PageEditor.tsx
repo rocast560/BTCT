@@ -409,12 +409,15 @@ function MarkdownEditor({
           // their color, no avatar.
           service.setOptions({
             yCursorOpts: {
-              cursorBuilder: (user: { name?: string; color?: string }) => {
+              cursorBuilder: (user: { id?: number | string; name?: string; color?: string }) => {
                 const color = user.color || '#ffa500';
                 const name = user.name || 'Anonymous';
                 const cursor = document.createElement('span');
                 cursor.classList.add('ProseMirror-yjs-cursor');
                 cursor.setAttribute('style', `border-color: ${color}`);
+                // Tag with the user id so the follow feature can locate and
+                // scroll a specific teammate's caret into view.
+                if (user.id != null) cursor.setAttribute('data-user-id', String(user.id));
                 const tag = document.createElement('div');
                 tag.setAttribute('style', `background-color: ${color}`);
                 tag.appendChild(document.createTextNode(name));

@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '@/auth/auth-store';
-import { resolvePrefs } from '@/lib/editor-prefs';
+import { resolvePrefs, type FollowPrefs, type FollowPrecision } from '@/lib/editor-prefs';
 import { applyCodeAccent } from '@/lib/code-theme';
+import { usePresenceRoster } from '@/realtime/presence';
 
 const COLOR_PRESETS = [
   '#ef4444', '#f59e0b', '#10b981', '#3b82f6',
@@ -19,8 +20,25 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
 
   const [color, setColor] = useState(user.color);
   const [codeAccent, setCodeAccent] = useState(resolved.codeAccent);
+  const [follow, setFollow] = useState<FollowPrefs>(resolved.follow);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Online teammates plus anyone with an existing precision override, so
+  // saved overrides for offline users remain editable.
+  const roster = usePresenceRoster();
+  const followableUsers = (() => {
+    const map = new Map<number, string>();
+    for (const p of roster) map.set(p.user.id, p.user.name);
+    for (const uid of Object.keys(follow.precisionByUserId)) {
+      const n = Number(uid);
+      if (!map.has(n)) map.set(n, `User ${uid}`);
+    }
+    return [...map.entries()].map(([id, name]) => ({ id, name }));
+  })();
+
+  const precisionFor = (uid: number): FollowPrecision =>
+    follow.precisionByUserId[String(uid)] ?? follow.defaultPrecision;
 
   // Live-preview the code accent against real code blocks while the dialog is
   // open; revert on unmount unless the change was saved.
@@ -34,7 +52,10 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
     if (HEX_RE.test(v)) applyCodeAccent(v);
   };
 
-  const dirty = color !== user.color || codeAccent.toLowerCase() !== resolved.codeAccent.toLowerCase();
+  const dirty =
+    color !== user.color ||
+    codeAccent.toLowerCase() !== resolved.codeAccent.toLowerCase() ||
+    JSON.stringify(follow) !== JSON.stringify(resolved.follow);
 
   const handleSave = async () => {
     if (!HEX_RE.test(color)) {
@@ -48,7 +69,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await updateProfile({ color, prefs: { codeAccent, keybinds: resolved.keybinds } });
+      await updateProfile({ color, prefs: { codeAccent, keybinds: resolved.keybinds, follow } });
       saved.current = true;
       onClose();
     } catch (err) {
@@ -154,6 +175,53 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
+          {/* Following — how precisely to mirror a teammate when you follow
+              them. Applies to graphs (their node), pages (their cursor), and
+              nmap (their host). */}
+          <div>
+            <label className="mb-1 block text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+              Following
+            </label>
+            <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-[hsl(var(--muted-foreground))]">Default precision</span>
+                <PrecisionToggle
+                  value={follow.defaultPrecision}
+                  onChange={(p) => setFollow((f) => ({ ...f, defaultPrecision: p }))}
+                />
+              </div>
+
+              {followableUsers.length > 0 && (
+                <div className="mt-2 flex flex-col gap-1.5 border-t border-[hsl(var(--border))] pt-2">
+                  {followableUsers.map((u) => (
+                    <div key={u.id} className="flex items-center justify-between gap-2">
+                      <span className="truncate text-[11px]">{u.name}</span>
+                      <PrecisionToggle
+                        value={precisionFor(u.id)}
+                        onChange={(p) =>
+                          setFollow((f) => ({
+                            ...f,
+                            precisionByUserId: { ...f.precisionByUserId, [String(u.id)]: p },
+                          }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {follow.panePlacement && (
+                <button
+                  type="button"
+                  onClick={() => setFollow((f) => ({ ...f, panePlacement: null }))}
+                  className="mt-2 w-full rounded-md border border-[hsl(var(--border))] px-2 py-1 text-[10px] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]"
+                >
+                  Reset pane layout choice (currently: {follow.panePlacement})
+                </button>
+              )}
+            </div>
+          </div>
+
           {error && (
             <div className="rounded-lg border border-[hsl(var(--status-red))]/40 bg-[hsl(var(--status-red))]/10 px-2.5 py-1.5 text-[11px] text-[hsl(var(--status-red))]">
               {error}
@@ -177,6 +245,38 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Compact Precise / View-only segmented toggle for follow precision. */
+function PrecisionToggle({
+  value,
+  onChange,
+}: {
+  value: FollowPrecision;
+  onChange: (p: FollowPrecision) => void;
+}) {
+  const opts: ReadonlyArray<{ id: FollowPrecision; label: string }> = [
+    { id: 'precise', label: 'Precise' },
+    { id: 'view', label: 'View only' },
+  ];
+  return (
+    <div className="flex overflow-hidden rounded-md border border-[hsl(var(--input))]">
+      {opts.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          className={`px-2 py-0.5 text-[10px] transition ${
+            value === o.id
+              ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
+              : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }
