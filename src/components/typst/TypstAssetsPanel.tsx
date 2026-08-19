@@ -13,10 +13,11 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, Crop, FileType, ImagePlus, Loader2, MapPin, Plus, Trash2, Type, Upload,
+  AlertTriangle, Crop, EyeOff, FileType, ImagePlus, Loader2, MapPin, Plus, Trash2, Type, Upload,
 } from 'lucide-react';
 import { useAppStore } from '@/stores';
-import type { CropRect, TypstAsset, TypstAssetKind } from '@/types';
+import type { BlurRegion, CropRect, TypstAsset, TypstAssetKind } from '@/types';
+import { blursKey, hasBlurs } from '@/lib/blur-math';
 import { ASSET_DIR, assetPath, isFullFrame, resolveAssetBytes } from '@/lib/typst-assets';
 import { ENCODABLE_FORMATS, formatFromFilename, mimeForFormat } from '@/lib/image-format';
 import {
@@ -69,11 +70,12 @@ function kindForFile(file: File): TypstAssetKind | null {
 function useAssetPreview(asset: TypstAsset): { url: string | null; error: boolean } {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
-  // Depend on the crop *value*, not identity, so a re-render with an equal
-  // rect doesn't rebuild the blob.
+  // Depend on the crop/blur *values*, not identity, so a re-render with
+  // equal framing doesn't rebuild the blob.
   const cropKey = asset.crop
     ? `${asset.crop.x},${asset.crop.y},${asset.crop.w},${asset.crop.h}`
     : '';
+  const blurKey = blursKey(asset.blurs);
 
   useEffect(() => {
     if (asset.kind !== 'image') return;
@@ -101,7 +103,7 @@ function useAssetPreview(asset: TypstAsset): { url: string | null; error: boolea
       if (objUrl) URL.revokeObjectURL(objUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asset.id, asset.kind, asset.mime, asset.filename, cropKey]);
+  }, [asset.id, asset.kind, asset.mime, asset.filename, cropKey, blurKey]);
 
   return { url, error };
 }
@@ -127,6 +129,7 @@ const ImageCard = memo(function ImageCard({
 }) {
   const { url, error } = useAssetPreview(asset);
   const cropped = !isFullFrame(asset.crop);
+  const blurred = hasBlurs(asset.blurs);
 
   return (
     <div className="group relative overflow-hidden rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)]">
@@ -152,6 +155,11 @@ const ImageCard = memo(function ImageCard({
         {cropped && (
           <span className="flex items-center gap-0.5 rounded bg-[hsl(var(--status-purple))] px-1 py-px text-[9px] font-semibold uppercase text-white">
             <Crop size={8} /> cropped
+          </span>
+        )}
+        {blurred && (
+          <span className="flex items-center gap-0.5 rounded bg-[hsl(var(--status-purple))] px-1 py-px text-[9px] font-semibold uppercase text-white">
+            <EyeOff size={8} /> redacted
           </span>
         )}
         {placedIn && (
@@ -339,12 +347,13 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
   const applyPlacement = useCallback(
     (
       crop: CropRect | null,
+      blurs: BlurRegion[] | null,
       slot: ScreenshotSlot | null,
       path: string | null,
       heightPt: number | null,
     ) => {
       if (!placing) return;
-      void setTypstAssetCrop(placing.id, crop);
+      void setTypstAssetCrop(placing.id, crop, blurs);
 
       if (slot) {
         const ensured = ensureHelper(source);
@@ -506,9 +515,9 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
         <PlaceScreenshotDialog
           asset={placingLive}
           source={source}
-          onApply={(crop, slot, heightPt) =>
-            applyPlacement(crop, slot, assetPath(placingLive), heightPt)}
-          onUnplace={(crop, slot) => applyPlacement(crop, slot, null, null)}
+          onApply={(crop, blurs, slot, heightPt) =>
+            applyPlacement(crop, blurs, slot, assetPath(placingLive), heightPt)}
+          onUnplace={(crop, blurs, slot) => applyPlacement(crop, blurs, slot, null, null)}
           onAddSlot={addSlot}
           onRename={renameAsset}
           onClose={() => setPlacing(null)}

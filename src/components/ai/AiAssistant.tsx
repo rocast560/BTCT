@@ -55,9 +55,12 @@ export function AiAssistant() {
     void useChatStore.getState().init();
   }, []);
 
+  // Depend on phase.kind, not the phase object: a new { kind: 'idle' }
+  // literal per streamed token would force a scrollHeight read + scrollTo
+  // (a synchronous layout) on every token.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, streaming, phase]);
+  }, [messages, streaming, phase.kind]);
 
   // ── Streaming: batch SSE deltas and flush on animation frames into the store
   // so markdown re-parses at most ~once per frame instead of once per token. ──
@@ -120,7 +123,9 @@ export function AiAssistant() {
           try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
           // Text arriving means the answer is visibly streaming — the
           // indicator would just duplicate what the user can already see.
-          if (ev.type === 'text' && ev.text) { setPhase({ kind: 'idle' }); appendText(ev.text); }
+          // Keep the same phase object when already idle so a token stream
+          // doesn't re-render on a no-op state change.
+          if (ev.type === 'text' && ev.text) { setPhase((p) => p.kind === 'idle' ? p : { kind: 'idle' }); appendText(ev.text); }
           else if (ev.type === 'tool' && ev.name) {
             setPhase({ kind: 'tool', name: ev.name });
             setSteps((n) => n + 1);

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, TypstAssetKind, CropRect, CommandLogEntry } from '@/types';
+import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, TypstAssetKind, CropRect, BlurRegion, CommandLogEntry } from '@/types';
+import { sharedTransact } from '@/realtime/shared-doc';
 import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo, typstAssetRepo, commandLogRepo } from '@/db';
 import type { LogAuthor, LogDelta } from '@/db/changelog-repo';
 import { db } from '@/db/database';
@@ -73,6 +74,8 @@ interface AppState {
   loadGraphData: (graphId: ID) => Promise<void>;
   addGraphNode: (graphId: ID, type: GraphNode['type'], label: string, position: { x: number; y: number }) => Promise<GraphNode>;
   updateGraphNode: (id: ID, data: Partial<Omit<GraphNode, 'id' | 'graphId' | 'createdAt'>>) => Promise<void>;
+  /** Batch position writes: one Yjs transaction, one store update. */
+  updateGraphNodePositions: (updates: Array<{ id: ID; position: { x: number; y: number } }>) => Promise<void>;
   deleteGraphNode: (id: ID) => Promise<void>;
 
   // Graph edges
@@ -182,7 +185,7 @@ interface AppState {
   typstAssets: TypstAsset[];
   loadTypstAssets: () => Promise<void>;
   addTypstAsset: (file: File, kind: TypstAssetKind) => Promise<TypstAsset>;
-  setTypstAssetCrop: (id: ID, crop: CropRect | null) => Promise<void>;
+  setTypstAssetCrop: (id: ID, crop: CropRect | null, blurs?: BlurRegion[] | null) => Promise<void>;
   /** Rename an asset's file stem. Returns the resulting filename. */
   renameTypstAsset: (id: ID, stem: string) => Promise<string>;
   deleteTypstAsset: (id: ID) => Promise<void>;
@@ -324,7 +327,17 @@ export const useAppStore = create<AppState>((set, get) => {
       // Page bodies are persisted via Yjs per-page docs; per-keystroke
       // change-log entries would be noisy. Page snapshots (see Page
       // History panel) provide rollback for body content instead.
-      log('update', 'page', id, 'Updated page content');
+      // Coalesced: an editing session logs one entry per page per minute.
+      // Without this, every debounced save appends to the shared changeLogs
+      // table (which is never pruned) and re-sorts it on every append.
+      const last = get().changeLogs[0];
+      const coalesced = !!last
+        && last.action === 'update'
+        && last.target === 'page'
+        && last.targetId === id
+        && last.summary === 'Updated page content'
+        && Date.now() - last.timestamp < 60_000;
+      if (!coalesced) log('update', 'page', id, 'Updated page content');
     }
   },
 
@@ -453,6 +466,24 @@ export const useAppStore = create<AppState>((set, get) => {
         }));
       }
     }
+  },
+
+  updateGraphNodePositions: async (updates) => {
+    if (updates.length === 0) return;
+    // One Yjs transaction: peers receive a single update message for the
+    // whole layout instead of one per node (repo.update writes
+    // synchronously, so the nested transactions merge into this one).
+    sharedTransact(() => {
+      for (const u of updates) void graphNodeRepo.update(u.id, { position: u.position });
+    });
+    const now = Date.now();
+    const byId = new Map(updates.map((u) => [u.id, u.position]));
+    set((s) => ({
+      graphNodes: s.graphNodes.map((n) => {
+        const p = byId.get(n.id);
+        return p ? { ...n, position: p, updatedAt: now } : n;
+      }),
+    }));
   },
 
   deleteGraphNode: async (id) => {
@@ -1092,19 +1123,29 @@ export const useAppStore = create<AppState>((set, get) => {
     log('create', 'page', asset.id, `Added Typst ${kind} "${asset.filename}"`);
     return asset;
   },
-  setTypstAssetCrop: async (id: ID, crop: CropRect | null) => {
-    const prev = get().typstAssets.find((a) => a.id === id)?.crop ?? null;
-    await typstAssetRepo.setCrop(id, crop);
+  setTypstAssetCrop: async (id: ID, crop: CropRect | null, blurs?: BlurRegion[] | null) => {
+    const prevAsset = get().typstAssets.find((a) => a.id === id);
+    const prev = { crop: prevAsset?.crop ?? null, blurs: prevAsset?.blurs ?? null };
+    // Omitting `blurs` keeps the existing regions; an empty list clears them.
+    const nextBlurs = blurs === undefined ? prev.blurs : blurs && blurs.length > 0 ? blurs : null;
+    await typstAssetRepo.setFraming(id, { crop, blurs: nextBlurs });
     set((s) => ({
-      typstAssets: s.typstAssets.map((a) => (a.id === id ? { ...a, crop } : a)),
+      typstAssets: s.typstAssets.map((a) => (a.id === id ? { ...a, crop, blurs: nextBlurs } : a)),
     }));
     const name = get().typstAssets.find((a) => a.id === id)?.filename ?? id;
+    const blurNote = nextBlurs
+      ? ` (${nextBlurs.length} blurred region${nextBlurs.length === 1 ? '' : 's'})`
+      : '';
     log(
       'update',
       'page',
       id,
-      crop ? `Cropped "${name}"` : `Cleared crop on "${name}"`,
-      { field: 'crop', prevValue: encodeValue(prev), newValue: encodeValue(crop) },
+      (crop ? `Cropped "${name}"` : `Cleared crop on "${name}"`) + blurNote,
+      {
+        field: 'crop',
+        prevValue: encodeValue(prev),
+        newValue: encodeValue({ crop, blurs: nextBlurs }),
+      },
     );
   },
   renameTypstAsset: async (id: ID, stem: string) => {

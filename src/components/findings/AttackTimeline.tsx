@@ -131,6 +131,11 @@ export function AttackTimeline() {
   const [graphFilter, setGraphFilter] = useState<string>('all');
   const [copied, setCopied] = useState(false);
 
+  // Reload when the SET of graphs changes, not on every `graphs` array
+  // identity: a graph rename is a Y.Text field, so it produces a new array
+  // per keystroke, and each one otherwise re-ran five getAllByType reads plus
+  // one getByGraph per graph. Names are picked up live by the graphName memo.
+  const graphIdsKey = useMemo(() => graphs.map((g) => g.id).sort().join(','), [graphs]);
   useEffect(() => {
     const load = async () => {
       setLoading(true);
@@ -140,7 +145,7 @@ export function AttackTimeline() {
       // scoped to the active workspace, so any node whose graphId isn't in
       // the current `graphs` list belongs to a different workspace and must
       // be excluded from the timeline.
-      const graphIds = new Set(graphs.map((g) => g.id));
+      const graphIds = new Set(graphIdsKey ? graphIdsKey.split(',') : []);
       const nodes = lists.flat().filter((n) => graphIds.has(n.graphId));
 
       // fetch edges per graph (dedupe), restricted to the current workspace
@@ -151,7 +156,7 @@ export function AttackTimeline() {
       setLoading(false);
     };
     void load();
-  }, [graphs]);
+  }, [graphIdsKey]);
 
   const graphName = useMemo(() => {
     const map = new Map<string, string>();

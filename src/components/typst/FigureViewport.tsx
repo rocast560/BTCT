@@ -10,10 +10,19 @@
 // The frame stays put and the image moves, rather than the other way round,
 // because the frame *is* the output. Sizing the on-screen frame from the
 // same aspect ratio the renderer uses is what makes this WYSIWYG.
+//
+// In blur mode the same drag gesture draws a redaction rectangle instead of
+// panning: the drag is tracked in frame space, converted to image space
+// through the current crop on release, and handed back as a BlurRegion. The
+// committed regions arrive already baked into `imageUrl` (the dialog renders
+// them through the real pipeline), so this component only draws the in-flight
+// draft and, in blur mode, an outline with a delete button per region.
 // ─────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { CropRect } from '@/types';
+import { X } from 'lucide-react';
+import type { BlurRegion, CropRect } from '@/types';
+import { frameToImage, regionFromDrag, regionIndexAt, regionToFrame } from '@/lib/blur-math';
 import { panCrop, zoomCrop } from '@/lib/crop-math';
 
 /** Padding between the frame and the edge of its container, in px. */
@@ -24,6 +33,12 @@ export function FigureViewport({
   crop,
   boxAspect,
   onCropChange,
+  blurMode = false,
+  blurs = [],
+  onAddBlur,
+  onRemoveBlur,
+  selectedBlur = null,
+  onSelectBlur,
 }: {
   imageUrl: string;
   /** Visible region of the image, in normalized image coordinates. */
@@ -31,6 +46,15 @@ export function FigureViewport({
   /** width / height of the figure box — the frame's shape. */
   boxAspect: number;
   onCropChange: (next: CropRect) => void;
+  /** When true, dragging draws a blur region instead of panning. */
+  blurMode?: boolean;
+  /** Committed regions (already baked into `imageUrl`), for outlines/delete. */
+  blurs?: BlurRegion[];
+  onAddBlur?: (region: BlurRegion) => void;
+  onRemoveBlur?: (index: number) => void;
+  /** Highlighted region, if any; a click-sized tap (re)selects. */
+  selectedBlur?: number | null;
+  onSelectBlur?: (index: number | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState({ width: 0, height: 0 });
@@ -68,16 +92,45 @@ export function FigureViewport({
   const imageLeft = -crop.x * imageWidth;
   const imageTop = -crop.y * imageHeight;
 
-  // ── panning ────────────────────────────────────────────────────────────
+  // ── panning / blur drawing ─────────────────────────────────────────────
   const dragRef = useRef<{ x: number; y: number; start: CropRect } | null>(null);
+
+  // A blur draft, in normalized frame coordinates. Ref for the handlers,
+  // state for the overlay render.
+  const blurDraftRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const [blurDraft, setBlurDraft] = useState<typeof blurDraftRef.current>(null);
+
+  const framePoint = useCallback((e: React.PointerEvent): { fx: number; fy: number } => {
+    const rect = (e.currentTarget as Element).getBoundingClientRect();
+    return {
+      fx: rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0,
+      fy: rect.height > 0 ? (e.clientY - rect.top) / rect.height : 0,
+    };
+  }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
-    dragRef.current = { x: e.clientX, y: e.clientY, start: crop };
+    if (blurMode) {
+      const { fx, fy } = framePoint(e);
+      const draft = { x0: fx, y0: fy, x1: fx, y1: fy };
+      blurDraftRef.current = draft;
+      setBlurDraft(draft);
+    } else {
+      dragRef.current = { x: e.clientX, y: e.clientY, start: crop };
+    }
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-  }, [crop]);
+  }, [crop, blurMode, framePoint]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (blurMode) {
+      const draft = blurDraftRef.current;
+      if (!draft) return;
+      const { fx, fy } = framePoint(e);
+      const next = { ...draft, x1: fx, y1: fy };
+      blurDraftRef.current = next;
+      setBlurDraft(next);
+      return;
+    }
     const drag = dragRef.current;
     if (!drag || frame.width === 0) return;
     // Screen pixels → normalized image units. Dragging right moves the image
@@ -85,12 +138,29 @@ export function FigureViewport({
     const dx = -((e.clientX - drag.x) / frame.width) * drag.start.w;
     const dy = -((e.clientY - drag.y) / frame.height) * drag.start.h;
     onCropChange(panCrop(drag.start, dx, dy));
-  }, [frame.width, frame.height, onCropChange]);
+  }, [frame.width, frame.height, onCropChange, blurMode, framePoint]);
 
   const endDrag = useCallback((e: React.PointerEvent) => {
+    const draft = blurDraftRef.current;
+    if (draft) {
+      // Frame corners → image space through the crop that framed the drag.
+      const a = frameToImage(draft.x0, draft.y0, cropRef.current);
+      const b = frameToImage(draft.x1, draft.y1, cropRef.current);
+      const region = regionFromDrag(a.x, a.y, b.x, b.y);
+      if (region) {
+        onAddBlur?.(region);
+      } else {
+        // A click-sized tap: select the region under the pointer (or clear
+        // the selection when the tap lands on none).
+        const i = regionIndexAt(blurs, b.x, b.y);
+        onSelectBlur?.(i === -1 ? null : i);
+      }
+      blurDraftRef.current = null;
+      setBlurDraft(null);
+    }
     dragRef.current = null;
     (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
-  }, []);
+  }, [onAddBlur, onSelectBlur, blurs]);
 
   // ── wheel zoom ─────────────────────────────────────────────────────────
   // Registered natively rather than via onWheel so it can be non-passive and
@@ -120,7 +190,7 @@ export function FigureViewport({
     >
       {frame.width > 0 && (
         <div
-          className="relative cursor-grab active:cursor-grabbing"
+          className={`relative ${blurMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
           style={{ width: frame.width, height: frame.height }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -173,6 +243,56 @@ export function FigureViewport({
             <div className="absolute left-0 top-1/3 h-px w-full bg-white mix-blend-difference" />
             <div className="absolute left-0 top-2/3 h-px w-full bg-white mix-blend-difference" />
           </div>
+
+          {/* Committed blur regions: outline + delete, only while editing
+              blurs. The blur itself is already baked into the image. */}
+          {blurMode && blurs.map((region, i) => {
+            const f = regionToFrame(region, crop);
+            const isSelected = selectedBlur === i;
+            return (
+              <div
+                key={i}
+                className="pointer-events-none absolute z-10"
+                style={{
+                  left: f.left * frame.width,
+                  top: f.top * frame.height,
+                  width: f.width * frame.width,
+                  height: f.height * frame.height,
+                }}
+              >
+                <div
+                  className={
+                    isSelected
+                      ? 'absolute inset-0 rounded-sm border-2 border-[hsl(var(--status-purple))]'
+                      : 'absolute inset-0 rounded-sm border border-dashed border-white/90 mix-blend-difference'
+                  }
+                />
+                <button
+                  onClick={() => onRemoveBlur?.(i)}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  title="Remove this blur"
+                  className="pointer-events-auto absolute -right-2 -top-2 rounded-full bg-black/70 p-0.5 text-white hover:bg-[hsl(var(--status-red))]"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            );
+          })}
+
+          {/* The in-flight drag, previewed with a live CSS blur. The real
+              (stronger) blur is baked when the drag commits. */}
+          {blurDraft && (
+            <div
+              className="pointer-events-none absolute z-10 rounded-sm border-2 border-[hsl(var(--status-purple))]"
+              style={{
+                left: Math.min(blurDraft.x0, blurDraft.x1) * frame.width,
+                top: Math.min(blurDraft.y0, blurDraft.y1) * frame.height,
+                width: Math.abs(blurDraft.x1 - blurDraft.x0) * frame.width,
+                height: Math.abs(blurDraft.y1 - blurDraft.y0) * frame.height,
+                backdropFilter: 'blur(6px)',
+              }}
+            />
+          )}
         </div>
       )}
     </div>

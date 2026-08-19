@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Save, Undo2, Clock } from 'lucide-react';
 import { pageSnapshotRepo } from '@/db';
+import { subscribeTable } from '@/realtime/shared-doc';
 import { captureSnapshotNow, restoreSnapshot } from '@/realtime/page-snapshots';
 import type { PageSnapshot } from '@/types';
 import { useAppStore } from '@/stores';
@@ -17,12 +18,10 @@ export function PageHistoryPanel({ pageId }: { pageId: string }) {
   }, [pageId]);
 
   useEffect(() => { refresh(); }, [refresh]);
-  // Re-poll periodically — the shared doc may emit new snapshots from
-  // another client. (Cheap; the snapshot list is small.)
-  useEffect(() => {
-    const id = window.setInterval(refresh, 5000);
-    return () => window.clearInterval(id);
-  }, [refresh]);
+  // Refresh when the shared pageSnapshots table actually changes (another
+  // client saved a version), instead of a 5s poll that rebuilt the list —
+  // and re-rendered the panel — on every tick regardless of change.
+  useEffect(() => subscribeTable('pageSnapshots', refresh), [refresh]);
 
   const handleSaveNamed = async () => {
     if (!activeWorkspaceId) return;

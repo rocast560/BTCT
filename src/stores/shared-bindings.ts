@@ -55,17 +55,30 @@ export function bindSharedSubscriptions(): () => void {
   unsubs.push(subscribeTable('graphNodes', reloadGraphData));
   unsubs.push(subscribeTable('graphEdges', reloadGraphData));
 
-  unsubs.push(subscribeTable('nmapMachines', debounce(() => {
-    const st = s();
-    const open = new Set<string>();
-    for (const tab of st.tabs) {
-      if (tab.kind === 'nmap' || tab.kind === 'nmap-machine') open.add(tab.entityId);
+  // Reload only the scans whose machines actually changed: the event's
+  // changed keys are machine ids, and each record (or a delete's oldValue)
+  // carries its scanId. Reloading every known scan here made one port
+  // toggle cost O(scans) table scans and store writes.
+  const pendingScanIds = new Set<string>();
+  let reloadAllScans = false;
+  let machinesQueued = false;
+  unsubs.push(subscribeTable('nmapMachines', (e) => {
+    for (const [key, change] of e.keys) {
+      const rec = (e.current(key) ?? change.oldValue) as { scanId?: string } | undefined;
+      if (rec?.scanId) pendingScanIds.add(rec.scanId);
+      else reloadAllScans = true; // malformed record: fall back to the old sweep
     }
-    // loadNmapMachines takes a scanId. For nmap-machine tabs we don't
-    // know the scan, so just reload all currently-known scans.
-    for (const scan of st.nmapScans) void st.loadNmapMachines(scan.id);
-    void open;
-  })));
+    if (machinesQueued) return;
+    machinesQueued = true;
+    queueMicrotask(() => {
+      machinesQueued = false;
+      const st = s();
+      const targets = reloadAllScans ? st.nmapScans.map((x) => x.id) : [...pendingScanIds];
+      reloadAllScans = false;
+      pendingScanIds.clear();
+      for (const id of targets) void st.loadNmapMachines(id);
+    });
+  }));
 
   return () => {
     bound = false;

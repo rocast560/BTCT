@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '@/stores';
+import { useShallow } from 'zustand/react/shallow';
 import type { NmapMachine, NmapPort, MachineOS, GraphNode, HostData } from '@/types';
 import { Upload, ArrowLeft, Monitor, Skull, ChevronDown, ChevronRight, X, Link2, Unlink, Check, ExternalLink, Server } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -56,12 +57,38 @@ const OS_OPTIONS: { value: MachineOS; label: string }[] = [
 // ── Main view ──
 
 export function NmapScanView({ scanId }: { scanId: string }) {
-  const { nmapScans, nmapMachines, loadNmapScans, loadNmapMachines, importToNmapGroup, deleteNmapMachine, activeWorkspaceId, openTab, graphs, graphNodes, setPendingFocusNodeId, setSelectedNmapMachineId } = useAppStore();
+  const { nmapScans, nmapMachines, loadNmapScans, loadNmapMachines, importToNmapGroup, deleteNmapMachine, activeWorkspaceId, openTab, graphs, graphNodes, setPendingFocusNodeId, setSelectedNmapMachineId } = useAppStore(useShallow((s) => ({
+    nmapScans: s.nmapScans,
+    nmapMachines: s.nmapMachines,
+    loadNmapScans: s.loadNmapScans,
+    loadNmapMachines: s.loadNmapMachines,
+    importToNmapGroup: s.importToNmapGroup,
+    deleteNmapMachine: s.deleteNmapMachine,
+    activeWorkspaceId: s.activeWorkspaceId,
+    openTab: s.openTab,
+    graphs: s.graphs,
+    graphNodes: s.graphNodes,
+    setPendingFocusNodeId: s.setPendingFocusNodeId,
+    setSelectedNmapMachineId: s.setSelectedNmapMachineId,
+  })));
   const fileRef = useRef<HTMLInputElement>(null);
   const [selectedMachine, setSelectedMachine] = useState<NmapMachine | null>(null);
   const [view, setView] = useState<'list' | 'detail'>('list');
 
   const scan = nmapScans.find((s) => s.id === scanId);
+
+  // Lookup maps so the machine grid resolves each card's linked node/graph
+  // in O(1) instead of a `.find()` per card (O(machines x nodes) per render).
+  const nodeById = useMemo(() => {
+    const m = new Map<string, typeof graphNodes[number]>();
+    for (const n of graphNodes) m.set(n.id, n);
+    return m;
+  }, [graphNodes]);
+  const graphById = useMemo(() => {
+    const m = new Map<string, typeof graphs[number]>();
+    for (const g of graphs) m.set(g.id, g);
+    return m;
+  }, [graphs]);
 
   useEffect(() => {
     if (activeWorkspaceId) void loadNmapScans();
@@ -157,8 +184,8 @@ export function NmapScanView({ scanId }: { scanId: string }) {
               // the icon flips red→green even when the linked host node lives
               // in a graph that isn't currently loaded into `graphNodes`.
               const isAttached = !!machine.linkedNodeId;
-              const linkedNode = machine.linkedNodeId ? graphNodes.find((n) => n.id === machine.linkedNodeId) : null;
-              const linkedGraph = linkedNode ? graphs.find((g) => g.id === linkedNode.graphId) : null;
+              const linkedNode = machine.linkedNodeId ? nodeById.get(machine.linkedNodeId) ?? null : null;
+              const linkedGraph = linkedNode ? graphById.get(linkedNode.graphId) ?? null : null;
               const linkedLabel = linkedNode
                 ? (linkedNode.type === 'host'
                     ? ((linkedNode.data as { hostname?: string; ip?: string }).hostname || (linkedNode.data as { ip?: string }).ip || 'host')

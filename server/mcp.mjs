@@ -69,7 +69,15 @@ function propToZod(p) {
     default: return z.any();
   }
 }
+// Memoized by schema identity: the tool defs are module constants, so every
+// request built the same ~100 zod objects from scratch. The shapes are
+// immutable, so cache them keyed on the input_schema object.
+const zodShapeCache = new WeakMap();
 function toZodShape(inputSchema) {
+  if (inputSchema && typeof inputSchema === 'object') {
+    const hit = zodShapeCache.get(inputSchema);
+    if (hit) return hit;
+  }
   const shape = {};
   const props = inputSchema?.properties || {};
   const required = new Set(inputSchema?.required || []);
@@ -79,6 +87,7 @@ function toZodShape(inputSchema) {
     if (!required.has(key)) zt = zt.optional();
     shape[key] = zt;
   }
+  if (inputSchema && typeof inputSchema === 'object') zodShapeCache.set(inputSchema, shape);
   return shape;
 }
 
@@ -142,8 +151,17 @@ export async function handleMcp(req, res) {
   try {
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
-    let raw = '';
-    for await (const chunk of req) raw += chunk;
+    // Cap the body and concat as buffers (string += could split a multi-byte
+    // UTF-8 sequence across a chunk boundary and corrupt the JSON).
+    const MAX_MCP_BODY = 4 * 1024 * 1024;
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_MCP_BODY) return rpcError(res, 413, -32000, 'Request body too large');
+      chunks.push(chunk);
+    }
+    const raw = Buffer.concat(chunks).toString('utf8');
     const parsedBody = raw.length ? JSON.parse(raw) : undefined;
     // The transport owns `res` from here (writes status/headers/SSE) — do not
     // send any headers before this point.

@@ -18,6 +18,12 @@ COPY public ./public
 COPY src ./src
 RUN bun run build
 
+# Precompress the compressible static files so the server can hand a
+# `file.gz` sibling to any client that accepts gzip (see tryServeStatic).
+# The main bundle drops ~2.4 MB -> ~730 KB and the Typst compiler wasm
+# 28 MB -> 11 MB, with zero per-request CPU spent compressing.
+RUN cd dist && find . -type f \( -name '*.js' -o -name '*.css' -o -name '*.html' -o -name '*.svg' -o -name '*.wasm' -o -name '*.json' \) -size +1k -exec gzip -k -9 {} \;
+
 # ─────────────────────────────────────────────────────────────────────────
 # Stage 2: install the server's runtime deps in isolation.
 # ─────────────────────────────────────────────────────────────────────────

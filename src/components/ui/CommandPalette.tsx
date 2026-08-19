@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores';
+import { useShallow } from 'zustand/react/shallow';
 import { Command } from 'cmdk';
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
@@ -16,7 +17,18 @@ export function CommandPalette() {
     activeWorkspaceId,
     toggleDarkMode,
     setFollowPanelOpen,
-  } = useAppStore();
+  } = useAppStore(useShallow((s) => ({
+    commandPaletteOpen: s.commandPaletteOpen,
+    setCommandPaletteOpen: s.setCommandPaletteOpen,
+    pages: s.pages,
+    graphs: s.graphs,
+    openTab: s.openTab,
+    createPage: s.createPage,
+    createGraph: s.createGraph,
+    activeWorkspaceId: s.activeWorkspaceId,
+    toggleDarkMode: s.toggleDarkMode,
+    setFollowPanelOpen: s.setFollowPanelOpen,
+  })));
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {

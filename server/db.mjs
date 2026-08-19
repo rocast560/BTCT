@@ -7,6 +7,11 @@ const dbPath = process.env.DB_PATH || path.join(__dirname, 'data.sqlite');
 
 export const db = new Database(dbPath);
 db.exec('PRAGMA journal_mode = WAL;');
+// WAL + synchronous NORMAL is the recommended pairing: without it Bun's
+// SQLite stays at FULL and fsyncs the WAL on EVERY commit, which made a
+// 200-record cmdlog batch cost 200 fsyncs. NORMAL only risks losing the
+// last transactions on an OS crash, never corruption.
+db.exec('PRAGMA synchronous = NORMAL;');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -224,6 +229,9 @@ const pruneChatStmt = db.prepare(
    )`,
 );
 const CHAT_KEEP = 100;
+const countChatStmt = db.prepare(
+  `SELECT COUNT(*) AS n FROM chat_sessions WHERE user_id = ?`,
+);
 
 export function listChatSessions(userId) {
   return listChatStmt.all(userId).map((r) => ({
@@ -249,7 +257,11 @@ export function saveChatSession(userId, { id, title, messages, createdAt, update
     $created_at: Number(createdAt) || now,
     $updated_at: Number(updatedAt) || now,
   });
-  pruneChatStmt.run(userId, userId, CHAT_KEEP);
+  // The prune subquery scans the user's sessions; only run it when the
+  // cap is actually exceeded (the client saves after every assistant turn).
+  if ((countChatStmt.get(userId)?.n ?? 0) > CHAT_KEEP) {
+    pruneChatStmt.run(userId, userId, CHAT_KEEP);
+  }
   return { id, title, createdAt: Number(createdAt) || now, updatedAt: Number(updatedAt) || now };
 }
 
@@ -385,8 +397,19 @@ export function queryCommandLogs(filters = {}) {
   const limit = Math.min(Math.max(Number(filters.limit) || 1000, 1), 5000);
   const sql =
     `SELECT * FROM command_logs WHERE ${clauses.join(' AND ')} ORDER BY started_at DESC LIMIT ${limit}`;
-  return db.prepare(sql).all(...params).map(rowToCommandLog);
+  // db.query caches the compiled statement by SQL text (db.prepare compiles
+  // a fresh one per call); the filter combinations are few, so every shape
+  // ends up cached after first use.
+  return db.query(sql).all(...params).map(rowToCommandLog);
 }
+
+/**
+ * Upsert a whole ingest batch in ONE transaction: per-record implicit
+ * transactions cost one WAL commit (and under synchronous=FULL, one fsync)
+ * each, turning a 200-record agent batch into 200 disk syncs.
+ */
+export const upsertCommandLogBatch = db.transaction((records) =>
+  records.map((r) => upsertCommandLog(r)));
 
 export function clearCommandLogs(workspaceId) {
   clearCmdlogStmt.run(workspaceId);

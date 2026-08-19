@@ -22,6 +22,8 @@ export interface PageYContext {
   persistence: IndexeddbPersistence;
   provider: WebsocketProvider;
   awareness: Awareness;
+  /** Detach the auth-store listener that keeps awareness fresh. */
+  unsubscribeAuth: () => void;
   /** Resolves once the IndexedDB cache has loaded. Does NOT wait for the
    *  websocket. Use `whenFullySynced` before seeding initial content. */
   whenSynced: Promise<void>;
@@ -66,11 +68,14 @@ export function getPageYContext(pageId: string): PageYContext {
   const awareness = provider.awareness;
   applyAwarenessUser(awareness);
 
-  // Keep awareness fresh if the user logs in/out without a reload.
-  const unsubscribe = useAuthStore.subscribe((state, prev) => {
+  // Keep awareness fresh if the user logs in/out without a reload. The
+  // unsubscribe belongs to context teardown, NOT 'connection-close': that
+  // event fires on every transient disconnect, which used to silently kill
+  // the refresh after the first reconnect (and leak the subscription for a
+  // socket that never connected at all).
+  const unsubscribeAuth = useAuthStore.subscribe((state, prev) => {
     if (state.user !== prev.user) applyAwarenessUser(awareness);
   });
-  provider.on('connection-close', () => unsubscribe());
 
   const whenSynced = persistence.whenSynced.then(() => undefined);
 
@@ -93,7 +98,7 @@ export function getPageYContext(pageId: string): PageYContext {
 
   const whenFullySynced = Promise.all([persistence.whenSynced, whenWsSynced]).then(() => undefined);
 
-  const ctx: PageYContext = { doc, persistence, provider, awareness, whenSynced, whenFullySynced };
+  const ctx: PageYContext = { doc, persistence, provider, awareness, unsubscribeAuth, whenSynced, whenFullySynced };
   cache.set(pageId, ctx);
   return ctx;
 }
@@ -105,6 +110,7 @@ export function getPageYContext(pageId: string): PageYContext {
  */
 export function disposeAllPageDocs(): void {
   for (const ctx of cache.values()) {
+    try { ctx.unsubscribeAuth(); } catch { /* ignore */ }
     try { ctx.provider.disconnect(); } catch { /* ignore */ }
     try { ctx.provider.destroy(); } catch { /* ignore */ }
     try { ctx.persistence.destroy(); } catch { /* ignore */ }

@@ -70,7 +70,30 @@ const STATIC_DIR = process.env.STATIC_DIR
 const DEFAULT_ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme!';
 
-function ensureBootstrapAdmin() {
+// Failed-login throttle (see the /api/login route). Window resets on
+// success or expiry; the map is pruned so it can't grow unbounded.
+const LOGIN_MAX_FAILURES = 10;
+const LOGIN_WINDOW_MS = 60_000;
+const loginFailures = new Map(); // key -> { count, resetAt }
+
+function loginThrottled(key) {
+  const e = loginFailures.get(key);
+  if (!e) return false;
+  if (Date.now() > e.resetAt) { loginFailures.delete(key); return false; }
+  return e.count >= LOGIN_MAX_FAILURES;
+}
+
+function recordLoginFailure(key) {
+  const now = Date.now();
+  if (loginFailures.size > 1000) {
+    for (const [k, e] of loginFailures) if (now > e.resetAt) loginFailures.delete(k);
+  }
+  const e = loginFailures.get(key);
+  if (!e || now > e.resetAt) loginFailures.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+  else e.count++;
+}
+
+async function ensureBootstrapAdmin() {
   if (adminCount() > 0) return;
   const existing = getUserByUsername(DEFAULT_ADMIN_USERNAME);
   if (existing) {
@@ -81,7 +104,7 @@ function ensureBootstrapAdmin() {
     );
     return;
   }
-  const hashRecord = hashPassword(DEFAULT_ADMIN_PASSWORD);
+  const hashRecord = await hashPassword(DEFAULT_ADMIN_PASSWORD);
   createUser({
     username: DEFAULT_ADMIN_USERNAME,
     salt: hashRecord.salt,
@@ -93,7 +116,7 @@ function ensureBootstrapAdmin() {
     `[btct-server] created bootstrap admin '${DEFAULT_ADMIN_USERNAME}' / '${DEFAULT_ADMIN_PASSWORD}' — change this password immediately`,
   );
 }
-ensureBootstrapAdmin();
+await ensureBootstrapAdmin();
 
 // ─────────────────────────────────────────────────────────────────────────
 // REST helpers
@@ -186,7 +209,7 @@ const httpServer = http.createServer(async (req, res) => {
       if (getUserByUsername(username)) {
         return sendJson(res, 409, { error: 'username already taken' });
       }
-      const hashRecord = hashPassword(password);
+      const hashRecord = await hashPassword(password);
       const user = createUser({
         username,
         salt: hashRecord.salt,
@@ -239,7 +262,7 @@ const httpServer = http.createServer(async (req, res) => {
       if (password.length < 8) {
         return sendJson(res, 400, { error: 'password must be at least 8 characters' });
       }
-      const hashRecord = hashPassword(password);
+      const hashRecord = await hashPassword(password);
       updateUserPassword(id, hashRecord);
       return sendJson(res, 200, { ok: true });
     }
@@ -248,11 +271,20 @@ const httpServer = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const username = String(body.username || '').trim();
       const password = String(body.password || '');
+      // Throttle FAILED attempts per username+IP: each verification costs
+      // ~100ms of PBKDF2 CPU, so an unauthenticated retry loop would starve
+      // the Yjs relay this process also runs.
+      const throttleKey = `${username.toLowerCase()}|${req.socket.remoteAddress || ''}`;
+      if (loginThrottled(throttleKey)) {
+        return sendJson(res, 429, { error: 'too many attempts, try again shortly' });
+      }
       const row = getUserByUsername(username);
-      if (!row || !verifyPassword(password, row.salt, row.hash, row.iter)) {
+      if (!row || !(await verifyPassword(password, row.salt, row.hash, row.iter))) {
+        recordLoginFailure(throttleKey);
         // Same response for both cases to avoid username enumeration.
         return sendJson(res, 401, { error: 'invalid username or password' });
       }
+      loginFailures.delete(throttleKey);
       const token = signToken({ uid: row.id, username: row.username, admin: !!row.is_admin });
       return sendJson(res, 200, { token, user: publicUser(row) });
     }
@@ -586,11 +618,43 @@ function tryServeStatic(req, res) {
   }
 
   const ext = path.extname(filePath).toLowerCase();
+
+  // Conditional GET: non-hashed files (index.html) get an mtime+size ETag
+  // so navigations revalidate with a 304 instead of a re-download.
+  const etag = `"${stat.size}-${Math.round(stat.mtimeMs)}"`;
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, { ETag: etag });
+    res.end();
+    return true;
+  }
+
+  // Serve a build-time precompressed sibling when the client accepts gzip.
+  // The main bundle is ~2.4 MB raw vs ~730 KB gzipped (the wasm compiler
+  // 28 MB vs 11 MB); compressing per request would spend that CPU on the
+  // event loop the Yjs relay shares, so the Dockerfile compresses ahead of
+  // time and plain local runs just fall through to the raw file.
+  let encoding = null;
+  if (/\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) {
+    try {
+      const gzStat = fs.statSync(filePath + '.gz');
+      if (gzStat.isFile()) {
+        filePath += '.gz';
+        stat = gzStat;
+        encoding = 'gzip';
+      }
+    } catch { /* no precompressed sibling */ }
+  }
+
   res.writeHead(200, {
     'Content-Type': MIME[ext] || 'application/octet-stream',
     'Content-Length': stat.size,
+    ETag: etag,
+    Vary: 'Accept-Encoding',
+    ...(encoding ? { 'Content-Encoding': encoding } : {}),
     // index.html should never be cached; hashed assets can be.
-    'Cache-Control': filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
+    'Cache-Control': filePath.endsWith('index.html') || filePath.endsWith('index.html.gz')
+      ? 'no-cache'
+      : 'public, max-age=31536000, immutable',
   });
   if (req.method === 'HEAD') { res.end(); return true; }
   fs.createReadStream(filePath).pipe(res);

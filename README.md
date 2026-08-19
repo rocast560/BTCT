@@ -3,15 +3,21 @@
 A LAN-hosted, multi-user, **real-time collaborative** note-taking and attack-path
 graphing app for penetration-testing engagements. It combines Notion-style
 pages, an attack-narrative graph canvas, nmap import, findings/timeline
-reporting, and Google-Docs-style live co-editing across every machine on the LAN
-— all from a single Docker container.
+reporting, and Google-Docs-style live co-editing across every machine on the LAN,
+all from a single Docker container.
+
+![BTCT demo: typing a highlighted code block, a second operator editing the same page live, nmap import linked to the graph, a highlighted attack path, structured finding data, the live command log, Typst figure placement, and the split-screen report](blog/images/btct-demo.gif)
+
+*One continuous take against a small demo workspace. If the GIF looks fuzzy, the
+crisp version is [`blog/media/btct-demo.mp4`](blog/media/btct-demo.mp4) at
+1920x1080.*
 
 > **New here?** Jump to the [Feature tour](#feature-tour) for what it does, the
 > [Keyboard shortcuts](#keyboard-shortcuts--gestures) for how to drive it fast,
 > or [Run locally](#run-locally-on-windows-with-docker-desktop) to get it up.
 >
 > **AI agent / new contributor working on the code?** Start at
-> [Architecture & internals](#architecture--internals-for-developers--llms) —
+> [Architecture & internals](#architecture--internals-for-developers--llms):
 > it's written to be your onboarding doc: the mental model, the data model,
 > every key file, the non-obvious invariants, and "how to extend X" recipes.
 
@@ -66,71 +72,77 @@ and an optional icon. They live in a nestable tree (drag a page onto another to
 re-parent it; a cycle guard stops you dropping a parent into its own child).
 
 The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
-+ Crepe — Obsidian-style): you type markdown and it renders inline as you go.
++ Crepe, Obsidian-style): you type markdown and it renders inline as you go.
 
-- **Block syntax** — `# ` … `###### ` headings, `- ` / `1. ` lists, `- [ ]`
+- **Block syntax**: `# ` … `###### ` headings, `- ` / `1. ` lists, `- [ ]`
   task lists (click to toggle), `> ` quotes, `|` tables, `---` rules, `![](url)`
   images, `[text](url)` links.
-- **Slash menu** — type `/` to open Crepe's block-insert menu (Heading, lists,
+- **Slash menu**: type `/` to open Crepe's block-insert menu (Heading, lists,
   quote, **Code**, table, image, …). Inserting **Code** defaults the new block
   to the `shell` language.
-- **Inline formatting** — `**bold**`, `*italic*`, `~~strike~~`, and inline code.
+- **Inline formatting**: `**bold**`, `*italic*`, `~~strike~~`, and inline code.
   Select text and press **`` ` ``** to wrap the selection as inline code (or type
   `` `x` `` to convert as you type).
-- **Floating format panel** — appears whenever you select text. Buttons for
+- **Floating format panel**: appears whenever you select text. Buttons for
   bold / italic / strikethrough / inline-code / link, block conversions
   (H1–H3, bullet/numbered list, quote), and a **7-color highlighter** (yellow,
   green, blue, pink, orange, purple, red) + a clear button. A gear/keyboard icon
-  opens the **Keybinds** dialog. *Highlight marks are session-only* — they're an
+  opens the **Keybinds** dialog. *Highlight marks are session-only*: they're an
   annotation aid and are intentionally stripped when the page is saved (CommonMark
   has no highlight syntax), so the saved markdown stays portable.
-- **Code blocks** — full syntax highlighting via CodeMirror using the **GitHub
+- **Code blocks**: full syntax highlighting via CodeMirror using the **GitHub
   Dark** palette. Click the language button to pick a language; or press
   **Ctrl+Shift+L** inside a block to jump to the picker and **arrow-key** through
   it (Enter selects, Esc closes). New code blocks default to `shell`.
-- **Notion-style block selection** — tap **Esc twice** to leave text editing and
+- **Notion-style block selection**: tap **Esc twice** to leave text editing and
   select whole blocks. Then **↑/↓** to move, **Shift+↑/↓** to multi-select,
   **Backspace/Delete** to delete the selected block(s), **Ctrl/⌘+A** to select
   all, **Enter** to edit the focused block, **Esc/click** to exit.
-- **Per-account personalization** — each account can rebind the editor shortcuts
+- **Per-account personalization**: each account can rebind the editor shortcuts
   (Keybinds dialog) and choose a **code accent** color that retints code-block
   keywords. Both follow your account (stored server-side) and apply live.
-- **Backlinks** — for a graph-linked page, the right sidebar lists the graph
+- **Backlinks**: for a graph-linked page, the right sidebar lists the graph
   nodes and edges that reference it. (Note: there's no `[[wikilink]]` syntax;
   use standard markdown links.)
-- **Graph-linked pages** — pages auto-created for graph nodes show structured
+- **Graph-linked pages**: pages auto-created for graph nodes show structured
   property editors inline (host/service/finding/pivot fields, see below) plus a
   "Connected nodes" list and a "Narrative" button back to the canvas.
 
 ### Typst documents (local typesetting)
 
-The Pages section has a dedicated **Typst** tab — a [typst.app](https://typst.app)-style
+The Pages section has a dedicated **Typst** tab, a [typst.app](https://typst.app)-style
 split view for the [Typst](https://typst.app) typesetting language, **compiled and
 rendered entirely in the browser** (no calls to typst.app or any remote service):
 
-- **Three resizable panes** — the raw Typst source in a collaborative
+- **Three resizable panes**: the raw Typst source in a collaborative
   CodeMirror editor on the left, the live-rendered document (SVG) in the
   middle, and the assets rail on the right. Drag either divider to resize
   (double-click one to reset it), or use the **Code** / **Assets** toggles to
   hide a pane entirely. Widths and visibility persist per browser, and both
   rails re-fit themselves if the window gets too narrow to hold them. Zoom the
   preview in/out.
-- **Local WebAssembly compiler** — bundled [`typst.ts`](https://github.com/Myriad-Dreamin/typst.ts)
+- **Local WebAssembly compiler**: bundled [`typst.ts`](https://github.com/Myriad-Dreamin/typst.ts)
   (compiler + renderer wasm) ships with the app, and the default Typst font set
-  is embedded in the compiler, so it renders **fully offline / air-gapped** — no
+  is embedded in the compiler, so it renders **fully offline / air-gapped**, with no
   internet needed during an engagement.
-- **Live errors** — Typst compile diagnostics (with `file:line` ranges) surface
+- **Live errors**: Typst compile diagnostics (with `file:line` ranges) surface
   in a banner while the last good render stays on screen, so a transient typo
   doesn't blank the preview.
-- **Collaborative source** — the Typst source is a per-workspace `Y.Text` in the
+- **Collaborative source**: the Typst source is a per-workspace `Y.Text` in the
   shared doc, so it's character-by-character co-edited (with remote carets) and
   persisted exactly like every other field in BTCT. One Typst scratchpad per
   workspace; open it from the **Pages** sidebar, the command palette
   (*Open Typst Document*), or `Ctrl/⌘+K`.
-- **Find & replace** — `Ctrl/⌘+F` opens a search panel scoped to the Typst
-  editor (`Enter` / `Shift+Enter` to step through matches, `Ctrl/⌘+Alt+F` to
-  replace). Occurrences of the current selection are highlighted as you go.
-- **Screenshots go into declared figure slots, not wherever the caret is** —
+- **Find & replace across the whole document**: `Ctrl/⌘+F` (or the header
+  **Find** button) opens a search panel that scans the *entire* Typst source,
+  not just the part on screen, and lists every match with its line number and a
+  context snippet. Click any result to jump to it. Filter with **case-sensitive**,
+  **whole-word**, and **regular-expression** toggles; `Enter` / `Shift+Enter`
+  step through matches; the expandable replace row does one-at-a-time or
+  **replace-all** (regex `$1`/`$&` captures supported). This replaces
+  CodeMirror's built-in find, whose highlighting only covered the visible
+  viewport.
+- **Screenshots go into declared figure slots, not wherever the caret is**:
   drag image files onto the **Assets** rail (or use *Add*) and a window opens
   with the crop editor on the left and the document's **figure locations** on
   the right. Pick a slot, hit *Place in figure*, done.
@@ -142,7 +154,7 @@ rendered entirely in the browser** (no calls to typst.app or any remote service)
   ```
 
   which renders a captioned grey "insert screenshot here" box until an image
-  is assigned — and once one is, **the image is placed inside that same
+  is assigned. Once one is, **the image is placed inside that same
   bordered frame**, scaled to fit, rather than replacing it. The figure keeps
   a consistent size and border whether or not it has been filled in, so a
   *missing* screenshot is
@@ -151,19 +163,22 @@ rendered entirely in the browser** (no calls to typst.app or any remote service)
   is reversible (*Unplace* empties the slot but keeps it), and you can create
   a new slot from inside the same window. Documents that already define their
   own `image-placeholder` are upgraded in place on first use, but **only if
-  the definition is one BTCT generated** — if you've customized the styling,
+  the definition is one BTCT generated**. If you've customized the styling,
   it's left alone.
-- **Rename after import** — click the filename in the crop window to rename an
+- **Rename after import**: click the filename in the crop window to rename an
   image. Every `#image-placeholder(…, path: …)` and hand-written
   `#image("/assets/…")` reference in the document is repointed automatically.
   The extension isn't editable: Typst picks its decoder from it and the stored
   bytes are normalized to match, so letting it drift would break the render.
-- **Click the preview to jump to the source** — clicking anywhere on the
-  rendered page moves the editor caret to the matching place in the code (and
-  opens the code pane if it's hidden). Clicking a heading's auto-generated
-  number lands on the heading itself; clicking blank space does nothing rather
-  than jumping somewhere arbitrary.
-- **Framing is WYSIWYG** — the crop window is a *viewport*, not a free
+- **Click the preview to jump to the source**: clicking anywhere on the
+  rendered page selects the matching text in the code (and opens the code pane
+  if it's hidden), so you can start editing the words immediately. It lands on
+  the **editable prose, not the styling that formats it**: text that also
+  appears inside a `#set`/`#show`/`#let` (e.g. a title repeated in a running
+  header) resolves to the body occurrence you clicked. Clicking a heading's
+  auto-generated number lands on the heading itself; clicking blank space does
+  nothing rather than jumping somewhere arbitrary.
+- **Framing is WYSIWYG**: the crop window is a *viewport*, not a free
   selection. The frame is drawn to the figure box's real proportions,
   computed from the document's own `#set page(...)` and the slot's height, and
   the image pans and scales behind it. What sits inside the frame is exactly
@@ -173,10 +188,10 @@ rendered entirely in the browser** (no calls to typst.app or any remote service)
   borders first, then re-frames).
 
   Because the stored crop carries the box's aspect ratio, the bytes drop into
-  the figure with no letterboxing and no distortion — a change from earlier
+  the figure with no letterboxing and no distortion. That's a change from earlier
   builds, where a 16:9 screenshot in the default 2.9:1 box used only ~61% of
   the width.
-- **Per-figure size** — each figure's height is adjustable from the crop
+- **Per-figure size**: each figure's height is adjustable from the crop
   window (presets plus a slider). The frame reshapes live and the ratio is
   shown, so you can make one figure a wide banner and the next a tall
   portrait; placing writes `height:` onto that one slot.
@@ -184,18 +199,38 @@ rendered entirely in the browser** (no calls to typst.app or any remote service)
   The crop is stored as a *normalized rectangle on the asset record*, never
   baked into the file: the upload is immutable, so framing can always be
   redone and re-cropping never degrades the image.
-- **Custom fonts** — drop `.ttf` / `.otf` / `.woff` / `.woff2` / `.ttc` files
+- **Blur sensitive content**: hit **Blur** in the same window and drag
+  rectangles over anything the report shouldn't show (credentials, session
+  tokens, client hostnames). Regions render blurred in the viewport, the
+  thumbnail, the preview, and the exported PDF. The redaction is deliberately
+  aggressive: the region is downscaled hard before the gaussian pass, so the
+  text underneath is destroyed rather than merely softened (a plain blur of
+  readable text can sometimes be reversed). Like the crop, blurs are stored
+  as normalized rectangles on the asset record and applied at render time;
+  the upload is untouched, so a mis-drawn region can always be removed (in
+  blur mode, hit the × on a region, or *Clear* for all of them). Regions are
+  anchored to the image, not the frame, so re-cropping never slides a blur
+  off its secret. GIF and SVG images can't be blurred, since re-encoding
+  them through a canvas isn't possible.
+
+  Each region has its own **style** and **strength**: pick *Blur* (smooth
+  gaussian) or *Pixels* (hard mosaic blocks) and set the strength slider
+  before drawing, or click an existing region to select it and adjust it
+  with the same controls. 100% is the original aggressive default; lighter
+  settings still halve the detail, and pixel blocks are floored at 8px so
+  they stay out of mosaic-reversal territory.
+- **Custom fonts**: drop `.ttf` / `.otf` / `.woff` / `.woff2` / `.ttc` files
   onto the same rail. BTCT reads the family name straight out of the font with
   the compiler's own parser (so the name shown is the one Typst will match),
   and the *+* button inserts `#set text(font: "…")` at your cursor. Custom
   fonts are added *alongside* the built-in Typst faces, so installing your
   client's brand font never costs you New Computer Modern.
-- **Shared assets** — image and font *metadata* (name, crop rect, family) lives
+- **Shared assets**: image and font *metadata* (name, crop rect, family) lives
   in the shared Yjs doc, so a crop you make appears on every teammate's preview
   live. The bytes themselves are stored server-side on the `/data` volume
-  rather than in the CRDT — a report with thirty multi-MB screenshots would
+  rather than in the CRDT. A report with thirty multi-MB screenshots would
   otherwise be broadcast to and permanently cached by every connected client.
-- **Export** — one-click **PDF** and **SVG** export of the compiled document.
+- **Export**: one-click **PDF** and **SVG** export of the compiled document.
   Both compile the same virtual file at the same filesystem root, so an
   `#image(…)` that renders in the preview renders identically in the PDF.
 
@@ -204,7 +239,7 @@ rendered entirely in the browser** (no calls to typst.app or any remote service)
 Each **Attack Narrative** is a graph canvas ([React Flow](https://reactflow.dev))
 for modeling an engagement's attack path.
 
-- **Node types** — Host, Credential, Service, Finding, Pivot. Drag from the
+- **Node types**: Host, Credential, Service, Finding, Pivot. Drag from the
   palette (top) or right-click the canvas → *Add Node*. Each carries structured
   data:
   - **Host**: hostname, IP, OS, open ports
@@ -214,59 +249,59 @@ for modeling an engagement's attack path.
     impact, description, business impact, exploit steps, MITRE ATT&CK / mitigation,
     remediation, affected hosts, references
   - **Pivot**: description
-- **Edges** — drag handle-to-handle to connect; typed as AdminTo, HasSession,
+- **Edges**: drag handle-to-handle to connect; typed as AdminTo, HasSession,
   MemberOf, Exploits, PivotsTo, or Custom. Double-click an edge label to rename;
   changing the type resets the label to match.
-- **Every node has a page** — double-click a node to open its linked write-up
+- **Every node has a page**: double-click a node to open its linked write-up
   page; node properties and the page's inline editors stay in sync.
-- **Node search** — **Ctrl/⌘+F** fuzzy-searches across all node fields; **↑/↓**
+- **Node search**: **Ctrl/⌘+F** fuzzy-searches across all node fields; **↑/↓**
   to navigate, **Enter** to zoom to the node.
-- **Pathfinding** — select two nodes and **Highlight Path** (BFS shortest path),
+- **Pathfinding**: select two nodes and **Highlight Path** (BFS shortest path),
   or right-click → *Set as Path Start* / *Set as Path End*. Highlighted edges get
   gold marching-ants; nodes pulse.
-- **Attack chains** — select 2+ nodes → right-click → *Add to Attack Chain*
+- **Attack chains**: select 2+ nodes → right-click → *Add to Attack Chain*
   (new or existing). Chains are ordered by canvas position, listed in the
   sidebar, get an auto-created write-up page, and can be highlighted (red) on the
   canvas.
-- **Auto-layout** — dagre hierarchical layout with adjustable node/rank/edge
+- **Auto-layout**: dagre hierarchical layout with adjustable node/rank/edge
   spacing.
-- **Export** — high-resolution **PNG** of the canvas, plus GraphML/JSON (see
+- **Export**: high-resolution **PNG** of the canvas, plus GraphML/JSON (see
   [Export & import](#export--import)). Viewport (pan/zoom) is cached per graph so
   switching tabs preserves position.
-- **Nmap link** — Host nodes can bind to an imported nmap machine; hostname and
+- **Nmap link**: Host nodes can bind to an imported nmap machine; hostname and
   open ports sync between them, and a *Go to Nmap* action jumps across.
 
 ### Recon & reporting (nmap, findings, timeline)
 
-- **Nmap import** — create a scan group in the sidebar, then drag-drop (or pick)
+- **Nmap import**: create a scan group in the sidebar, then drag-drop (or pick)
   one or more nmap **XML** files. The parser extracts host IP, hostname, OS
   (osmatch/osclass with a port-signature fallback), and per-port service/version/
   script output, skipping hosts that are down. Re-importing the same IP merges
   ports. Each machine has an editable, collaboratively-synced hostname and an OS
   dropdown; machines can be linked to Host nodes (with port sync).
-- **Findings Collector** — aggregates every Finding node across all narratives in
+- **Findings Collector**: aggregates every Finding node across all narratives in
   the workspace, grouped by severity and sorted by CVSS, with a summary bar.
   Click to open the finding's page; **Shift+click** to focus it on its graph.
-- **Attack Timeline** — every node across the workspace ordered by its
+- **Attack Timeline**: every node across the workspace ordered by its
   `discoveredAt` time, grouped by day, with type/narrative filters and each
   node's incoming edges shown as lineage. **Copy as Markdown** exports the whole
   timeline as a hierarchical outline.
 
 ### AI assistant (Claude)
 
-A built-in Claude assistant that can read — and, when allowed, edit — your live
+A built-in Claude assistant that can read (and, when allowed, edit) your live
 workspace, so you can explore a network and have it document findings as you go.
 
 - **Admin-configured, key stays server-side.** An admin opens **Admin panel →
   Claude AI Assistant** to paste an **Anthropic API key** (write-only: the server
-  never returns it — you only see *Connected ✓ / Not configured*), pick a
+  never returns it, you only see *Connected ✓ / Not configured*), pick a
   **mode**, set the **model** (default `claude-opus-4-8`), toggle **Enabled**, and
   **Test** the connection. The key is stored in the SQLite `settings` table and
   never reaches the browser or the JS bundle.
 - **View vs Edit mode** (global, admin-set). **View** = read/analyze only.
   **Edit** = also create/update pages, attack-narrative graphs, nodes, edges,
-  findings, and link nmap hosts to nodes. Write tools are only exposed — and are
-  re-checked server-side — in Edit mode. There are no delete tools.
+  findings, and link nmap hosts to nodes. Write tools are only exposed (and re-checked
+  server-side) in Edit mode. There are no delete tools.
 - **What it can see/do** (tools run in-process against the live shared CRDT, so
   edits appear on everyone's canvas instantly and are recorded in the change log):
   read pages/search, list & read attack-narrative graphs (nodes + edges),
@@ -281,7 +316,7 @@ workspace, so you can explore a network and have it document findings as you go.
   Findings and the Attack Timeline it's a tab, so you can **split it into its own
   pane**, move it between panes, or full-screen it.
 - **Live markdown replies with syntax highlighting.** Responses stream
-  token-by-token and render as markdown (headings, lists, tables, code) — batched
+  token-by-token and render as markdown (headings, lists, tables, code), batched
   per animation frame so long, table-heavy answers stay fast and readable. Code
   blocks are syntax-highlighted (shiki, many languages, grey theme).
 - **Durable chat history (per account).** Conversations are saved server-side per
@@ -293,13 +328,13 @@ workspace, so you can explore a network and have it document findings as you go.
   /api/ai/sessions[/:id]` (each scoped to the caller's account).
 - **Usage vs config.** Any signed-in user can chat with the assistant; only admins
   configure the key/mode/model. Endpoints: `GET/POST /api/ai/config` (config;
-  POST is admin-only) and `POST /api/ai/chat` (SSE stream) — see the
+  POST is admin-only) and `POST /api/ai/chat` (SSE stream). See the
   [API reference](#server--http-api-reference).
 
 ### MCP server (connect an external client)
 
 BTCT can expose itself as a **hosted MCP (Model Context Protocol) server** so an
-external MCP client — e.g. the **Claude Code CLI** — can read (and, if allowed,
+external MCP client, for example the **Claude Code CLI**, can read (and, if allowed,
 write) all your workspace context: pages, attack-narrative graphs, attack chains,
 findings, the attack timeline, nmap scans/hosts, users, and the change log.
 
@@ -310,7 +345,7 @@ findings, the attack timeline, nmap scans/hosts, users, and the change log.
 - **Streamable HTTP at `POST /mcp`.** Stateless MCP over HTTP; auth is the bearer
   token, checked with a constant-time compare. Read tools are always exposed; write
   tools (create/update pages, graphs, nodes, edges, findings; nmap→node linking)
-  appear only in **Edit** mode — reconnect the client after toggling to pick up the
+  appear only in **Edit** mode. Reconnect the client after toggling to pick up the
   new tool set. It reuses the same tool catalog as the in-app assistant, so both
   stay in sync.
 - **Scoping:** read tools return context across all workspaces; `list_users`
@@ -342,11 +377,11 @@ claude mcp remove btct
 #    ...then re-run the `claude mcp add` command above with the current token.
 ```
 
-Then just ask in plain language — Claude calls the tools automatically, e.g.
+Then just ask in plain language. Claude calls the tools automatically, e.g.
 *"Using the btct server, list my workspaces and their findings"* or *"show the hosts
 in the latest nmap scan."* Tools appear namespaced as `mcp__btct__list_workspaces`,
 `mcp__btct__get_graph`, etc. **Read** tools always work; **write** tools require
-**Edit** mode — after toggling Read↔Edit in the admin panel, reconnect
+**Edit** mode. After toggling Read↔Edit in the admin panel, reconnect
 (`claude mcp remove btct` + re-add, or restart the session) so the CLI re-fetches
 the tool list.
 
@@ -358,7 +393,7 @@ endpoint is up and rejecting an unauthenticated request, which is expected).
 
 ### Command log (team shell-command capture)
 
-A running record of the commands the team actually executed on their own boxes —
+A running record of the commands the team actually executed on their own boxes,
 so the report's evidence trail writes itself instead of being reconstructed from
 memory. Open it from the sidebar (**Command Log**) or the command palette.
 
@@ -372,7 +407,7 @@ memory. Open it from the sidebar (**Command Log**) or the command palette.
   hydra, sqlmap, crackmapexec, impacket, …); everything else you type is ignored
   and never leaves the box. Admins edit the whitelist in **Admin → Command Log**,
   and every agent picks up the change within ~60s.
-- **Secrets are redacted** before they leave the operator's box — passwords, hashes,
+- **Secrets are redacted** before they leave the operator's box: passwords, hashes,
   auth headers, and URL credentials become `«REDACTED»`; the unredacted line stays
   in a local log on that box. Redaction is tool-aware (`nmap -p 1-65535` keeps its
   ports; `mysql -pSECRET` is scrubbed).
@@ -380,7 +415,7 @@ memory. Open it from the sidebar (**Command Log**) or the command palette.
   (running / success / failed), time window, and free-text command search, and
   **exports the filtered set as CSV or JSON** for the report. New commands push in
   live with no reload.
-- **Manual entries.** Not everything is captured by the agent — an **Add entry**
+- **Manual entries.** Not everything is captured by the agent: an **Add entry**
   button lets you hand-enter a command as any operator (command, tool, host, cwd,
   start time, exit code, duration). Manual entries go through the same durable
   path (SQLite + CRDT) and are never redacted.
@@ -391,7 +426,7 @@ memory. Open it from the sidebar (**Command Log**) or the command palette.
 
 Storage is split on purpose: the server keeps a **durable SQLite archive** of every
 command (unbounded, queried over REST with filters) and mirrors only the most recent
-~500 per workspace into the shared CRDT for the live view — so the collaborative doc
+~500 per workspace into the shared CRDT for the live view, so the collaborative doc
 stays bounded while no history is ever lost.
 
 ### Real-time collaboration
@@ -399,77 +434,77 @@ stays bounded while no history is ever lost.
 Everything is live and multi-user over the LAN:
 
 - **Character-by-character merge** on every text field (page title/slug, node &
-  edge labels, workspace/graph/scan names, nmap hostnames, chain names) — two
+  edge labels, workspace/graph/scan names, nmap hostnames, chain names). Two
   people typing in the same field never clobber each other (Yjs `Y.Text` CRDTs).
 - **Live page co-editing** with remote carets and name tags (Google-Docs style),
   backed by a per-page CRDT document and Milkdown's collab plugin.
-- **Presence & follow** — each user broadcasts `{ id, name, color }` plus their
+- **Presence & follow**: each user broadcasts `{ id, name, color }` plus their
   current view. Press **`Mod+Shift+U`** (or the command palette → *Active Users /
   Follow*) to open the active-users window and **follow** a teammate: your view
-  live-mirrors theirs — jumping to the graph node they select, scrolling to their
+  live-mirrors theirs, jumping to the graph node they select, scrolling to their
   text caret, or opening the nmap host they're inspecting. If you have split panes
   the first follow asks whether to drop the view into a pane or take over; per-
   teammate **precision** (jump to their exact spot vs. just open their view) is set
   in **Profile → Following**. Press **Stop** or navigate away to detach.
-- **Offline-first** — IndexedDB caches every doc so the UI renders instantly and
+- **Offline-first**: IndexedDB caches every doc so the UI renders instantly and
   reconciles when the connection returns.
 
 ### Workspaces, navigation & layout
 
-- **Workspaces** — create/switch/delete from the sidebar footer; the active
+- **Workspaces**: create/switch/delete from the sidebar footer; the active
   workspace is remembered across reloads. All pages/graphs/scans/findings are
   scoped to it.
-- **Tabs** — open pages, narratives, nmap groups/machines, Findings, Timeline,
+- **Tabs**: open pages, narratives, nmap groups/machines, Findings, Timeline,
   the Typst editor, and the Claude assistant as tabs. Cycle with **←/→**, close
   with **Alt+W**, and the **browser back/forward** buttons walk your tab history.
-- **Split panes** — drag a tab to a pane edge (left/right/top/bottom) to split;
+- **Split panes**: drag a tab to a pane edge (left/right/top/bottom) to split;
   drag the divider to resize; emptying a pane collapses the split automatically.
-- **Command palette** — **Ctrl/⌘+K** to create pages/narratives, toggle dark
+- **Command palette**: **Ctrl/⌘+K** to create pages/narratives, toggle dark
   mode, or jump to any page/graph by name. (If text is selected in the editor,
   Ctrl/⌘+K instead inserts a link.)
-- **Search** — the sidebar search box does live title/tag search over pages.
-- **Sidebars** — left = navigation tree (Pages, Attack Narratives, Attack Chains,
+- **Search**: the sidebar search box does live title/tag search over pages.
+- **Sidebars**: left = navigation tree (Pages, Attack Narratives, Attack Chains,
   Nmap Scans, plus Findings/Timeline shortcuts); right = context properties
   (node/edge editors, backlinks, "last edited by" badge, change log, page
   versions, export/import).
 
 ### Edit history & versioning
 
-Two complementary systems, both stored in the shared CRDT and synced to everyone
-— see [Edit history & rollback](#edit-history--versioning-detail) below for the
+Two complementary systems, both stored in the shared CRDT and synced to everyone.
+See [Edit history & rollback](#edit-history--versioning-detail) below for the
 full mechanics:
 
-- **Activity log** — every create/update/delete/restore on a workspace, page,
+- **Activity log**: every create/update/delete/restore on a workspace, page,
   graph, node, edge, or attack chain, with author + timestamp + a reversible
   field delta (or a full entity snapshot for deletes). Surfaced as a feed and as
   per-entity "Last edited by …" badges; reversible entries get a **Restore**
   button.
-- **Page version history** — long-form page bodies get auto-snapshots ~2 minutes
+- **Page version history**: long-form page bodies get auto-snapshots ~2 minutes
   after you stop typing (20 most-recent kept) plus unlimited **named** versions.
   Restoring swaps the body in one CRDT transaction so all collaborators roll back
   together.
 
 ### Export & import
 
-- **Markdown** — per page (single `.md` or a `.zip`).
-- **GraphML / JSON** — per attack narrative.
-- **Lossless workspace ZIP** — the full workspace (every entity as JSON, plus
+- **Markdown**: per page (single `.md` or a `.zip`).
+- **GraphML / JSON**: per attack narrative.
+- **Lossless workspace ZIP**: the full workspace (every entity as JSON, plus
   per-page raw CRDT state and human-readable `.md`/`.graphml` companions), with
   *import-as-new* (re-IDed) or *replace-existing* modes.
-- **Attack-path bundle** — an XML document combining path metadata, a filtered
+- **Attack-path bundle**: an XML document combining path metadata, a filtered
   GraphML, and the linked write-up pages as markdown.
 
 ### Accounts, roles & settings
 
-- **Auth** — username/password login (no self-signup; admins create accounts). A
+- **Auth**: username/password login (no self-signup; admins create accounts). A
   bootstrap `admin` account is created on first launch.
-- **Admin panel** (admins only) — create/delete users, reset passwords, toggle
+- **Admin panel** (admins only): create/delete users, reset passwords, toggle
   admin (the server blocks deleting yourself or the last admin), configure the
-  **Claude AI Assistant** (API key, View/Edit mode, model, enable — see
+  **Claude AI Assistant** (API key, View/Edit mode, model, enable; see
   [AI assistant](#ai-assistant-claude)), and the **MCP Server** (enable, edit
-  permissions, access token — see [MCP server](#mcp-server-connect-an-external-client)).
-- **Profile** — your presence **color** and your per-account **code accent**.
-- **Theme** (admins only) — the workspace-wide accent color (saved server-side,
+  permissions, access token; see [MCP server](#mcp-server-connect-an-external-client)).
+- **Profile**: your presence **color** and your per-account **code accent**.
+- **Theme** (admins only): the workspace-wide accent color (saved server-side,
   applied to every client). Plus a per-client **dark/light** toggle.
 
 ---
@@ -499,9 +534,8 @@ panel).
 | Block mode | `Backspace`/`Delete`, `Enter`, `Esc`/click | Delete / edit / exit |
 | Code block | `Mod+Shift+L` ⚙ | Focus language picker |
 | Language picker | `↑`/`↓`, `Enter`, `Esc` | Navigate / select / close |
-| Typst preview | click | Jump the editor caret to that spot in the source |
-| Typst editor | `Mod+F` | Find (`Enter`/`Shift+Enter` = next/previous match) |
-| Typst editor | `Mod+Alt+F` | Find & replace |
+| Typst preview | click | Select the matching editable text in the source |
+| Typst editor | `Mod+F` | Whole-document find & replace (`Enter`/`Shift+Enter` = next/previous match) |
 | Typst editor | `Esc` | Close the search panel |
 | Place-screenshot window | `Enter` / `Esc` | Place into the selected figure / cancel |
 | Graph | `Mod+F` | Node search (↑/↓, Enter to focus) |
@@ -518,7 +552,7 @@ BTCT is two cooperating processes packaged into one Docker image:
 
 1. **Bun HTTP/WebSocket server** (`server/`)
    - REST API for auth (`/api/login`, `/api/me`, `/api/me/profile`, admin routes,
-     `/api/settings`) — see the [API reference](#server--http-api-reference).
+     `/api/settings`); see the [API reference](#server--http-api-reference).
    - Serves the built Vite client (`STATIC_DIR=/app/dist`) on the same port, with
      SPA fallback to `index.html`.
    - Hosts a Yjs WebSocket endpoint at `/yjs/<roomname>?token=<jwt>` that proxies
@@ -581,7 +615,7 @@ normal REST.
 
 > This section is the orientation guide for anyone (human or AI) changing the
 > code. Read [Conventions & invariants](#conventions--invariants-read-before-changing-anything)
-> before you touch the data layer — several non-obvious rules keep collaboration
+> before you touch the data layer. Several non-obvious rules keep collaboration
 > from corrupting.
 
 ### The mental model
@@ -600,7 +634,7 @@ UI event → repo/store action → write to a Y.Map / Y.Text  (inside doc.transa
 
 The Bun server is intentionally thin: it does **auth + static hosting + a Yjs
 relay with on-disk persistence**. It does *not* understand pages, graphs, or
-findings — those only exist inside the CRDT documents the clients share.
+findings. Those only exist inside the CRDT documents the clients share.
 
 ### The two-tier Yjs/CRDT design
 
@@ -644,33 +678,33 @@ Fields shown as *(Y.Text)* are collaborative; everything else is last-writer-win
 | **NmapMachine** | `id`, `scanId`, `ip`, `hostname` *(Y.Text)*, `os` (windows\|linux\|attacker\|unknown), `ports[]`, `linkedNodeId?`, timestamps |
 | **ChangeLogEntry** | `id`, `workspaceId`, `action`, `target`, `targetId`, `summary`, `timestamp`, author (`userId`/`userName`/`userColor`), `field?`, `prevValue?`, `newValue?`, `reversible` |
 | **PageSnapshot** | `id`, `pageId`, `workspaceId`, `timestamp`, author, `label?`, `updateBase64` (`Y.encodeStateAsUpdate`), `byteLength` |
-| **TypstAsset** | `id` (= server blob id), `workspaceId`, `kind` (`image`\|`font`), `filename` (also the `/assets/<name>` path in the Typst VFS), `mime`, `size`, `width?`/`height?`, `crop?` (`CropRect`, normalized 0..1 — `null` = full image), `fontFamily?`, timestamps. **Metadata only — the bytes live server-side.** |
-| **CommandLogEntry** | `id` (agent-generated, the idempotency key), `workspaceId`, `operator`, `command` (redacted), `tool`, `cwd?`, `host?`, `localUser?`, `shellPid?`, `startedAt`, `receivedAt`, `exitCode?` (`null` = still running), `durationMs?`, `redacted?`. **No Y.Text fields** — all LWW JSON. Written **only by the server ingest endpoint**; the shared-doc copy is a bounded live window over the SQLite archive. |
+| **TypstAsset** | `id` (= server blob id), `workspaceId`, `kind` (`image`\|`font`), `filename` (also the `/assets/<name>` path in the Typst VFS), `mime`, `size`, `width?`/`height?`, `crop?` (`CropRect`, normalized 0..1; `null` = full image), `blurs?` (`BlurRegion[]`, normalized redaction rectangles; `null` = none), `fontFamily?`, timestamps. **Metadata only; the bytes live server-side.** |
+| **CommandLogEntry** | `id` (agent-generated, the idempotency key), `workspaceId`, `operator`, `command` (redacted), `tool`, `cwd?`, `host?`, `localUser?`, `shellPid?`, `startedAt`, `receivedAt`, `exitCode?` (`null` = still running), `durationMs?`, `redacted?`. **No Y.Text fields**, all LWW JSON. Written **only by the server ingest endpoint**; the shared-doc copy is a bounded live window over the SQLite archive. |
 
-Node `data` is polymorphic — `HostData` / `CredentialData` / `ServiceData` /
+Node `data` is polymorphic: `HostData` / `CredentialData` / `ServiceData` /
 `FindingData` / `PivotData` (fields listed in the [graph feature
 tour](#attack-narrative-graph)). Cast explicitly when reading.
 
 ### Data layer: database, repos, stores
 
-- **[src/db/database.ts](src/db/database.ts)** — a Dexie-*shaped* API
+- **[src/db/database.ts](src/db/database.ts)**: a Dexie-*shaped* API
   (`get`/`add`/`put`/`update`/`delete`/`where().equals()`) backed by the shared
   Y.Maps instead of IndexedDB tables. Every write is wrapped in a Yjs transaction.
-- **`src/db/*-repo.ts`** — one repo per entity (`pageRepo`, `graphRepo`,
+- **`src/db/*-repo.ts`**: one repo per entity (`pageRepo`, `graphRepo`,
   `graphNodeRepo`, `graphEdgeRepo`, `attackChainRepo`, `workspaceRepo`,
   `changelogRepo`, `pageSnapshotRepo`, `nmapScanRepo`/`nmapMachineRepo`). Repos do
   CRUD + queries, **pre-seed `Y.Text`s on create**, and cascade deletes (deleting
   a node removes its edges, unlinks nmap, drops it from chains, and deletes its
   hidden page).
-- **[src/stores/app-store.ts](src/stores/app-store.ts)** — the Zustand store:
+- **[src/stores/app-store.ts](src/stores/app-store.ts)**: the Zustand store:
   workspaces, pages, graphs, tabs, pane layout, selection, search, change log,
   nmap, attack chains. Mutating actions call the repos **and** the `log()` helper
   to write a change-log entry.
-- **[src/stores/shared-bindings.ts](src/stores/shared-bindings.ts)** —
+- **[src/stores/shared-bindings.ts](src/stores/shared-bindings.ts)**:
   `bindSharedSubscriptions()` wires each table's `Y.Map.observe` to a debounced
   store reload (`queueMicrotask`), so a burst of CRDT changes coalesces into one
   re-render.
-- **[src/realtime/use-y-text.ts](src/realtime/use-y-text.ts)** —
+- **[src/realtime/use-y-text.ts](src/realtime/use-y-text.ts)**:
   `useYTextInput(key, initial)` binds an `<input>` to a `Y.Text` with diff-based
   deltas and caret-preservation on remote edits.
 
@@ -680,26 +714,26 @@ The page editor ([src/components/editor/PageEditor.tsx](src/components/editor/Pa
 mounts one Crepe instance per page, with the Toolbar feature disabled and these
 custom plugins layered on:
 
-- [src/lib/highlight-plugin.ts](src/lib/highlight-plugin.ts) — the 7-color
+- [src/lib/highlight-plugin.ts](src/lib/highlight-plugin.ts): the 7-color
   `highlight` mark + `ToggleHighlight` command. **Session-only**: its
   `parseMarkdown` is a no-op and `toMarkdown` drops the mark (keeps the text).
-- [src/lib/code-theme.ts](src/lib/code-theme.ts) — CodeMirror language list +
+- [src/lib/code-theme.ts](src/lib/code-theme.ts): CodeMirror language list +
   a class-based `HighlightStyle` (`Prec.highest`) whose colors come from
   `--code-*` CSS vars; `applyCodeAccent(hex)` live-retints `--code-keyword`.
-- [src/lib/editor-keybinds.ts](src/lib/editor-keybinds.ts) —
+- [src/lib/editor-keybinds.ts](src/lib/editor-keybinds.ts):
   `codeBlockShellDefault` (schema default language = shell), `userKeybindsPlugin`
   (runs *before* commonmark's keymap so rebinds win; also implements
   backtick-wrap), and `focusLanguageKeymap` + `installLanguagePickerNav()` for the
   language picker.
-- [src/lib/editor-prefs.ts](src/lib/editor-prefs.ts) — `EditorPrefs` shape,
+- [src/lib/editor-prefs.ts](src/lib/editor-prefs.ts): `EditorPrefs` shape,
   defaults, and the `parseShortcut`/`matchShortcut`/`shortcutFromEvent` helpers.
-- [src/lib/block-select.ts](src/lib/block-select.ts) — the Notion-style block
+- [src/lib/block-select.ts](src/lib/block-select.ts): the Notion-style block
   selection plugin (its own selection state + node decorations).
-- [src/lib/active-editor.ts](src/lib/active-editor.ts) — module-level handle to
+- [src/lib/active-editor.ts](src/lib/active-editor.ts): module-level handle to
   the focused editor so `App.tsx` can hijack `Mod+K` for link insertion.
 
 Live settings (keybinds, code accent) are applied through **module-level refs**
-updated by an effect in `App.tsx` — never by rebuilding the editor, which would
+updated by an effect in `App.tsx`, never by rebuilding the editor, which would
 tear down the Yjs collab binding.
 
 ### Server & HTTP API reference
@@ -711,27 +745,27 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/healthz` | — | Liveness probe (`{ ok: true }`) |
-| `GET` | `/api/settings` | — | Public theme color (so login paints correctly) |
+| `GET` | `/healthz` | none | Liveness probe (`{ ok: true }`) |
+| `GET` | `/api/settings` | none | Public theme color (so login paints correctly) |
 | `POST` | `/api/settings/theme` | admin | Set the global accent color (SQLite) |
-| `POST` | `/api/login` | — | Authenticate → `{ token, user }` |
+| `POST` | `/api/login` | none | Authenticate → `{ token, user }` |
 | `GET` | `/api/me` | yes | Current user |
 | `POST` | `/api/me/profile` | yes | Update own `color` and/or `prefs` (`codeAccent` + `keybinds`) |
 | `GET` | `/api/admin/users` | admin | List users |
 | `POST` | `/api/admin/users` | admin | Create user (username 3–32, password ≥8) |
 | `DELETE` | `/api/admin/users/:id` | admin | Delete user (not self / not last admin) |
 | `POST` | `/api/admin/users/:id/password` | admin | Reset a user's password |
-| `GET` | `/api/ai/config` | yes | Claude assistant config — `{ enabled, mode, model, configured }` (never the key) |
+| `GET` | `/api/ai/config` | yes | Claude assistant config: `{ enabled, mode, model, configured }` (never the key) |
 | `POST` | `/api/ai/config` | admin | Set the API key / mode (`view`\|`edit`) / model / enabled |
 | `POST` | `/api/ai/config/test` | admin | Live connection test with the stored key (no key returned) |
 | `POST` | `/api/ai/chat` | yes | Agentic chat over workspace data; **SSE** stream. Tool loop runs server-side against the live CRDT; write tools gated to `edit` mode |
 | `GET` | `/api/ai/sessions` | yes | List the caller's saved chat sessions (metadata, newest first) |
 | `GET` | `/api/ai/sessions/:id` | yes | Get one session incl. messages (404 if not the caller's) |
-| `POST` | `/api/ai/sessions/:id` | yes | Create/update a session (`{ title, messages }`) — upsert, scoped to caller |
+| `POST` | `/api/ai/sessions/:id` | yes | Create/update a session (`{ title, messages }`); upsert, scoped to caller |
 | `DELETE` | `/api/ai/sessions/:id` | yes | Delete one of the caller's sessions |
 | `POST` | `/api/assets?workspaceId&kind&filename` | yes | Upload one Typst asset. Body is **raw bytes** (not multipart/JSON). `kind` = `image`\|`font`; max 25 MB; extension must be allowed. An image's extension is corrected to match its actual magic number → `{ asset }` |
 | `GET` | `/api/assets?workspaceId=…` | yes | Metadata inventory of a workspace's assets |
-| `GET` | `/api/assets/:id` | yes | The raw asset bytes (`Cache-Control: immutable` — bytes never change for an id) |
+| `GET` | `/api/assets/:id` | yes | The raw asset bytes (`Cache-Control: immutable`, since bytes never change for an id) |
 | `DELETE` | `/api/assets/:id` | uploader/admin | Delete the row **and** the file on disk |
 | `GET` | `/api/mcp/config` | admin | MCP server config incl. the bearer token (so it can be copied) |
 | `POST` | `/api/mcp/config` | admin | Enable/disable + set mode (`read`/`edit`); mints a token on first enable |
@@ -748,12 +782,12 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | WS | `/yjs/<room>?token=<jwt>` | yes (at upgrade) | Yjs CRDT relay; rooms = `btct-shared` + one per page id |
 
 The `users` table is `(id, username [NOCASE unique], salt, hash, iter, color,
-avatar, is_admin, prefs [JSON], created_at)` — the `prefs` column is added by an
+avatar, is_admin, prefs [JSON], created_at)`. The `prefs` column is added by an
 idempotent migration. Per-account editor prefs (`codeAccent`, `keybinds`) are
 validated at the REST edge and stored as a JSON blob. The `settings` table is a
 simple key/value store: `theme_color`, the Claude assistant config
-(`anthropic_api_key`, `ai_mode`, `ai_model`, `ai_enabled`) — the key is
-write-only and never returned to clients — and the MCP server config
+(`anthropic_api_key`, `ai_mode`, `ai_model`, `ai_enabled`, where the key is
+write-only and never returned to clients), and the MCP server config
 (`mcp_enabled`, `mcp_mode`, `mcp_token`; the token is admin-readable so it can be
 copied into a client). The `chat_sessions` table
 (`id, user_id, title, messages [JSON], created_at, updated_at`) holds each
@@ -762,7 +796,7 @@ account's durable Claude conversations, scoped and pruned per user. The
 created_at`) is the server's inventory of the Typst blobs it stores; the bytes
 live as files under `ASSETS_DIR` named by the row's uuid. This is the **only**
 place the server holds workspace content on disk, and it stays deliberately
-dumb about meaning — the crop rectangle and display name are CRDT records, not
+dumb about meaning. The crop rectangle and display name are CRDT records, not
 columns here. See [server/assets.mjs](server/assets.mjs). The `command_logs`
 table (`id, workspace_id, operator, command, tool, cwd, host, local_user,
 shell_pid, started_at, received_at, exit_code, duration_ms, redacted`) is the
@@ -774,11 +808,11 @@ uses a static bearer token (`cmdlog_enabled`/`cmdlog_token`/`cmdlog_whitelist`/
 `cmdlog_workspace` in `settings`, token admin-readable). See
 [server/cmdlog.mjs](server/cmdlog.mjs).
 
-**Environment variables:** `AUTH_SECRET` (required in prod; HMAC key — random &
+**Environment variables:** `AUTH_SECRET` (required in prod; HMAC key, random &
 ephemeral if unset, which silently invalidates tokens on restart), `HOST`,
 `PORT`, `STATIC_DIR`, `DB_PATH`, `ASSETS_DIR` (Typst image/font blobs; defaults
 to `assets/` beside `DB_PATH`, i.e. `/data/assets` in Docker), `YPERSISTENCE`
-(LevelDB dir — **set it or Yjs rooms are memory-only**),
+(LevelDB dir; **set it or Yjs rooms are memory-only**),
 `ALLOWED_ORIGIN` (CORS; unset = same-origin),
 `ADMIN_USERNAME`/`ADMIN_PASSWORD` (bootstrap admin, default `admin`/`changeme!`).
 Client build-time: `VITE_API_URL`, `VITE_WS_URL` (default same-origin).
@@ -801,8 +835,8 @@ src/
     ai/                       AiAssistant (chat pane), ThinkingIndicator
                               (agent activity), markdown.tsx (shiki renderer)
     typst/                    TypstView (3-pane editor+preview+assets tab,
-                              resizable) TypstEditor (collab CodeMirror +
-                              Mod+F search),
+                              resizable) TypstEditor (collab CodeMirror),
+                              TypstSearchPanel (whole-doc find/replace overlay),
                               TypstPreview (local SVG render), TypstAssetsPanel
                               (image/font drop zone), PlaceScreenshotDialog
                               (viewport editor + figure-slot picker),
@@ -821,12 +855,15 @@ src/
                               typst-compiler (local WASM compile→SVG/PDF, shadow
                               FS + custom fonts) + typst-language (CodeMirror
                               Typst highlighting) + typst-assets (upload/fetch/
-                              crop/border-detect) + crop-math (pure crop
-                              geometry) + typst-placeholders (figure-slot
+                              crop/blur/border-detect) + crop-math (pure crop
+                              geometry) + blur-math (pure blur-region geometry
+                              + strength heuristics) + typst-placeholders (figure-slot
                               scanning + source rewriting) + pane-resize (pane
                               width clamping + layout persistence) +
                               image-format (magic-number sniffing) +
-                              typst-source-map (preview click → source offset)
+                              typst-source-map (preview click → source offset,
+                              prefers editable body over design regions) +
+                              typst-search (whole-document find/replace engine)
                               + typst-geometry (page/figure box sizing) + utils
   realtime/                   shared-doc.ts (shared Y.Doc + Y.Text registry),
                               yjs-providers.ts (per-page docs), page-snapshots.ts,
@@ -845,7 +882,7 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
 ```
 
 > Adding a file under `server/` means adding a `COPY server/<file>.mjs` line to
-> the [Dockerfile](Dockerfile) — server files are copied individually, so a new
+> the [Dockerfile](Dockerfile). Server files are copied individually, so a new
 > one is silently missing from the image otherwise.
 
 ### Conventions & invariants (read before changing anything)
@@ -869,8 +906,8 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    server; it only relays Yjs, serves static files, does auth/settings, and
    stores opaque asset blobs. The three deliberate exceptions are the AI
    assistant (which reads/writes the CRDT in-process),
-   [assets.mjs](server/assets.mjs) — only *storage*: it knows a blob's size and
-   mime, never what it means — and [cmdlog.mjs](server/cmdlog.mjs), which ingests
+   [assets.mjs](server/assets.mjs), which is only *storage* (it knows a blob's size
+   and mime, never what it means), and [cmdlog.mjs](server/cmdlog.mjs), which ingests
    externally-produced command records into SQLite + the CRDT (it validates and
    stores, and knows nothing about what a command means). Server-side CRDT writes
    must honour the Y.Text rule; command logs sidestep it by having **no** Y.Text
@@ -880,18 +917,23 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    records sync. Base64 blobs in the shared doc get broadcast to *and
    permanently cached by* every connected client. The one exception is page
    snapshots, which are intentionally-bounded Yjs update bytes.
-9. **Crops are render-time transforms, never destructive edits.** A `CropRect`
-   is stored on the asset record and applied when the bytes are handed to the
-   compiler. Never re-upload cropped pixels over the original — it would make
-   the crop irreversible and degrade the image on each pass.
-10. **Typst assets have no `Y.Text` fields, deliberately.** Filenames and crop
-   rects are last-writer-wins JSON: concurrent character-by-character editing
-   of a filename isn't a workflow worth supporting, so invariant 1 doesn't
-   apply to `typstAssets`.
+9. **Crops and blurs are render-time transforms, never destructive edits.** A
+   `CropRect` and any `BlurRegion[]` are stored on the asset record and applied
+   when the bytes are handed to the compiler. Never re-upload transformed
+   pixels over the original. It would make the edit irreversible and (for
+   crops) degrade the image on each pass. Blur regions are normalized against
+   the *original* image, not the crop, so re-framing never moves a redaction;
+   the blur itself is downscale-then-gaussian (see
+   [blur-math.ts](src/lib/blur-math.ts)) because a plain gaussian of readable
+   text can sometimes be reversed.
+10. **Typst assets have no `Y.Text` fields, deliberately.** Filenames, crop
+   rects, and blur regions are last-writer-wins JSON: concurrent
+   character-by-character editing of a filename isn't a workflow worth
+   supporting, so invariant 1 doesn't apply to `typstAssets`.
 11. **Preview and PDF must compile the same virtual path.** Both go through
    `/main.typ` in [typst-compiler.ts](src/lib/typst-compiler.ts). If they
    diverge, relative `#image(…)` paths resolve differently and PDF export
-   breaks *only for documents that use assets* — a nasty, late-surfacing bug.
+   breaks *only for documents that use assets*, a nasty, late-surfacing bug.
 12. **Programmatic source edits go through `replaceYTextContent`**, which
    splices a minimal delta. Never clear-and-reinsert a Y.Text: it deletes
    every character and re-adds it, destroying collaborators' cursors and
@@ -899,25 +941,25 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
 13. **Re-scan slots after any other source rewrite.** `ScreenshotSlot` carries
    raw character offsets, so upgrading the helper (which shifts everything
    below it) invalidates every offset measured beforehand. `ensureHelper()`
-   first, *then* `findScreenshotSlots()`, then `setSlotPath()` — matching
+   first, *then* `findScreenshotSlots()`, then `setSlotPath()`, matching
    slots across the rewrite by their `index`, not their offsets.
 14. **Pane drags write to the DOM, not to React state.** `TypstView` sets the
    pane's `style.width` directly per animation frame and commits to state
    once on pointer-up. A re-render mid-drag would reconcile the whole tab
-   every frame and — the real hazard — risk remounting the CodeMirror host,
+   every frame and (the real hazard) risk remounting the CodeMirror host,
    dropping the Yjs collab binding and every remote cursor with it.
 15. **Mounted bytes must match the extension they're mounted at.** Typst
    selects its image decoder from the file extension, so PNG bytes at a
    `.jpg` path fail with `Illegal start bytes: 8950`. `resolveAssetBytes()`
    encodes crops to the format the *filename* claims (not always PNG) and
    re-encodes uncropped bytes that disagree with their extension, so a
-   mislabelled upload self-heals. GIF and SVG are passed through untouched —
+   mislabelled upload self-heals. GIF and SVG are passed through untouched;
    a canvas can't produce them. See [image-format.ts](src/lib/image-format.ts).
 16. **Only the preview may coalesce compiles.** `compileTypstSvg(src, {
    coalesce: true })` skips a queued compile that a newer one has superseded.
    Exports must never pass it: an export queued behind a preview would be
    silently dropped and reported as a failure.
-17. **DB migrations must be idempotent** — guard every `ALTER TABLE` with a column
+17. **DB migrations must be idempotent.** Guard every `ALTER TABLE` with a column
    check (see the `prefs`/`avatar`/`is_admin` migration in `db.mjs`).
 18. **Set `AUTH_SECRET` and `YPERSISTENCE`** in any real deployment, or tokens and
    rooms evaporate on restart.
@@ -954,6 +996,7 @@ server/
   db.mjs                   bun:sqlite users + settings
   cmdlog.mjs               Command-log ingest + config
 cmdlog-agent/              Standalone Python 3 command-capture agent (stdlib only)
+blog/                      Short illustrated write-up (why it exists + feature tour)
 Dockerfile                 Multi-stage build (client → server-deps → runtime)
 docker-compose.yml         Single-container deployment
 Start-BTCT.ps1             One-click launcher (Docker + browser; popup if running)
@@ -970,7 +1013,7 @@ Publish-BTCT.ps1           Windows release script (auto-bumps patch tag)
 The simplest path: one container, one command, persistent data.
 
 ### Prerequisites
-- **Docker Desktop for Windows** (WSL2 backend) — installed and running
+- **Docker Desktop for Windows** (WSL2 backend): installed and running
 - **Git for Windows**
 - **PowerShell 5.1** (bundled) or **PowerShell 7+**
 
@@ -988,7 +1031,7 @@ cd BeenThereConqueredThat
 #    First launch builds the image (a couple of minutes).
 ```
 
-Default bootstrap admin — **`admin` / `changeme!`** — change it immediately from
+The default bootstrap admin is **`admin` / `changeme!`**. Change it immediately from
 the in-app admin panel. (Override by setting `ADMIN_USERNAME` / `ADMIN_PASSWORD`
 in `.env` *before* the very first start.)
 
@@ -1019,14 +1062,14 @@ Compose binds `8080` on all interfaces, so any machine on the LAN can hit
 bun install
 bun install --cwd server
 
-# Terminal 1 — server
+# Terminal 1: server
 cd server
 $env:AUTH_SECRET = -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
 $env:ALLOWED_ORIGIN = 'http://127.0.0.1:5173'
 $env:YPERSISTENCE = '../data/yjs'   # local dev persistence; safe to delete
 bun run start
 
-# Terminal 2 — client
+# Terminal 2: client
 bun run dev
 ```
 
@@ -1072,7 +1115,7 @@ All data lives in a single named Docker volume, `btct-data`, mounted at `/data`:
 | Activity log (every change, author + timestamp) | `/data/yjs/` | yes |
 | Page-body version history (point-in-time snapshots) | `/data/yjs/` | yes |
 | Typst screenshots + custom fonts (raw bytes) | `/data/assets/` | yes |
-| Typst asset metadata (names, crop rects, font families) | `/data/yjs/` | yes |
+| Typst asset metadata (names, crop rects, blur regions, font families) | `/data/yjs/` | yes |
 
 So **every code update, image rebuild, or container restart preserves all your
 data.** The only commands that destroy it are `docker compose down -v` or manually
@@ -1081,7 +1124,7 @@ runs those.
 
 > Yjs persistence is provided by y-leveldb (enabled via `YPERSISTENCE=/data/yjs`).
 > Without it, rooms live only in memory and rely on clients to re-seed from
-> IndexedDB — fragile across restarts. With it, the server is the source of truth
+> IndexedDB, which is fragile across restarts. With it, the server is the source of truth
 > on disk.
 
 ---
@@ -1099,7 +1142,7 @@ everything):
 .\Backup-BTCT.ps1 -Tag "before-import"
 ```
 
-Restore (destructive — wipes current contents, prompts for confirmation):
+Restore (destructive; wipes current contents, prompts for confirmation):
 
 ```powershell
 .\Restore-BTCT.ps1 -ArchivePath .\backups\btct-backup-20260521-031530.tgz
@@ -1119,24 +1162,24 @@ For *per-workspace* portability (no users/SQLite) use the in-app
 
 BTCT records who did what to every entity and lets you roll back specific actions.
 
-**Activity log** — every create/update/delete/restore on a workspace, page,
+**Activity log**: every create/update/delete/restore on a workspace, page,
 graph, node, edge, or attack chain writes a `changeLogs` entry into the shared
 doc with the author (captured at write time so it survives a user being
 renamed/removed), a millisecond timestamp, a **field-level delta** (prev + new
-for single-field updates — what makes it reversible), and a **full entity
+for single-field updates, which is what makes it reversible), and a **full entity
 snapshot** for deletes. It surfaces as the right-sidebar **History** feed and as
 per-entity *Last edited by …* badges. Reversible entries get a **Restore** button:
 updates re-apply the previous value; deletes re-create the entity from the
 snapshot (reusing the original ID so references resolve). Restores are themselves
 logged.
 
-**Page version history** — page bodies live in their own per-page Yjs doc, so the
+**Page version history**: page bodies live in their own per-page Yjs doc, so the
 right sidebar has a dedicated **Page Versions** panel for them. It shows
 **auto-saved** snapshots (captured ~2 minutes after the last keystroke; 20
 most-recent kept per page) and **named** versions (never pruned). Each snapshot
 stores the full `Y.encodeStateAsUpdate(pageDoc)` bytes (base64). Restoring decodes
 the bytes, clones the `prosemirror` fragment, and swaps it into the live doc in a
-single Yjs transaction — so every connected collaborator sees the same rollback in
+single Yjs transaction, so every connected collaborator sees the same rollback in
 real time, non-destructively (prior state stays in the CRDT update log).
 
 ---
@@ -1238,17 +1281,17 @@ etc.). The full build is `bun run build` (`tsc -b && vite build`).
 This is a LAN tool for trusted operators. It is **not** hardened for hostile
 internet exposure. Known gaps:
 
-- **Tokens in `localStorage`** — XSS in the editor would leak them.
+- **Tokens in `localStorage`**: XSS in the editor would leak them.
 - **No CSRF protection** on `/api/*` beyond the bearer-token convention.
 - **No rate limiting** on `/api/login` (PBKDF2 is the only brute-force cost).
 - **No account lockout, MFA, or self-service password reset.**
-- **Yjs WS auth is checked once at upgrade** — a revoked account keeps editing
+- **Yjs WS auth is checked once at upgrade**: a revoked account keeps editing
   until the socket drops.
-- **No per-workspace authorization** — every authenticated user sees every
+- **No per-workspace authorization**: every authenticated user sees every
   workspace.
 - **`AUTH_SECRET` defaults to a random ephemeral value** when unset; tokens are
   silently invalidated on restart. Always set it in `.env`.
-- **HTTPS / WSS is not built in** — terminate TLS in nginx/Caddy.
+- **HTTPS / WSS is not built in**: terminate TLS in nginx/Caddy.
 - **No CSP / Trusted Types.** Treat untrusted markdown as untrusted.
 
 Threat model: trusted teammates on a LAN segment during an engagement. Anything
@@ -1258,4 +1301,4 @@ beyond that needs additional work.
 
 ## License
 
-Internal tooling — not licensed for redistribution.
+Internal tooling. Not licensed for redistribution.

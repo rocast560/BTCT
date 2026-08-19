@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Client side of the Typst asset pipeline: upload, fetch, crop, and hand
-// the resulting bytes to the compiler's virtual filesystem.
+// Client side of the Typst asset pipeline: upload, fetch, crop, blur, and
+// hand the resulting bytes to the compiler's virtual filesystem.
 //
 // The crop is applied *here*, not in Typst. When an asset carries a crop
 // rect we decode the original, draw the selected region to a canvas, and
@@ -20,6 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import { API_URL, useAuthStore } from '@/auth/auth-store';
+import { blurParams, blursKey, effectiveStyle, hasBlurs, pixelParams } from './blur-math';
 import { cropToPixels, isFullFrame, normalizeCrop, outputSize } from './crop-math';
 import {
   ENCODABLE_FORMATS,
@@ -29,7 +30,7 @@ import {
   sniffImageFormat,
   type ImageFormat,
 } from './image-format';
-import type { CropRect, TypstAsset, TypstAssetKind } from '@/types';
+import type { BlurRegion, CropRect, TypstAsset, TypstAssetKind } from '@/types';
 
 // Re-exported so callers have one import site for the asset pipeline.
 export { isFullFrame, normalizeCrop } from './crop-math';
@@ -97,12 +98,23 @@ export async function deleteAssetBytes(id: string): Promise<void> {
 // Asset bytes are immutable for a given id, so this cache never needs
 // invalidating within a session. Keyed by id; entries are the in-flight
 // promise so concurrent callers share one request.
+//
+// Capped as an LRU: original bytes are only needed when the framing changes
+// (a settled framing is served from croppedCache), so retaining every
+// screenshot's raw bytes for the whole session would cost megabytes per
+// asset for data a local fetch can restore in milliseconds.
 const rawBytesCache = new Map<string, Promise<Uint8Array>>();
+const RAW_CACHE_MAX = 12;
 
 /** Fetch (and memoize) an asset's original bytes. */
 export function fetchAssetBytes(id: string): Promise<Uint8Array> {
   const hit = rawBytesCache.get(id);
-  if (hit) return hit;
+  if (hit) {
+    // Refresh recency: Map iteration order is insertion order.
+    rawBytesCache.delete(id);
+    rawBytesCache.set(id, hit);
+    return hit;
+  }
   const p = (async () => {
     const res = await fetch(`${API_URL}/api/assets/${encodeURIComponent(id)}`, {
       headers: authHeaders(),
@@ -117,6 +129,11 @@ export function fetchAssetBytes(id: string): Promise<Uint8Array> {
   // asset for the rest of the session.
   p.catch(() => { rawBytesCache.delete(id); });
   rawBytesCache.set(id, p);
+  while (rawBytesCache.size > RAW_CACHE_MAX) {
+    const oldest = rawBytesCache.keys().next().value;
+    if (oldest === undefined) break;
+    rawBytesCache.delete(oldest);
+  }
   return p;
 }
 
@@ -157,7 +174,9 @@ async function decodeImage(bytes: Uint8Array, mime: string): Promise<ImageBitmap
   }
 }
 
-function imageSize(img: ImageBitmap | HTMLImageElement): { w: number; h: number } {
+function imageSize(
+  img: ImageBitmap | HTMLImageElement | HTMLCanvasElement,
+): { w: number; h: number } {
   return 'naturalWidth' in img
     ? { w: img.naturalWidth, h: img.naturalHeight }
     : { w: img.width, h: img.height };
@@ -203,7 +222,7 @@ export const GAP_FILL = '#f5f5f5';
  * would otherwise composite against black.
  */
 async function renderRegion(
-  img: ImageBitmap | HTMLImageElement,
+  img: ImageBitmap | HTMLImageElement | HTMLCanvasElement,
   region: { sx: number; sy: number; sw: number; sh: number },
   targetFormat: ImageFormat,
   out?: { width: number; height: number },
@@ -224,7 +243,82 @@ async function renderRegion(
 }
 
 /**
- * Apply a normalized crop rect to image bytes.
+ * Bake the blur regions onto a full-resolution copy of the image.
+ *
+ * Each region is drawn at a heavy downscale first and only then re-enlarged
+ * through a gaussian filter. The downscale is what destroys the information:
+ * a gaussian alone on readable text can sometimes be deconvolved, and this
+ * is a pentest tool, so a redaction has to actually redact. The numbers come
+ * from `blurParams` (pure, tested) so the editor preview and the compiled
+ * PDF apply exactly the same strength.
+ */
+function bakeBlurs(
+  img: ImageBitmap | HTMLImageElement,
+  natW: number,
+  natH: number,
+  blurs: BlurRegion[],
+): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = natW;
+  canvas.height = natH;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas unavailable');
+  ctx.drawImage(img as CanvasImageSource, 0, 0);
+
+  for (const region of blurs) {
+    const sx = Math.round(region.x * natW);
+    const sy = Math.round(region.y * natH);
+    const sw = Math.max(1, Math.round(region.w * natW));
+    const sh = Math.max(1, Math.round(region.h * natH));
+
+    const small = document.createElement('canvas');
+    const sctx = small.getContext('2d');
+    if (!sctx) throw new Error('2D canvas unavailable');
+
+    if (effectiveStyle(region) === 'pixelate') {
+      // Mosaic: average the region down to whole blocks, then re-enlarge
+      // with smoothing off so each block comes back as a hard square.
+      const { blockPx } = pixelParams(region, natW, natH);
+      small.width = Math.max(1, Math.round(sw / blockPx));
+      small.height = Math.max(1, Math.round(sh / blockPx));
+      sctx.imageSmoothingEnabled = true;
+      sctx.imageSmoothingQuality = 'high';
+      sctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, small.width, small.height);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(sx, sy, sw, sh);
+      ctx.clip();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(small, 0, 0, small.width, small.height, sx, sy, sw, sh);
+      ctx.restore();
+    } else {
+      const { radiusPx, downscale } = blurParams(region, natW, natH);
+      small.width = Math.max(1, Math.round(sw * downscale));
+      small.height = Math.max(1, Math.round(sh * downscale));
+      sctx.imageSmoothingEnabled = true;
+      sctx.imageSmoothingQuality = 'high';
+      sctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, small.width, small.height);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(sx, sy, sw, sh);
+      ctx.clip();
+      ctx.filter = `blur(${radiusPx}px)`;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      // Overscan past the region by the blur radius: the filter's edge falloff
+      // goes transparent, and without the overscan the sharp original would
+      // show through in a thin halo at the region border.
+      ctx.drawImage(small, sx - radiusPx, sy - radiusPx, sw + radiusPx * 2, sh + radiusPx * 2);
+      ctx.restore();
+    }
+  }
+  return canvas;
+}
+
+/**
+ * Apply a normalized crop rect (and any blur regions) to image bytes.
  *
  * `targetFormat` must match the extension of the path these bytes will be
  * mounted at — Typst selects its decoder from the extension, so re-encoding a
@@ -235,6 +329,7 @@ export async function cropImageBytes(
   mime: string,
   crop: CropRect,
   targetFormat: ImageFormat = 'png',
+  blurs?: BlurRegion[] | null,
 ): Promise<Uint8Array> {
   const img = await decodeImage(bytes, mime);
   const { w: natW, h: natH } = imageSize(img);
@@ -242,25 +337,44 @@ export async function cropImageBytes(
   const region = cropToPixels(rect, natW, natH);
   const out = outputSize(rect, natW, natH);
   try {
-    return await renderRegion(img, region, targetFormat, out);
+    const source = hasBlurs(blurs) ? bakeBlurs(img, natW, natH, blurs as BlurRegion[]) : img;
+    return await renderRegion(source, region, targetFormat, out);
   } finally {
     if ('close' in img) img.close();
   }
 }
 
-/** Re-encode whole bytes into `targetFormat`, leaving the framing alone. */
+/**
+ * Re-encode whole bytes into `targetFormat`, leaving the framing alone.
+ * Blur regions, if given, are baked in on the way through.
+ */
 async function convertImageBytes(
   bytes: Uint8Array,
   mime: string,
   targetFormat: ImageFormat,
+  blurs?: BlurRegion[] | null,
 ): Promise<Uint8Array> {
   const img = await decodeImage(bytes, mime);
   const { w, h } = imageSize(img);
   try {
-    return await renderRegion(img, { sx: 0, sy: 0, sw: w, sh: h }, targetFormat);
+    const source = hasBlurs(blurs) ? bakeBlurs(img, w, h, blurs as BlurRegion[]) : img;
+    return await renderRegion(source, { sx: 0, sy: 0, sw: w, sh: h }, targetFormat);
   } finally {
     if ('close' in img) img.close();
   }
+}
+
+/**
+ * The full image with its blur regions baked in, as PNG bytes: what the
+ * place dialog shows in the viewport, so the editor previews exactly the
+ * pixels the compiler will receive.
+ */
+export function blurredPreviewBytes(
+  bytes: Uint8Array,
+  mime: string,
+  blurs: BlurRegion[],
+): Promise<Uint8Array> {
+  return convertImageBytes(bytes, mime, 'png', blurs);
 }
 
 /**
@@ -282,25 +396,38 @@ export function resolveAssetBytes(asset: TypstAsset): Promise<Uint8Array> {
 
   const claimed = formatFromFilename(asset.filename);
   const wantsCrop = !isFullFrame(asset.crop);
+  const wantsBlur = hasBlurs(asset.blurs);
 
-  // Nothing a canvas can produce → mount as-is. (An SVG crop rect is ignored
-  // rather than rasterized.)
+  // Nothing a canvas can produce → mount as-is. (An SVG crop rect or blur
+  // region is ignored rather than rasterized.)
   if (!claimed || !ENCODABLE_FORMATS.has(claimed)) return fetchAssetBytes(asset.id);
 
-  const key = `${asset.id}:${claimed}:${wantsCrop ? cropKey(asset.crop as CropRect) : 'full'}`;
+  const key = `${asset.id}:${claimed}:${wantsCrop ? cropKey(asset.crop as CropRect) : 'full'}:${blursKey(asset.blurs)}`;
   const hit = croppedCache.get(key);
   if (hit) return hit;
 
   const p = fetchAssetBytes(asset.id).then(async (raw) => {
     const actual = sniffImageFormat(raw);
     if (wantsCrop) {
-      return cropImageBytes(raw, mimeForFormat(actual ?? claimed), asset.crop as CropRect, claimed);
+      return cropImageBytes(
+        raw, mimeForFormat(actual ?? claimed), asset.crop as CropRect, claimed, asset.blurs,
+      );
     }
-    // Uncropped: only touch the bytes if they disagree with the extension.
+    if (wantsBlur) {
+      return convertImageBytes(raw, mimeForFormat(actual ?? claimed), claimed, asset.blurs);
+    }
+    // Untouched framing: only re-encode if the bytes disagree with the extension.
     if (reencodeTargetFor(asset.filename, actual) === null) return raw;
     return convertImageBytes(raw, mimeForFormat(actual ?? claimed), claimed);
   });
   p.catch(() => { croppedCache.delete(key); });
+  // A framing tweak makes every older render of this asset unreachable
+  // (callers always key off the record's current crop + blurs), so drop
+  // them: without this, a session of crop/blur adjustments retains every
+  // intermediate multi-MB encode until the tab closes.
+  for (const k of [...croppedCache.keys()]) {
+    if (k !== key && k.startsWith(`${asset.id}:`)) croppedCache.delete(k);
+  }
   croppedCache.set(key, p);
   return p;
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAppStore } from '@/stores';
+import { useShallow } from 'zustand/react/shallow';
 import {
   pageToMarkdown,
   toGraphML,
@@ -31,7 +32,20 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const {
     pages, graphs, graphNodes, graphEdges, activeWorkspaceId,
     loadWorkspaces, loadGraphs, setActiveWorkspace, loadPages, loadChangeLogs, loadNmapScans, loadAttackChains,
-  } = useAppStore();
+  } = useAppStore(useShallow((s) => ({
+    pages: s.pages,
+    graphs: s.graphs,
+    graphNodes: s.graphNodes,
+    graphEdges: s.graphEdges,
+    activeWorkspaceId: s.activeWorkspaceId,
+    loadWorkspaces: s.loadWorkspaces,
+    loadGraphs: s.loadGraphs,
+    setActiveWorkspace: s.setActiveWorkspace,
+    loadPages: s.loadPages,
+    loadChangeLogs: s.loadChangeLogs,
+    loadNmapScans: s.loadNmapScans,
+    loadAttackChains: s.loadAttackChains,
+  })));
   const [status, setStatus] = useState('');
   const [importMode, setImportMode] = useState<ImportMode>('new');
 

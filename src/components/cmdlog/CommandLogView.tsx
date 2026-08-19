@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
 import { useAppStore } from '@/stores';
 import { useAuthStore } from '@/auth/auth-store';
 import type { CommandLogEntry } from '@/types';
@@ -19,11 +19,23 @@ const TIME_PRESETS: Array<[string, number | null]> = [
 
 // Deterministic hue from an operator name so each operator keeps one color
 // across sessions (operators aren't BTCT users, so there's no stored color).
+// Memoized: this ran twice per row per render over the whole (up to 5000-row)
+// archive; the operator set is tiny, so cache the computed color by name.
+const operatorColorCache = new Map<string, string>();
 function operatorColor(name: string): string {
+  const hit = operatorColorCache.get(name);
+  if (hit) return hit;
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return `hsl(${h % 360} 65% 55%)`;
+  const color = `hsl(${h % 360} 65% 55%)`;
+  operatorColorCache.set(name, color);
+  return color;
 }
+
+// Cap how many rows are put in the DOM at once. The count still reports the
+// true total; "Search full archive" can return 5000 rows, and mounting all
+// of them (6 cells + 2 icons each) is what made that button janky.
+const MAX_RENDERED_ROWS = 400;
 
 function fmtTime(ts: number): string {
   const d = new Date(ts);
@@ -46,6 +58,45 @@ function download(name: string, mime: string, data: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// One log row. Memoized so a live-capture batch (which changes only a few
+// rows) doesn't re-render the entire visible archive.
+const LogRow = memo(function LogRow({ r }: { r: CommandLogEntry }) {
+  const st = statusOf(r);
+  const color = operatorColor(r.operator);
+  return (
+    <div
+      style={{ borderLeft: `3px solid ${color}` }}
+      className={cn(
+        GRID,
+        'items-start px-3 py-2 text-xs hover:bg-[hsl(var(--accent))]/30',
+        st === 'failed' && 'bg-[hsl(var(--status-red))]/5',
+      )}
+    >
+      <div className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]" title={new Date(r.startedAt).toISOString()}>
+        {fmtTime(r.startedAt)}
+      </div>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <CircleDot size={9} className="shrink-0" style={{ color }} />
+        <span className="truncate" title={r.host ? `${r.operator} @ ${r.host}` : r.operator}>{r.operator}</span>
+      </div>
+      <div className="truncate font-mono text-[11px] text-[hsl(var(--status-green))]" title={r.tool}>{r.tool}</div>
+      <div className="min-w-0 break-all font-mono text-[11px]" title={r.cwd ? `cwd: ${r.cwd}` : undefined}>
+        {r.command}
+      </div>
+      <div className="text-center">
+        {st === 'running' ? (
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[hsl(var(--status-amber))]" title="Running…" />
+        ) : (
+          <span className={cn('font-mono text-[11px]', st === 'success' ? 'text-[hsl(var(--muted-foreground))]' : 'text-[hsl(var(--status-red))]')}>
+            {r.exitCode}
+          </span>
+        )}
+      </div>
+      <div className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{fmtDuration(r.durationMs)}</div>
+    </div>
+  );
+});
 
 export function CommandLogView() {
   const liveRows = useAppStore((s) => s.commandLogs);      // shared-doc live window
@@ -103,9 +154,20 @@ export function CommandLogView() {
     setArchive((prev) => (prev.some((r) => r.id === log.id) ? prev : [log, ...prev]));
   }, []);
 
+  // Advance the relative-time window on a coarse tick. Reading Date.now()
+  // inside the memo froze the window at mount, so "last 24h" never moved;
+  // recomputing it every render would instead rebuild `rows` constantly.
+  // A 30s tick advances the boundary without per-render churn.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (since === null) return;
+    const t = setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [since]);
+
   const effectiveFilter = useMemo<CmdLogFilter>(
-    () => ({ ...filter, from: since !== null ? Date.now() - since : filter.from }),
-    [filter, since],
+    () => ({ ...filter, from: since !== null ? nowTick - since : filter.from }),
+    [filter, since, nowTick],
   );
   const rows = useMemo(() => applyCmdLogFilter(merged, effectiveFilter), [merged, effectiveFilter]);
 
@@ -315,43 +377,15 @@ export function CommandLogView() {
         ) : (
           <div className="overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
             <div className="divide-y divide-[hsl(var(--border))]">
-              {rows.map((r) => {
-                const st = statusOf(r);
-                return (
-                  <div
-                    key={r.id}
-                    style={{ borderLeft: `3px solid ${operatorColor(r.operator)}` }}
-                    className={cn(
-                      GRID,
-                      'items-start px-3 py-2 text-xs hover:bg-[hsl(var(--accent))]/30',
-                      st === 'failed' && 'bg-[hsl(var(--status-red))]/5',
-                    )}
-                  >
-                    <div className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]" title={new Date(r.startedAt).toISOString()}>
-                      {fmtTime(r.startedAt)}
-                    </div>
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <CircleDot size={9} className="shrink-0" style={{ color: operatorColor(r.operator) }} />
-                      <span className="truncate" title={r.host ? `${r.operator} @ ${r.host}` : r.operator}>{r.operator}</span>
-                    </div>
-                    <div className="truncate font-mono text-[11px] text-[hsl(var(--status-green))]" title={r.tool}>{r.tool}</div>
-                    <div className="min-w-0 break-all font-mono text-[11px]" title={r.cwd ? `cwd: ${r.cwd}` : undefined}>
-                      {r.command}
-                    </div>
-                    <div className="text-center">
-                      {st === 'running' ? (
-                        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[hsl(var(--status-amber))]" title="Running…" />
-                      ) : (
-                        <span className={cn('font-mono text-[11px]', st === 'success' ? 'text-[hsl(var(--muted-foreground))]' : 'text-[hsl(var(--status-red))]')}>
-                          {r.exitCode}
-                        </span>
-                      )}
-                    </div>
-                    <div className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{fmtDuration(r.durationMs)}</div>
-                  </div>
-                );
-              })}
+              {rows.slice(0, MAX_RENDERED_ROWS).map((r) => (
+                <LogRow key={r.id} r={r} />
+              ))}
             </div>
+            {rows.length > MAX_RENDERED_ROWS && (
+              <div className="border-t border-[hsl(var(--border))] px-3 py-2 text-center text-[11px] text-[hsl(var(--muted-foreground))]">
+                Showing {MAX_RENDERED_ROWS} of {rows.length} rows. Narrow the filters or export to CSV to see the rest.
+              </div>
+            )}
           </div>
         )}
       </div>

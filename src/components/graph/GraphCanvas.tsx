@@ -203,6 +203,7 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
   const loadGraphData = useAppStore((s) => s.loadGraphData);
   const addGraphNode = useAppStore((s) => s.addGraphNode);
   const updateGraphNode = useAppStore((s) => s.updateGraphNode);
+  const updateGraphNodePositions = useAppStore((s) => s.updateGraphNodePositions);
   const deleteGraphNode = useAppStore((s) => s.deleteGraphNode);
   const addGraphEdge = useAppStore((s) => s.addGraphEdge);
   const updateGraphEdge = useAppStore((s) => s.updateGraphEdge);
@@ -362,8 +363,8 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
           undoStack.current.push({ nodeId: n.id, position: prev });
           movedAny = true;
         }
-        void updateGraphNode(n.id, { position: n.position });
       }
+      void updateGraphNodePositions(all.map((n) => ({ id: n.id, position: n.position })));
       dragStartPositions.current.clear();
       // The store update will produce a new graphNodes array and rebuild
       // memoNodes — but React Flow's local state already has the correct
@@ -455,11 +456,9 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
 
   const handleAutoLayout = useCallback(() => {
     const layouted = autoLayout(nodesRef.current, edgesRef.current, 'TB', layoutOptions);
-    for (const node of layouted) {
-      void updateGraphNode(node.id, { position: node.position });
-    }
+    void updateGraphNodePositions(layouted.map((n) => ({ id: n.id, position: n.position })));
     setTimeout(() => fitView({ padding: 0.2 }), 50);
-  }, [updateGraphNode, fitView, layoutOptions]);
+  }, [updateGraphNodePositions, fitView, layoutOptions]);
 
   const handleHighlightPath = useCallback(() => {
     const cur = nodesRef.current;
@@ -657,12 +656,19 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
         viewport.appendChild(clonedMarkerSvg);
       }
 
+      // Clamp the output so a large graph can't allocate a canvas past the
+      // browser limit: at pixelRatio 4 a 4000x3000 graph would back an
+      // ~8000x6000 bitmap (~192 MB) and either throw or crash the tab. Cap
+      // the longest exported side at 8192px, keeping 4x for normal graphs.
+      const MAX_EXPORT_DIM = 8192;
+      const pixelRatio = Math.max(1, Math.min(4, MAX_EXPORT_DIM / Math.max(imageWidth, imageHeight)));
+
       toPng(viewport, {
         backgroundColor: '#09090b',
         width: imageWidth,
         height: imageHeight,
-        // edits the pixel quality of the exported image
-        pixelRatio: 4,
+        // edits the pixel quality of the exported image (clamped above)
+        pixelRatio,
         style: {
           width: `${imageWidth}px`,
           height: `${imageHeight}px`,

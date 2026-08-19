@@ -88,9 +88,13 @@ export function PageEditor({ pageId }: { pageId: string }) {
       });
     };
     refetch();
-    // Re-fetch when any page in the shared doc changes — the graph page
-    // we're showing might be one of them.
-    const unsub = useAppStore.subscribe(refetch);
+    // Re-fetch only when the pages table identity actually changes. A bare
+    // subscribe(refetch) fired on EVERY store write — including this
+    // editor's own 400ms content save — doing a repo read + setState each
+    // time while a graph-node page is open.
+    const unsub = useAppStore.subscribe((state, prev) => {
+      if (state.pages !== prev.pages) refetch();
+    });
     return () => { cancelled = true; unsub(); };
   }, [pageId, storePage]);
 
@@ -149,6 +153,14 @@ function PageEditorInner({ page, linkedNode }: {
 
   // The slug input also runs a sanitizer (lowercase, hyphens) over the
   // user's typed value before committing it to the CRDT.
+  // The linked-node mirror is a full record rewrite plus a store-wide
+  // reload per call, so it must not run per keystroke; the trailing value
+  // after a pause is all the label needs.
+  const labelSyncTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (labelSyncTimer.current != null) window.clearTimeout(labelSyncTimer.current);
+  }, []);
+
   const handleTitleChange = (value: string) => {
     setTitleValue(value);
     // Mirror the new title onto the linked graph node's label Y.Text so
@@ -158,7 +170,12 @@ function PageEditorInner({ page, linkedNode }: {
       // record patch for the linked node's label; users almost never
       // type into the page-title and the node-label simultaneously, and
       // the linked node also has its own Y.Text in NodeProperties.
-      void updateGraphNode(linkedNode.id, { label: value });
+      const nodeId = linkedNode.id;
+      if (labelSyncTimer.current != null) window.clearTimeout(labelSyncTimer.current);
+      labelSyncTimer.current = window.setTimeout(() => {
+        labelSyncTimer.current = null;
+        void updateGraphNode(nodeId, { label: value });
+      }, 500);
     }
   };
 
@@ -181,12 +198,21 @@ function PageEditorInner({ page, linkedNode }: {
   // commands. `MarkdownEditor` assigns this on mount.
   const editorRef = useRef<Editor | null>(null);
 
+  // The record copy is a cold-start/export mirror, not the live document
+  // (that's the per-page Y.Doc), so it doesn't need a 400ms cadence. Each
+  // save re-broadcasts the ENTIRE page record body to the server and every
+  // peer, so: save after 2s of idle, with a 10s ceiling during continuous
+  // typing, and the unmount flush below still catches page switches.
+  const lastRecordSave = useRef(Date.now());
   const queueSave = useCallback(() => {
     if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
+    const deadline = lastRecordSave.current + 10_000;
+    const delay = Math.max(0, Math.min(2000, deadline - Date.now()));
     saveTimer.current = window.setTimeout(() => {
       saveTimer.current = null;
+      lastRecordSave.current = Date.now();
       void updatePage(page.id, { content: latestMarkdown.current });
-    }, 400);
+    }, delay);
   }, [page.id, updatePage]);
 
   // Flush any pending save when the active page changes or the component unmounts.
@@ -592,11 +618,19 @@ function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<
       setPos({ top, left });
     };
 
-    const onChange = () => requestAnimationFrame(update);
+    // Coalesce bursts (a scroll fires this per event, capture-phase, for
+    // every scroller in the app; selectionchange fires per caret move) into
+    // at most one layout-reading update per frame.
+    let frame = 0;
+    const onChange = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; update(); });
+    };
     document.addEventListener('selectionchange', onChange);
     window.addEventListener('scroll', onChange, true);
     window.addEventListener('resize', onChange);
     return () => {
+      if (frame) cancelAnimationFrame(frame);
       document.removeEventListener('selectionchange', onChange);
       window.removeEventListener('scroll', onChange, true);
       window.removeEventListener('resize', onChange);

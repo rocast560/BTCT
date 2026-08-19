@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/stores';
+import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from '@/auth/auth-store';
 import { WorkspaceSelector } from '@/components/ui/WorkspaceSelector';
 import { AdminPanel } from '@/components/sidebar/AdminPanel';
@@ -86,7 +87,36 @@ export function LeftSidebar() {
     deleteAttackChain,
     ensureAttackChainPage,
     setPendingHighlightChainId,
-  } = useAppStore();
+  } = useAppStore(useShallow((s) => ({
+    pages: s.pages,
+    graphs: s.graphs,
+    createPage: s.createPage,
+    createGraph: s.createGraph,
+    deletePage: s.deletePage,
+    deleteGraph: s.deleteGraph,
+    openTab: s.openTab,
+    searchQuery: s.searchQuery,
+    setSearchQuery: s.setSearchQuery,
+    runSearch: s.runSearch,
+    searchResults: s.searchResults,
+    toggleLeftSidebar: s.toggleLeftSidebar,
+    darkMode: s.darkMode,
+    toggleDarkMode: s.toggleDarkMode,
+    activeWorkspaceId: s.activeWorkspaceId,
+    nmapScans: s.nmapScans,
+    loadNmapScans: s.loadNmapScans,
+    createNmapGroup: s.createNmapGroup,
+    deleteNmapScan: s.deleteNmapScan,
+    renameNmapScan: s.renameNmapScan,
+    leftSidebarWidth: s.leftSidebarWidth,
+    setLeftSidebarWidth: s.setLeftSidebarWidth,
+    updateGraph: s.updateGraph,
+    attackChains: s.attackChains,
+    updateAttackChain: s.updateAttackChain,
+    deleteAttackChain: s.deleteAttackChain,
+    ensureAttackChainPage: s.ensureAttackChainPage,
+    setPendingHighlightChainId: s.setPendingHighlightChainId,
+  })));
 
   const [pagesExpanded, setPagesExpanded] = useState(true);
   const [narrativesExpanded, setNarrativesExpanded] = useState(true);

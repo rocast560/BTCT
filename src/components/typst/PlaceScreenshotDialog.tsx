@@ -19,11 +19,24 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, Crop, ImageOff, Loader2, Maximize2, MapPin, Minimize2, Pencil,
+  AlertTriangle, Crop, EyeOff, ImageOff, Loader2, Maximize2, MapPin, Minimize2, Pencil,
   Plus, RotateCcw, Wand2, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
-import type { CropRect, TypstAsset } from '@/types';
-import { detectContentBounds, fetchAssetBytes, assetPath } from '@/lib/typst-assets';
+import type { BlurRegion, BlurStyle, CropRect, TypstAsset } from '@/types';
+import {
+  blursKey,
+  effectiveStrength,
+  effectiveStyle,
+  MAX_STRENGTH,
+  MIN_STRENGTH,
+} from '@/lib/blur-math';
+import { ENCODABLE_FORMATS, formatFromFilename } from '@/lib/image-format';
+import {
+  blurredPreviewBytes,
+  detectContentBounds,
+  fetchAssetBytes,
+  assetPath,
+} from '@/lib/typst-assets';
 import {
   constrainToAspect,
   fitCropToBox,
@@ -126,12 +139,17 @@ export function PlaceScreenshotDialog({
   /** Current Typst source — the figure slots and page geometry come from it. */
   source: string;
   /**
-   * Commit. `slot` is null when only the crop changed. `heightPt` is set when
-   * the figure's height was adjusted and needs writing onto the slot.
+   * Commit. `slot` is null when only the framing changed. `heightPt` is set
+   * when the figure's height was adjusted and needs writing onto the slot.
    */
-  onApply: (crop: CropRect | null, slot: ScreenshotSlot | null, heightPt: number | null) => void;
+  onApply: (
+    crop: CropRect | null,
+    blurs: BlurRegion[] | null,
+    slot: ScreenshotSlot | null,
+    heightPt: number | null,
+  ) => void;
   /** Clear the image out of `slot`, leaving the empty placeholder behind. */
-  onUnplace: (crop: CropRect | null, slot: ScreenshotSlot) => void;
+  onUnplace: (crop: CropRect | null, blurs: BlurRegion[] | null, slot: ScreenshotSlot) => void;
   /** Append a new empty figure slot to the document and return to the picker. */
   onAddSlot: (caption: string) => void;
   /** Rename the asset's file stem, repointing any document references. */
@@ -187,6 +205,65 @@ export function PlaceScreenshotDialog({
 
   const [crop, setCrop] = useState<CropRect | null>(asset.crop ?? null);
 
+  // ── blur (redaction) regions ───────────────────────────────────────────
+  const [blurs, setBlurs] = useState<BlurRegion[]>(asset.blurs ?? []);
+  const [blurMode, setBlurMode] = useState(false);
+  // Formats a canvas can't re-encode (GIF, SVG) can't be blurred either.
+  const canBlur = (() => {
+    const f = formatFromFilename(asset.filename);
+    return !!f && ENCODABLE_FORMATS.has(f);
+  })();
+
+  // The style/strength controls edit the selected region when there is one,
+  // and otherwise set what the next drawn region gets.
+  const [selectedBlur, setSelectedBlur] = useState<number | null>(null);
+  const [blurStyle, setBlurStyle] = useState<BlurStyle>('gaussian');
+  const [blurStrength, setBlurStrength] = useState(1);
+
+  const patchSelected = useCallback((patch: Partial<BlurRegion>) => {
+    if (selectedBlur === null) return;
+    setBlurs((b) => b.map((r, i) => (i === selectedBlur ? { ...r, ...patch } : r)));
+  }, [selectedBlur]);
+
+  const applyBlurStyle = useCallback((style: BlurStyle) => {
+    setBlurStyle(style);
+    patchSelected({ style });
+  }, [patchSelected]);
+
+  const applyBlurStrength = useCallback((strength: number) => {
+    setBlurStrength(strength);
+    patchSelected({ strength });
+  }, [patchSelected]);
+
+  const addBlur = useCallback((r: BlurRegion) => {
+    const region = { ...r, style: blurStyle, strength: blurStrength };
+    setBlurs((b) => [...b, region]);
+    // Select what was just drawn so the controls adjust it immediately.
+    setSelectedBlur(blurs.length);
+  }, [blurs.length, blurStyle, blurStrength]);
+
+  const selectBlur = useCallback((i: number | null) => {
+    setSelectedBlur(i);
+    if (i === null) return;
+    const r = blurs[i];
+    if (r) {
+      // Reflect the selected region in the controls.
+      setBlurStyle(effectiveStyle(r));
+      setBlurStrength(effectiveStrength(r));
+    }
+  }, [blurs]);
+
+  const removeBlur = useCallback((i: number) => {
+    setBlurs((b) => b.filter((_, j) => j !== i));
+    setSelectedBlur((sel) =>
+      sel === null ? null : sel === i ? null : sel > i ? sel - 1 : sel);
+  }, []);
+
+  const exitBlurMode = useCallback(() => {
+    setBlurMode(false);
+    setSelectedBlur(null);
+  }, []);
+
   // Load the bytes and, if the record didn't carry them, the real dimensions.
   useEffect(() => {
     let cancelled = false;
@@ -212,6 +289,41 @@ export function PlaceScreenshotDialog({
       if (url) URL.revokeObjectURL(url);
     };
   }, [asset.id, asset.mime, asset.width, asset.height]);
+
+  // Viewport image with the blur regions baked through the real pipeline,
+  // so the frame previews exactly the bytes the compiler will receive. The
+  // in-flight drag gets a cheap CSS preview inside FigureViewport instead;
+  // this only re-bakes when a region is committed or removed.
+  const [blurredUrl, setBlurredUrl] = useState<string | null>(null);
+  const blursDep = blursKey(blurs);
+  useEffect(() => {
+    if (!bytes || blurs.length === 0 || !canBlur) {
+      setBlurredUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let url: string | null = null;
+    // Debounced: dragging the strength slider changes the regions many times
+    // a second, and each bake re-encodes the image at full resolution.
+    const timer = setTimeout(() => {
+      blurredPreviewBytes(bytes, asset.mime, blurs)
+        .then((out) => {
+          if (cancelled) return;
+          url = URL.createObjectURL(
+            new Blob([out.slice().buffer as ArrayBuffer], { type: 'image/png' }),
+          );
+          setBlurredUrl(url);
+        })
+        .catch(() => { if (!cancelled) setBlurredUrl(null); });
+    }, 120);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      if (url) URL.revokeObjectURL(url);
+    };
+    // Depend on the regions' value, not the array identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bytes, asset.mime, canBlur, blursDep]);
 
   // First placement: fill the frame, centred.
   const seeded = useRef(false);
@@ -280,24 +392,29 @@ export function PlaceScreenshotDialog({
   }, []);
 
   const cropValue = crop && !isFullFrame(crop) ? crop : crop;
+  const blursValue = blurs.length > 0 ? blurs : null;
   const heightChanged = targetSlot
     ? Math.abs((targetSlot.heightPt ?? DEFAULT_FIGURE_HEIGHT_PT) - heightPt) > 0.5
     : heightTouched.current;
 
   const place = useCallback(() => {
     if (!targetSlot) return;
-    onApply(cropValue, targetSlot, heightChanged ? heightPt : null);
-  }, [onApply, cropValue, targetSlot, heightChanged, heightPt]);
+    onApply(cropValue, blursValue, targetSlot, heightChanged ? heightPt : null);
+  }, [onApply, cropValue, blursValue, targetSlot, heightChanged, heightPt]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (addingSlot) return;
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        // Esc steps out of blur-drawing before it closes the window.
+        if (blurMode) { exitBlurMode(); return; }
+        onClose();
+      }
       if (e.key === 'Enter' && targetSlot) place();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, place, targetSlot, addingSlot]);
+  }, [onClose, place, targetSlot, addingSlot, blurMode, exitBlurMode]);
 
   const submitNewSlot = () => {
     const caption = newCaption.trim();
@@ -354,10 +471,16 @@ export function PlaceScreenshotDialog({
                 </div>
               ) : (
                 <FigureViewport
-                  imageUrl={imgUrl}
+                  imageUrl={blurredUrl ?? imgUrl}
                   crop={crop}
                   boxAspect={box.aspect}
                   onCropChange={(next) => { setCrop(next); setAutoNote(null); }}
+                  blurMode={blurMode && canBlur}
+                  blurs={blurs}
+                  onAddBlur={addBlur}
+                  onRemoveBlur={removeBlur}
+                  selectedBlur={selectedBlur}
+                  onSelectBlur={selectBlur}
                 />
               )}
             </div>
@@ -390,6 +513,72 @@ export function PlaceScreenshotDialog({
 
               <div className="mx-1 h-4 w-px bg-[hsl(var(--border))]" />
 
+              <button
+                onClick={() => (blurMode ? exitBlurMode() : setBlurMode(true))}
+                disabled={!canBlur}
+                title={canBlur
+                  ? 'Draw rectangles over sensitive content; they render blurred'
+                  : 'This format cannot be blurred'}
+                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] uppercase tracking-wide disabled:opacity-40 ${
+                  blurMode
+                    ? 'bg-[hsl(var(--status-purple))]/15 text-[hsl(var(--status-purple))]'
+                    : 'hover:bg-[hsl(var(--accent))]'
+                }`}
+              >
+                <EyeOff size={12} /> Blur{blurs.length > 0 ? ` (${blurs.length})` : ''}
+              </button>
+
+              {blurMode && (
+                <>
+                  {/* Style + strength: edit the selected region, or set what
+                      the next drawn region gets. */}
+                  <div className="flex overflow-hidden rounded border border-[hsl(var(--border))]">
+                    {(['gaussian', 'pixelate'] as const).map((style) => (
+                      <button
+                        key={style}
+                        onClick={() => applyBlurStyle(style)}
+                        title={style === 'gaussian'
+                          ? 'Smooth gaussian blur'
+                          : 'Hard mosaic blocks'}
+                        className={`px-1.5 py-0.5 text-[9px] uppercase tracking-wide ${
+                          blurStyle === style
+                            ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
+                            : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]'
+                        }`}
+                      >
+                        {style === 'gaussian' ? 'Blur' : 'Pixels'}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="range"
+                    min={MIN_STRENGTH}
+                    max={MAX_STRENGTH}
+                    step={0.05}
+                    value={blurStrength}
+                    onChange={(e) => applyBlurStrength(Number(e.target.value))}
+                    title={selectedBlur !== null
+                      ? 'Strength of the selected region'
+                      : 'Strength for the next drawn region'}
+                    className="w-20 accent-[hsl(var(--status-purple))]"
+                  />
+                  <span className="min-w-[30px] font-mono text-[9px] text-[hsl(var(--muted-foreground))]">
+                    {Math.round(blurStrength * 100)}%
+                  </span>
+                </>
+              )}
+              {blurs.length > 0 && (
+                <button
+                  onClick={() => { setBlurs([]); setSelectedBlur(null); }}
+                  title="Remove every blur region"
+                  className="rounded-md px-2 py-1 text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
+                >
+                  Clear
+                </button>
+              )}
+
+              <div className="mx-1 h-4 w-px bg-[hsl(var(--border))]" />
+
               <button onClick={() => nudgeZoom(1.15)} title="Zoom out" className="rounded p-1 hover:bg-[hsl(var(--accent))]">
                 <ZoomOut size={13} />
               </button>
@@ -401,7 +590,9 @@ export function PlaceScreenshotDialog({
               </button>
 
               <span className="ml-2 text-[10px] text-[hsl(var(--muted-foreground))]">
-                drag to reposition · scroll to zoom
+                {blurMode
+                  ? 'drag to draw · click to select · × removes · Esc exits'
+                  : 'drag to reposition · scroll to zoom'}
               </span>
             </div>
           </div>
@@ -576,7 +767,7 @@ export function PlaceScreenshotDialog({
             </button>
             {currentSlotIndex !== -1 && (
               <button
-                onClick={() => onUnplace(cropValue, slots[currentSlotIndex]!)}
+                onClick={() => onUnplace(cropValue, blursValue, slots[currentSlotIndex]!)}
                 title="Remove this image from its figure (the empty slot stays)"
                 className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] uppercase tracking-wide text-[hsl(var(--status-red))] hover:bg-[hsl(var(--accent))]"
               >
@@ -585,7 +776,7 @@ export function PlaceScreenshotDialog({
             )}
             <div className="mx-1 h-4 w-px bg-[hsl(var(--border))]" />
             <button
-              onClick={() => onApply(cropValue, null, null)}
+              onClick={() => onApply(cropValue, blursValue, null, null)}
               title="Save the framing without changing where the image sits"
               className="rounded-md px-2.5 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))]"
             >

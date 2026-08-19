@@ -1,10 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '@/stores';
+import { useShallow } from 'zustand/react/shallow';
 import { Briefcase, Plus, Trash2, ChevronUp, AlertTriangle } from 'lucide-react';
 
 export function WorkspaceSelector() {
   const { workspaces, activeWorkspaceId, setActiveWorkspace, createWorkspace, deleteWorkspace, loadPages, loadGraphs } =
-    useAppStore();
+    useAppStore(useShallow((s) => ({
+      workspaces: s.workspaces,
+      activeWorkspaceId: s.activeWorkspaceId,
+      setActiveWorkspace: s.setActiveWorkspace,
+      createWorkspace: s.createWorkspace,
+      deleteWorkspace: s.deleteWorkspace,
+      loadPages: s.loadPages,
+      loadGraphs: s.loadGraphs,
+    })));
   const [isOpen, setIsOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);

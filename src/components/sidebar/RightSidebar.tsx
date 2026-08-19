@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '@/stores';
+import { useShallow } from 'zustand/react/shallow';
 import { NodeProperties } from '@/components/graph/NodeProperties';
 import { EdgeProperties } from '@/components/graph/EdgeProperties';
 import { BacklinksPanel } from '@/components/sidebar/BacklinksPanel';
@@ -10,7 +11,14 @@ import { ExportDialog } from '@/components/ui/ExportDialog';
 import { PanelRightClose, AlertTriangle } from 'lucide-react';
 
 export function RightSidebar() {
-  const { selectedNodeId, selectedEdgeId, toggleRightSidebar, activeTabId, tabs, deleteDatabase } = useAppStore();
+  const { selectedNodeId, selectedEdgeId, toggleRightSidebar, activeTabId, tabs, deleteDatabase } = useAppStore(useShallow((s) => ({
+    selectedNodeId: s.selectedNodeId,
+    selectedEdgeId: s.selectedEdgeId,
+    toggleRightSidebar: s.toggleRightSidebar,
+    activeTabId: s.activeTabId,
+    tabs: s.tabs,
+    deleteDatabase: s.deleteDatabase,
+  })));
   const [exportOpen, setExportOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');

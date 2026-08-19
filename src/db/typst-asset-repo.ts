@@ -9,7 +9,7 @@
  * apply. (See CLAUDE.md "Critical invariants" #1.)
  */
 import { db } from './database';
-import type { CropRect, ID, TypstAsset, TypstAssetKind } from '@/types';
+import type { BlurRegion, CropRect, ID, TypstAsset, TypstAssetKind } from '@/types';
 
 export const typstAssetRepo = {
   async getByWorkspace(workspaceId: ID): Promise<TypstAsset[]> {
@@ -48,6 +48,7 @@ export const typstAssetRepo = {
       width: data.width ?? null,
       height: data.height ?? null,
       crop: null,
+      blurs: null,
       fontFamily: data.fontFamily ?? null,
       createdAt: now,
       updatedAt: now,
@@ -56,9 +57,16 @@ export const typstAssetRepo = {
     return asset;
   },
 
-  /** Set (or clear, with null) the render-time crop rectangle. */
-  async setCrop(id: ID, crop: CropRect | null): Promise<void> {
-    await db.typstAssets.update(id, { crop, updatedAt: Date.now() });
+  /**
+   * Set (or clear, with null) the render-time framing: the crop rectangle
+   * and the blurred regions. Both are render-time transforms; the uploaded
+   * bytes are never touched.
+   */
+  async setFraming(
+    id: ID,
+    framing: { crop: CropRect | null; blurs: BlurRegion[] | null },
+  ): Promise<void> {
+    await db.typstAssets.update(id, { ...framing, updatedAt: Date.now() });
   },
 
   async rename(id: ID, filename: string): Promise<void> {

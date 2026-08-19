@@ -49,8 +49,15 @@ function uuid() {
 // briefly until it's populated (or give up so a genuinely empty app doesn't
 // stall). In practice the operator's browser is connected, so this returns
 // immediately with a fully-synced doc.
+// Cache the resolved handles per doc instance: helpers call shared() several
+// times per request, and each cold call otherwise re-pays the 2s populate
+// poll. Keyed weakly by the doc so a destroyed/recreated room re-resolves.
+const sharedCache = new WeakMap();
+
 async function shared() {
   const doc = getYDoc(ROOM);
+  const hit = sharedCache.get(doc);
+  if (hit) return hit;
   const tables = {};
   for (const name of TABLE_NAMES) tables[name] = doc.getMap(name);
   const texts = doc.getMap('texts');
@@ -58,7 +65,12 @@ async function shared() {
   while (tables.workspaces.size === 0 && Date.now() - start < 2000) {
     await new Promise((r) => setTimeout(r, 100));
   }
-  return { doc, tables, texts };
+  const resolved = { doc, tables, texts };
+  // Only memoize a doc that actually has data: an empty doc may simply not
+  // have finished its async LevelDB load yet, and caching it would pin the
+  // "gave up" result for the doc's lifetime.
+  if (tables.workspaces.size > 0) sharedCache.set(doc, resolved);
+  return resolved;
 }
 
 function setText(texts, key, value) {
@@ -281,6 +293,9 @@ export async function appendCommandLogs(records) {
 }
 
 function pruneCommandLogs(map) {
+  // Under the cap in total means under the cap for every workspace; skip
+  // the full materialize-and-sort on the common (bounded) path.
+  if (map.size <= CMDLOG_LIVE_CAP) return;
   const byWs = new Map();
   for (const rec of map.values()) {
     const arr = byWs.get(rec.workspaceId) || [];
@@ -348,7 +363,12 @@ export async function createGraph({ workspaceId, name }, actor) {
 }
 
 function nextPosition(tables, graphId) {
-  const count = values(tables.graphNodes).filter((n) => n.graphId === graphId).length;
+  // Count by iterating; materializing every node in the workspace made the
+  // AI's create-nodes-in-a-loop workflow O(N^2).
+  let count = 0;
+  for (const n of tables.graphNodes.values()) {
+    if (n && n.graphId === graphId) count++;
+  }
   return { x: 120 + (count % 6) * 200, y: 120 + Math.floor(count / 6) * 140 };
 }
 

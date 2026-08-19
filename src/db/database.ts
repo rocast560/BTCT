@@ -55,10 +55,15 @@ class Where<T extends Row> {
   }
 
   async first(): Promise<T | undefined> {
+    // Single pass either way: unreversed returns on the first match;
+    // reversed tracks the last match rather than re-scanning via collect().
+    let last: T | undefined;
     for (const row of this.map()) {
-      if (this.predicate(row)) return this.reversed ? this.collect()[0] : row;
+      if (!this.predicate(row)) continue;
+      if (!this.reversed) return row;
+      last = row;
     }
-    return undefined;
+    return last;
   }
 
   async count(): Promise<number> {

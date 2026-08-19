@@ -31,15 +31,19 @@ function b64urlDecode(str) {
   return Buffer.from(str, 'base64');
 }
 
-export function hashPassword(password) {
+// PBKDF2 on the libuv threadpool, not the event loop: 200k iterations is
+// ~100ms of CPU, and this process also runs the Yjs relay, so a synchronous
+// hash freezes every connected editor for the duration.
+function pbkdf2Async(password, salt, iter) {
+  return new Promise((resolve, reject) => {
+    crypto.pbkdf2(password, salt, iter, PBKDF2_KEYLEN, PBKDF2_DIGEST, (err, key) =>
+      err ? reject(err) : resolve(key));
+  });
+}
+
+export async function hashPassword(password) {
   const salt = crypto.randomBytes(16);
-  const hash = crypto.pbkdf2Sync(
-    password,
-    salt,
-    PBKDF2_ITER,
-    PBKDF2_KEYLEN,
-    PBKDF2_DIGEST,
-  );
+  const hash = await pbkdf2Async(password, salt, PBKDF2_ITER);
   return {
     salt: salt.toString('hex'),
     hash: hash.toString('hex'),
@@ -47,14 +51,8 @@ export function hashPassword(password) {
   };
 }
 
-export function verifyPassword(password, salt, expectedHash, iter) {
-  const hash = crypto.pbkdf2Sync(
-    password,
-    Buffer.from(salt, 'hex'),
-    iter,
-    PBKDF2_KEYLEN,
-    PBKDF2_DIGEST,
-  );
+export async function verifyPassword(password, salt, expectedHash, iter) {
+  const hash = await pbkdf2Async(password, Buffer.from(salt, 'hex'), iter);
   const a = Buffer.from(expectedHash, 'hex');
   if (hash.length !== a.length) return false;
   return crypto.timingSafeEqual(hash, a);

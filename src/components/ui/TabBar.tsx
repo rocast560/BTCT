@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/stores';
+import { useShallow } from 'zustand/react/shallow';
 import { X, FileText, Network, PanelLeftOpen, PanelRightOpen, Radar, Monitor, Bug, Clock, FileType2, Sparkles, Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TAB_DRAG_TYPE } from './SplitContainer';
@@ -17,7 +18,17 @@ function LiveClock() {
 
 export function TabBar() {
   const { tabs, activeTabId, setActiveTab, closeTab, leftSidebarOpen, rightSidebarOpen, toggleLeftSidebar, toggleRightSidebar, paneLayout } =
-    useAppStore();
+    useAppStore(useShallow((s) => ({
+      tabs: s.tabs,
+      activeTabId: s.activeTabId,
+      setActiveTab: s.setActiveTab,
+      closeTab: s.closeTab,
+      leftSidebarOpen: s.leftSidebarOpen,
+      rightSidebarOpen: s.rightSidebarOpen,
+      toggleLeftSidebar: s.toggleLeftSidebar,
+      toggleRightSidebar: s.toggleRightSidebar,
+      paneLayout: s.paneLayout,
+    })));
 
   const isSplit = paneLayout.type === 'split';
 

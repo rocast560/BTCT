@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/stores';
+import { useShallow } from 'zustand/react/shallow';
 import { LeftSidebar } from '@/components/sidebar/LeftSidebar';
 import { RightSidebar } from '@/components/sidebar/RightSidebar';
 import { TabBar } from '@/components/ui/TabBar';
@@ -58,6 +59,9 @@ export function App() {
 }
 
 function AuthedApp() {
+  // Select only what this shell reads: a selectorless useAppStore() snapshot
+  // re-renders the entire app tree on every store write (each sync event,
+  // each debounced content save).
   const {
     loadWorkspaces,
     activeWorkspaceId,
@@ -69,7 +73,18 @@ function AuthedApp() {
     leftSidebarOpen,
     rightSidebarOpen,
     workspaces,
-  } = useAppStore();
+  } = useAppStore(useShallow((s) => ({
+    loadWorkspaces: s.loadWorkspaces,
+    activeWorkspaceId: s.activeWorkspaceId,
+    loadPages: s.loadPages,
+    loadGraphs: s.loadGraphs,
+    loadChangeLogs: s.loadChangeLogs,
+    loadNmapScans: s.loadNmapScans,
+    loadAttackChains: s.loadAttackChains,
+    leftSidebarOpen: s.leftSidebarOpen,
+    rightSidebarOpen: s.rightSidebarOpen,
+    workspaces: s.workspaces,
+  })));
 
   // Live-follow engine: mirrors a followed teammate's view while active.
   useFollowEngine();

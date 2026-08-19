@@ -19,7 +19,7 @@
 // for a trusted competition team, not for adversarial auditing.
 // ─────────────────────────────────────────────────────────────────────────
 import crypto from 'node:crypto';
-import { getSetting, setSetting, upsertCommandLog, queryCommandLogs, clearCommandLogs } from './db.mjs';
+import { getSetting, setSetting, upsertCommandLog, upsertCommandLogBatch, queryCommandLogs, clearCommandLogs } from './db.mjs';
 import { appendCommandLogs, listWorkspaces } from './yjs-data.mjs';
 
 const T_ENABLED = 'cmdlog_enabled';
@@ -246,7 +246,7 @@ export async function handleCmdlogEvents(req, res, { sendJson, readJsonBody }) {
   // SQLite is the source of truth — write it first (merged row reflects prior
   // start/completion halves), then push the merged records into the live CRDT
   // window. If the CRDT write fails (e.g. cold doc), the archive still has them.
-  const merged = records.map((r) => upsertCommandLog(r));
+  const merged = upsertCommandLogBatch(records);
   try { await appendCommandLogs(merged); } catch (e) { console.warn('[cmdlog] CRDT append failed:', e?.message || e); }
 
   return sendJson(res, 200, { accepted: records.length, skipped });

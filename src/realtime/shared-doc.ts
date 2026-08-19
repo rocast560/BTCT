@@ -253,10 +253,24 @@ export function setYTextValue(entity: string, id: string, field: string, value: 
  * whenever the Y.Map changes (local or remote). Returns an unsubscribe
  * function.
  */
-export function subscribeTable(name: TableName, fn: () => void): () => void {
+/**
+ * What a table observer learns about one change burst: which record ids
+ * changed (with the delete's old value) and a reader for their current
+ * state. Lets a subscriber scope its reload instead of rescanning
+ * everything (see the nmapMachines binding).
+ */
+export interface TableEvent {
+  keys: Map<string, { action: 'add' | 'update' | 'delete'; oldValue?: unknown }>;
+  current: (key: string) => unknown;
+}
+
+export function subscribeTable(name: TableName, fn: (e: TableEvent) => void): () => void {
   const c = getSharedDoc();
   const map = c.tables[name];
-  const handler = () => fn();
+  const handler = (event: Y.YMapEvent<unknown>) => fn({
+    keys: event.changes.keys as TableEvent['keys'],
+    current: (key) => map.get(key),
+  });
   map.observe(handler);
   return () => map.unobserve(handler);
 }

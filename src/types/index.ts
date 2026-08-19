@@ -148,6 +148,30 @@ export interface CropRect {
   h: number;
 }
 
+/** How a blur region hides its pixels. */
+export type BlurStyle = 'gaussian' | 'pixelate';
+
+/**
+ * One blurred (redacted) rectangle, in normalized coordinates relative to
+ * the *original* image — the same space as `CropRect`, but always inside the
+ * unit square: blurring pixels that don't exist is meaningless. Regions are
+ * anchored to the upload rather than the crop so re-framing a figure never
+ * moves a redaction off its secret.
+ *
+ * `style` and `strength` are optional so records written before they existed
+ * stay valid: absent means gaussian at strength 1 (the original behavior).
+ * Strength is a multiplier clamped to `MIN_STRENGTH`..`MAX_STRENGTH` in
+ * `lib/blur-math.ts`.
+ */
+export interface BlurRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  style?: BlurStyle;
+  strength?: number;
+}
+
 /**
  * Metadata for one uploaded asset. The bytes live on the server (see
  * server/assets.mjs); this record is what syncs through the shared Yjs doc.
@@ -172,6 +196,11 @@ export interface TypstAsset {
   height?: number | null;
   /** Normalized crop rect, or null/absent for "use the whole image". */
   crop?: CropRect | null;
+  /**
+   * Blurred (redacted) regions, or null/absent for none. Applied at render
+   * time like `crop`; anchored to the original image, not the crop.
+   */
+  blurs?: BlurRegion[] | null;
   /** Family name parsed from the font file — what you pass to `#set text(font:)`. */
   fontFamily?: string | null;
   createdAt: number;

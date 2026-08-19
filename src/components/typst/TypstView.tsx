@@ -12,12 +12,13 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as Y from 'yjs';
-import { PanelLeftClose, PanelLeftOpen, FileDown, Image, FileText, Images } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, FileDown, Image, FileText, Images, Search } from 'lucide-react';
 import { useAppStore } from '@/stores';
 import { getSharedDoc, getOrInitYText, textKey } from '@/realtime/shared-doc';
 import { replaceYTextContent } from '@/realtime/use-y-text';
-import { TypstEditor, revealTypstRange } from './TypstEditor';
+import { TypstEditor, revealTypstRange, getTypstCaret, setTypstSearchRequest } from './TypstEditor';
 import { TypstPreview, type SourceCandidate } from './TypstPreview';
+import { TypstSearchPanel } from './TypstSearchPanel';
 import { TypstAssetsPanel } from './TypstAssetsPanel';
 import {
   compileTypstPdf,
@@ -213,13 +214,25 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
   const dragCleanupRef = useRef<(() => void) | null>(null);
 
   // Mirror the Y.Text content into React state so the preview re-renders as
-  // the source changes (local or remote). The preview debounces compilation.
+  // the source changes (local or remote). Each observer fire does an
+  // O(document) toString() and re-renders the preview/assets/search panels,
+  // so coalesce a burst of keystrokes into one trailing update per frame-ish
+  // window. The first value is set synchronously so first paint has content,
+  // and every downstream consumer (compile, slot scan, search) debounces
+  // further on top of this, so 120ms of mirror lag is invisible.
   useEffect(() => {
     if (!ytext) return;
-    const update = () => setSource(ytext.toString());
-    update();
+    setSource(ytext.toString());
+    let timer: number | null = null;
+    const update = () => {
+      if (timer != null) return;
+      timer = window.setTimeout(() => { timer = null; setSource(ytext.toString()); }, 120);
+    };
     ytext.observe(update);
-    return () => ytext.unobserve(update);
+    return () => {
+      if (timer != null) window.clearTimeout(timer);
+      ytext.unobserve(update);
+    };
   }, [ytext]);
 
   // Defensive: if the tab unmounts mid-drag, tear the drag down (removes the
@@ -243,25 +256,63 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
    * collapsed would be the wrong call. The reveal is deferred a frame so the
    * newly-mounted CodeMirror instance exists before we drive it.
    */
-  const revealSource = useCallback((candidates: SourceCandidate[]) => {
-    let hit: SourceRange | null = null;
-    for (const c of candidates) {
-      hit = findSourceRange(sourceRef.current, c.text, c.occurrence);
-      if (hit) break;
-    }
-    if (!hit) return;
-    const range = hit;
+  /**
+   * Select `[from, to)` in the editor, opening the (possibly hidden) code pane
+   * first. Shared by click-to-source and the search panel. When the pane has
+   * to be revealed, the CodeMirror instance mounts a frame later, so the
+   * selection is deferred to the next frame.
+   */
+  const revealRange = useCallback((from: number, to: number, focus = true) => {
     if (!visibleRef.current.editor) {
       setLayout((prev) => {
         const merged = { ...prev, showEditor: true };
         saveTypstLayout(merged);
         return merged;
       });
-      requestAnimationFrame(() => revealTypstRange(range.from, range.to));
+      requestAnimationFrame(() => revealTypstRange(from, to, focus));
       return;
     }
-    revealTypstRange(range.from, range.to);
+    revealTypstRange(from, to, focus);
   }, []);
+
+  // The search panel selects matches without stealing focus from its input, so
+  // repeated Enter keeps stepping through results.
+  const revealForSearch = useCallback(
+    (from: number, to: number) => revealRange(from, to, false),
+    [revealRange],
+  );
+
+  const revealSource = useCallback((candidates: SourceCandidate[]) => {
+    let hit: SourceRange | null = null;
+    for (const c of candidates) {
+      hit = findSourceRange(sourceRef.current, c.text, c.occurrence);
+      if (hit) break;
+    }
+    if (hit) revealRange(hit.from, hit.to);
+  }, [revealRange]);
+
+  // Whole-document find & replace panel (lib/typst-search). Ctrl/⌘+F inside the
+  // editor and the header's Find button both route here; opening it reveals the
+  // code pane so there's something to search into.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const openSearch = useCallback(() => {
+    if (!visibleRef.current.editor) {
+      setLayout((prev) => {
+        const merged = { ...prev, showEditor: true };
+        saveTypstLayout(merged);
+        return merged;
+      });
+    }
+    setSearchOpen(true);
+  }, []);
+  const closeSearch = useCallback(() => setSearchOpen(false), []);
+
+  // Bridge the editor's Ctrl/⌘+F keybinding to this panel while the tab is
+  // mounted.
+  useEffect(() => {
+    setTypstSearchRequest(openSearch);
+    return () => setTypstSearchRequest(null);
+  }, [openSearch]);
 
   /**
    * Drag one of the two dividers.
@@ -426,6 +477,13 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
             Code
           </button>
           <button
+            onClick={openSearch}
+            title="Search the document (Ctrl/⌘+F)"
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))]"
+          >
+            <Search size={13} /> Find
+          </button>
+          <button
             onClick={togglePane('assets')}
             title={showAssets ? 'Hide assets panel' : 'Show assets panel'}
             className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] ${
@@ -463,9 +521,18 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
           <>
             <div
               ref={editorPaneRef}
-              className="min-w-0 shrink-0 overflow-hidden"
+              className="relative min-w-0 shrink-0 overflow-hidden"
               style={{ width: `${layout.editor}px`, contain: 'layout paint' }}
             >
+              {searchOpen && ytext && (
+                <TypstSearchPanel
+                  source={source}
+                  caret={getTypstCaret()}
+                  onReveal={revealForSearch}
+                  onReplaceSource={applySource}
+                  onClose={closeSearch}
+                />
+              )}
               {ytext ? (
                 <TypstEditor ytext={ytext} />
               ) : (

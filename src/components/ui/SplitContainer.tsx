@@ -53,6 +53,8 @@ function PaneRenderer({ node }: { node: PaneNode }) {
 function PaneSplit({ split }: { split: SplitPane }) {
   const updateSplitRatio = useAppStore((s) => s.updateSplitRatio);
   const containerRef = useRef<HTMLDivElement>(null);
+  const firstRef = useRef<HTMLDivElement>(null);
+  const secondRef = useRef<HTMLDivElement>(null);
   const [resizing, setResizing] = useState(false);
 
   const isH = split.direction === 'horizontal';
@@ -62,30 +64,49 @@ function PaneSplit({ split }: { split: SplitPane }) {
       e.preventDefault();
       setResizing(true);
 
+      // Write pane sizes straight to the DOM during the drag and commit the
+      // ratio to the store only on mouseup. Driving the store per mousemove
+      // produced a new paneLayout object on every event, which (a) fired the
+      // synchronous localStorage persist and (b) re-rendered every mounted
+      // tab view (Milkdown, React Flow, Typst). One rAF-throttled style
+      // write per frame instead. Mirrors TypstView's pane-resize pattern.
+      const dim = isH ? 'width' : 'height';
+      let latest = split.ratio;
+      let frame = 0;
+      const apply = () => {
+        frame = 0;
+        if (firstRef.current) firstRef.current.style[dim] = `calc(${latest * 100}% - 2px)`;
+        if (secondRef.current) secondRef.current.style[dim] = `calc(${(1 - latest) * 100}% - 2px)`;
+      };
+
       const onMove = (ev: MouseEvent) => {
         if (!containerRef.current) return;
         const rect = containerRef.current.getBoundingClientRect();
         const ratio = isH
           ? (ev.clientX - rect.left) / rect.width
           : (ev.clientY - rect.top) / rect.height;
-        updateSplitRatio(split.id, ratio);
+        latest = Math.min(0.9, Math.max(0.1, ratio));
+        if (!frame) frame = requestAnimationFrame(apply);
       };
 
       const onUp = () => {
+        if (frame) cancelAnimationFrame(frame);
         setResizing(false);
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
+        updateSplitRatio(split.id, latest);
       };
 
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     },
-    [isH, split.id, updateSplitRatio],
+    [isH, split.id, split.ratio, updateSplitRatio],
   );
 
   return (
     <div ref={containerRef} className={cn('flex h-full w-full', isH ? 'flex-row' : 'flex-col')}>
       <div
+        ref={firstRef}
         style={{ [isH ? 'width' : 'height']: `calc(${split.ratio * 100}% - 2px)` }}
         className="min-h-0 min-w-0 overflow-hidden"
       >
@@ -100,6 +121,7 @@ function PaneSplit({ split }: { split: SplitPane }) {
         )}
       />
       <div
+        ref={secondRef}
         style={{ [isH ? 'width' : 'height']: `calc(${(1 - split.ratio) * 100}% - 2px)` }}
         className="min-h-0 min-w-0 overflow-hidden"
       >

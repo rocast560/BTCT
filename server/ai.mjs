@@ -43,11 +43,32 @@ export function setAiConfig(body) {
   return getAiConfig();
 }
 
+// Reuse one Anthropic client per API key so TLS/keep-alive connections are
+// shared across chats instead of a fresh client (and cold connection) per
+// request. Rekeys automatically when the admin changes the key.
+let cachedClient = null;
+let cachedKey = null;
+function getAnthropic(apiKey) {
+  if (cachedClient && cachedKey === apiKey) return cachedClient;
+  cachedClient = new Anthropic({ apiKey });
+  cachedKey = apiKey;
+  return cachedClient;
+}
+
+/** Largest tool result we feed back into the model. A big nmap scan can be
+ *  megabytes; past this it's re-uploaded every round for no added value. */
+const MAX_TOOL_RESULT_BYTES = 100_000;
+function encodeToolResult(out) {
+  const s = JSON.stringify(out ?? null);
+  if (s.length <= MAX_TOOL_RESULT_BYTES) return s;
+  return s.slice(0, MAX_TOOL_RESULT_BYTES) + `\n…[truncated ${s.length - MAX_TOOL_RESULT_BYTES} chars]`;
+}
+
 /** Minimal live check that the configured key/model work, without leaking the key. */
 export async function testAiConnection() {
   const apiKey = getSetting(KEY);
   if (!apiKey) throw new Error('no API key configured');
-  const client = new Anthropic({ apiKey });
+  const client = getAnthropic(apiKey);
   const model = getSetting('ai_model') || DEFAULT_MODEL;
   await client.messages.create({
     model, max_tokens: 8,
@@ -165,13 +186,23 @@ export async function handleAiChat(req, res, { user, body, setCors }) {
     actor: { userId: user?.id ?? null, userName: user?.username ?? 'Claude', userColor: user?.color ?? '#d97757' },
   };
   const tools = cfg.mode === 'edit' ? [...READ_TOOLS, ...WRITE_TOOLS] : READ_TOOLS;
-  const client = new Anthropic({ apiKey });
+  const client = getAnthropic(apiKey);
 
   setCors?.(res);
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',
+  });
+
+  // If the browser hangs up, stop the loop: otherwise it keeps calling the
+  // Anthropic API (burning tokens) and, in edit mode, keeps writing to the
+  // shared CRDT, all to a dead socket where res.write silently no-ops.
+  let aborted = false;
+  let liveStream = null;
+  res.on('close', () => {
+    aborted = true;
+    try { liveStream?.abort?.(); } catch { /* already settled */ }
   });
 
   const convo = messages
@@ -181,6 +212,7 @@ export async function handleAiChat(req, res, { user, body, setCors }) {
   try {
     let rounds = 0;
     while (rounds++ < 12) {
+      if (aborted) break;
       const stream = client.messages.stream({
         model: cfg.model,
         max_tokens: 4096,
@@ -188,8 +220,10 @@ export async function handleAiChat(req, res, { user, body, setCors }) {
         tools,
         messages: convo,
       });
+      liveStream = stream;
       stream.on('text', (delta) => send(res, { type: 'text', text: delta }));
       const final = await stream.finalMessage();
+      liveStream = null;
       convo.push({ role: 'assistant', content: final.content });
 
       if (final.stop_reason !== 'tool_use') break;
@@ -197,6 +231,7 @@ export async function handleAiChat(req, res, { user, body, setCors }) {
       const results = [];
       for (const block of final.content) {
         if (block.type !== 'tool_use') continue;
+        if (aborted) break;
         send(res, { type: 'tool', name: block.name });
         let out;
         let isErr = false;
@@ -210,14 +245,15 @@ export async function handleAiChat(req, res, { user, body, setCors }) {
         // off "running <tool>" — otherwise a slow round looks stuck on the
         // last tool right through the model's next thinking pass.
         send(res, { type: 'tool_done', name: block.name, ok: !isErr });
-        results.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(out ?? null), is_error: isErr });
+        results.push({ type: 'tool_result', tool_use_id: block.id, content: encodeToolResult(out), is_error: isErr });
       }
+      if (aborted) break;
       convo.push({ role: 'user', content: results });
       // Another pass over the tool results is about to start. `round` is what
       // lets the UI distinguish a quick answer from extended research.
       send(res, { type: 'round', n: rounds });
     }
-    send(res, { type: 'done' });
+    if (!aborted) send(res, { type: 'done' });
   } catch (e) {
     send(res, { type: 'error', error: String(e?.message || e) });
   } finally {
