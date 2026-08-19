@@ -74,6 +74,95 @@ function allIndicesOf(haystack: string, needle: string): number[] {
   return out;
 }
 
+/** A line that opens a "design" statement — layout/config, not prose. */
+const DESIGN_DIRECTIVE = /^#(set|show|let|import|include)\b/;
+
+/**
+ * Character ranges occupied by **design** statements: page setup, `#set`/`#show`
+ * rules, imports, and helper `#let` definitions (e.g. the `image-placeholder`
+ * helper). Text that lives *only* inside one of these controls how the document
+ * looks, not what it says — so a click on rendered prose should never land
+ * there when the same words also exist as editable body content.
+ *
+ * A region starts at a line that, at bracket depth 0, begins with a design
+ * directive, and runs until the statement's brackets/braces have all closed —
+ * the first line end at which depth has returned to 0. That one rule covers
+ * every shape uniformly, because depth simply stays > 0 until the whole thing
+ * is closed:
+ *   - one-liners            `#set heading(numbering: "1.1")`
+ *   - multi-line calls      `#set page(\n  header: [Confidential]\n)`
+ *   - brace-bodied helpers  `#let ph(c, ..) = figure( ... )`
+ *
+ * Pure and offset-exact: because `normalizeForMatch` is 1:1 per character, the
+ * offsets returned here index the normalized haystack and the original source
+ * identically.
+ */
+export function designRegions(source: string): Array<[number, number]> {
+  const regions: Array<[number, number]> = [];
+  let depth = 0;
+  let start = -1; // start offset of the region we're inside, or -1
+  let lineStart = true;
+
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i]!;
+
+    // At the first non-space of a fresh line, and only when we're not already
+    // inside a region and all brackets are balanced, decide whether this line
+    // opens a design statement.
+    if (lineStart && start === -1 && depth === 0 && ch !== ' ' && ch !== '\t') {
+      if (DESIGN_DIRECTIVE.test(source.slice(i, i + 9))) start = i;
+      lineStart = false;
+    } else if (ch !== ' ' && ch !== '\t') {
+      lineStart = false;
+    }
+
+    switch (ch) {
+      case '(': case '[': case '{': depth++; break;
+      case ')': case ']': case '}': if (depth > 0) depth--; break;
+      case '\n':
+        if (start !== -1 && depth === 0) {
+          regions.push([start, i]);
+          start = -1;
+        }
+        lineStart = true;
+        break;
+    }
+  }
+  if (start !== -1) regions.push([start, source.length]);
+  return regions;
+}
+
+/** Whether `offset` falls inside any design region. */
+function inDesignRegion(offset: number, regions: ReadonlyArray<readonly [number, number]>): boolean {
+  for (const [s, e] of regions) if (offset >= s && offset < e) return true;
+  return false;
+}
+
+/**
+ * Choose the match to jump to among every occurrence of `needle`.
+ *
+ * Body prose the user can edit is preferred over identical text buried in a
+ * design region: clicking "Confidential" in the page body must not land in the
+ * `#set page(header: [Confidential])` that also renders it. Filtering the
+ * design occurrences out first *also* realigns the occurrence index — the
+ * rendered runs we count against are (mostly) body content, so counting only
+ * body matches makes the Nth click select the Nth body instance.
+ *
+ * Only when there is no body match at all do we fall back to the design
+ * occurrences, so a click never dead-ends when the sole source is a directive.
+ */
+function chooseMatch(
+  haystack: string,
+  needle: string,
+  occurrence: number,
+  regions: ReadonlyArray<readonly [number, number]>,
+): number | null {
+  const all = allIndicesOf(haystack, needle);
+  if (all.length === 0) return null;
+  const body = all.filter((i) => !inDesignRegion(i, regions));
+  return pickIndex(body.length > 0 ? body : all, occurrence);
+}
+
 /**
  * Pick the `occurrence`-th hit, clamping rather than failing.
  *
@@ -106,6 +195,10 @@ function longestWord(text: string): string | null {
  *   3. the first clause, cut at a dash or punctuation Typst may have rewritten,
  *   4. the longest single word — which survives almost any transformation.
  *
+ * Every strategy prefers an editable body match over one inside a design
+ * region (see `chooseMatch`), so a click lands on the prose to edit rather
+ * than on the styling that formats it.
+ *
  * Returns null only when nothing recognizable is found, so the caller can
  * leave the cursor where it is rather than jumping somewhere wrong.
  */
@@ -118,8 +211,10 @@ export function findSourceRange(
   const needle = normalizeForMatch(text).trim();
   if (needle.length < 2) return null;
 
+  const regions = designRegions(source);
+
   // 1. Exact.
-  let at = pickIndex(allIndicesOf(haystack, needle), occurrence);
+  let at = chooseMatch(haystack, needle, occurrence, regions);
   if (at !== null) return { from: at, to: at + needle.length };
 
   // 2. Collapse runs of whitespace in the needle and retry against a source
@@ -130,21 +225,21 @@ export function findSourceRange(
   const fragments = needle.split(/\s+/).filter((f) => f.length >= 3);
   if (fragments.length > 1) {
     const anchor = fragments.reduce((a, b) => (b.length > a.length ? b : a));
-    at = pickIndex(allIndicesOf(haystack, anchor), occurrence);
+    at = chooseMatch(haystack, anchor, occurrence, regions);
     if (at !== null) return { from: at, to: at + anchor.length };
   }
 
   // 3. First clause, before any character Typst commonly rewrites.
   const clause = needle.split(/[–—\-—–,;:]/)[0]?.trim() ?? '';
   if (clause.length >= 4) {
-    at = pickIndex(allIndicesOf(haystack, clause), occurrence);
+    at = chooseMatch(haystack, clause, occurrence, regions);
     if (at !== null) return { from: at, to: at + clause.length };
   }
 
   // 4. Longest word.
   const word = longestWord(needle);
   if (word) {
-    at = pickIndex(allIndicesOf(haystack, word), occurrence);
+    at = chooseMatch(haystack, word, occurrence, regions);
     if (at !== null) return { from: at, to: at + word.length };
   }
 

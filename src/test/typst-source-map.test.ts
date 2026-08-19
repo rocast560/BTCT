@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { findSourceRange, normalizeForMatch, occurrenceIndex } from '@/lib/typst-source-map';
+import {
+  designRegions,
+  findSourceRange,
+  normalizeForMatch,
+  occurrenceIndex,
+} from '@/lib/typst-source-map';
 
 const SRC = `#set page(margin: 1.5cm)
 #set heading(numbering: "1.1")
@@ -96,6 +101,73 @@ describe('findSourceRange', () => {
   it('falls back to the longest word when the phrase was transformed', () => {
     const r = findSourceRange(SRC, 'credentials — entirely absent', 0);
     expect(textAt(r)).toBe('credentials');
+  });
+});
+
+describe('designRegions', () => {
+  const textOf = (src: string, [s, e]: [number, number]) => src.slice(s, e);
+
+  it('captures a one-line #set directive', () => {
+    const src = '#set page(margin: 1cm)\n= Body\n';
+    const regions = designRegions(src);
+    expect(regions).toHaveLength(1);
+    expect(textOf(src, regions[0]!)).toBe('#set page(margin: 1cm)');
+  });
+
+  it('spans a multi-line #set that stays bracket-open across newlines', () => {
+    const src = '#set page(\n  header: [Confidential]\n)\n\n= Body\n';
+    const regions = designRegions(src);
+    expect(regions).toHaveLength(1);
+    expect(textOf(src, regions[0]!)).toContain('header: [Confidential]');
+  });
+
+  it('spans a brace-bodied #let helper', () => {
+    const src = '#let note(c) = block(\n  fill: red,\n)[#c]\n\n= Body\n';
+    const regions = designRegions(src);
+    expect(regions).toHaveLength(1);
+    expect(textOf(src, regions[0]!)).toContain('block(');
+  });
+
+  it('does not treat a content construct like #table as a design region', () => {
+    const src = '= Body\n\n#table(\n  [*Severity*], [High],\n)\n';
+    expect(designRegions(src)).toHaveLength(0);
+  });
+});
+
+describe('findSourceRange — prefers editable text over design', () => {
+  const SRC_WITH_HEADER = `#set page(header: [Acme Confidential])
+
+= Overview
+
+This Acme Confidential report covers the engagement.
+`;
+
+  it('jumps to body prose, not the identical text in a #set header', () => {
+    const r = findSourceRange(SRC_WITH_HEADER, 'Acme Confidential', 0)!;
+    // The body occurrence sits after the heading; the header one is on line 1.
+    expect(r.from).toBeGreaterThan(SRC_WITH_HEADER.indexOf('= Overview'));
+    expect(SRC_WITH_HEADER.slice(r.from, r.to)).toBe('Acme Confidential');
+  });
+
+  it('falls back to a design match when there is no body occurrence', () => {
+    // The header string exists nowhere else — we should still land on it
+    // rather than dead-ending.
+    const r = findSourceRange('#set page(header: [Draft Watermark])\n\n= Body\n', 'Draft Watermark', 0)!;
+    expect(r).not.toBeNull();
+    expect('#set page(header: [Draft Watermark])\n\n= Body\n'.slice(r.from, r.to)).toBe('Draft Watermark');
+  });
+
+  it('ignores the helper #let body when counting caption occurrences', () => {
+    const src = `#let cap(t) = figure(caption: [Figure: #t])
+
+= Body
+
+#cap("Login screen")
+`;
+    // "Figure" appears in the helper definition (design) and would otherwise
+    // steal the click; the real caption text is inside the call.
+    const r = findSourceRange(src, 'Login screen', 0)!;
+    expect(src.slice(r.from, r.to)).toBe('Login screen');
   });
 });
 

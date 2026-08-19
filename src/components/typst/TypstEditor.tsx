@@ -15,7 +15,7 @@ import {
   drawSelection, keymap,
 } from '@codemirror/view';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
-import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+import { highlightSelectionMatches } from '@codemirror/search';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import { getSharedDoc } from '@/realtime/shared-doc';
 import { useAuthStore } from '@/auth/auth-store';
@@ -132,8 +132,13 @@ let activeView: EditorView | null = null;
  *
  * Centers the target rather than scrolling it to the top edge, so the
  * surrounding context stays visible. Returns false when no editor is mounted.
+ *
+ * `focus` defaults to true (a preview click wants the caret in the editor to
+ * type immediately). The search panel passes `false` so focus stays in its
+ * input, letting `Enter`/`Shift+Enter` keep stepping through matches instead of
+ * being swallowed by the editor.
  */
-export function revealTypstRange(from: number, to: number): boolean {
+export function revealTypstRange(from: number, to: number, focus = true): boolean {
   const view = activeView;
   if (!view) return false;
   const max = view.state.doc.length;
@@ -143,8 +148,26 @@ export function revealTypstRange(from: number, to: number): boolean {
     selection: { anchor, head },
     effects: EditorView.scrollIntoView(anchor, { y: 'center' }),
   });
-  view.focus();
+  if (focus) view.focus();
   return true;
+}
+
+/**
+ * The current caret offset, so the search panel can start "find next" from
+ * where the user actually is rather than the top of the document. Returns 0
+ * when no editor is mounted.
+ */
+export function getTypstCaret(): number {
+  return activeView?.state.selection.main.head ?? 0;
+}
+
+// Bridge for the in-editor Ctrl/⌘+F: CodeMirror's key handler runs inside the
+// view, but the search *panel* is React state owned by TypstView. The view
+// calls this to ask the tab to open (and focus) the panel. Registered while
+// the tab is mounted; a no-op otherwise.
+let onSearchRequest: (() => void) | null = null;
+export function setTypstSearchRequest(fn: (() => void) | null): void {
+  onSearchRequest = fn;
 }
 
 /**
@@ -199,15 +222,19 @@ export const TypstEditor = memo(function TypstEditor({ ytext }: { ytext: Y.Text 
           typstLanguage(),
           typstHighlightExtension,
           editorTheme,
-          // Ctrl/⌘+F find & replace, scoped to this editor. `top: false` puts
-          // the panel at the bottom so it never covers the first lines of the
-          // document. Also highlights other occurrences of the selection.
-          search({ top: false }),
+          // Still highlight other occurrences of the current selection.
           highlightSelectionMatches(),
-          // searchKeymap goes BEFORE defaultKeymap: both bind Mod-d
-          // (selectNextOccurrence vs deleteCharForward on some platforms) and
-          // the first matching handler wins.
-          keymap.of([...yUndoManagerKeymap, ...searchKeymap, ...defaultKeymap, indentWithTab]),
+          // Ctrl/⌘+F opens BTCT's own whole-document search panel (see
+          // TypstSearchPanel) instead of CodeMirror's built-in, whose match
+          // decorations only cover the rendered viewport. This binding sits
+          // before defaultKeymap so it wins, and returns true to swallow the
+          // browser's native find.
+          keymap.of([
+            { key: 'Mod-f', preventDefault: true, run: () => { onSearchRequest?.(); return true; } },
+            ...yUndoManagerKeymap,
+            ...defaultKeymap,
+            indentWithTab,
+          ]),
           // Binds the editor doc to the Y.Text (source of truth) + remote carets.
           yCollab(ytext, awareness, { undoManager }),
         ],
