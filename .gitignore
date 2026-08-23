@@ -1,1 +1,4 @@
 node_modules
+# Scheduled backups written by the app (docker-compose bind mount)
+backups/
+server/backups/

@@ -44,7 +44,8 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8080 \
     STATIC_DIR=/app/dist \
-    DB_PATH=/data/data.sqlite
+    DB_PATH=/data/data.sqlite \
+    BACKUP_DIR=/backups
 
 # Copy server source + its node_modules.
 COPY --from=server-deps /server/node_modules /app/server/node_modules
@@ -57,12 +58,19 @@ COPY server/yjs-data.mjs /app/server/yjs-data.mjs
 COPY server/mcp.mjs     /app/server/mcp.mjs
 COPY server/assets.mjs  /app/server/assets.mjs
 COPY server/cmdlog.mjs  /app/server/cmdlog.mjs
+COPY server/scheduler.mjs     /app/server/scheduler.mjs
+COPY server/backup-format.mjs /app/server/backup-format.mjs
+COPY server/data-export.mjs   /app/server/data-export.mjs
+COPY server/backup.mjs        /app/server/backup.mjs
+COPY server/restore.mjs       /app/server/restore.mjs
 
 # Copy the static client build.
 COPY --from=client-build /app/dist /app/dist
 
-# Persistent volume for SQLite.
-RUN mkdir -p /data && chown -R bun:bun /data /app
+# Persistent volume for SQLite + Yjs + assets, and the backup folder the
+# compose file bind-mounts from the host (created here so a run without the
+# mount still has somewhere writable).
+RUN mkdir -p /data /backups && chown -R bun:bun /data /backups /app
 VOLUME ["/data"]
 USER bun
 

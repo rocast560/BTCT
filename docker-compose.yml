@@ -19,10 +19,19 @@ services:
       # they survive server restarts and image rebuilds. Lives on the same
       # named volume as the SQLite users DB.
       YPERSISTENCE: "/data/yjs"
+      # Where scheduled backups are written (see README "Backups"). The
+      # folder is bind-mounted from the host below so backups survive the
+      # container and can be copied anywhere.
+      BACKUP_DIR: "/backups"
       # Leave ALLOWED_ORIGIN unset for same-origin deployment (recommended).
       # Set it only if the API will be accessed from a different origin.
     volumes:
       - btct-data:/data
+      # Host folder for backups: ./backups next to this file. Change the left
+      # side to an absolute path (e.g. C:/btct/backups or /srv/btct/backups)
+      # to put them elsewhere. Docker Desktop must have file sharing enabled
+      # for that drive.
+      - ./backups:/backups
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s

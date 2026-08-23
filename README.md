@@ -504,7 +504,9 @@ full mechanics:
   admin (the server blocks deleting yourself or the last admin), configure the
   **Claude AI Assistant** (API key, View/Edit mode, model, enable; see
   [AI assistant](#ai-assistant-claude)), and the **MCP Server** (enable, edit
-  permissions, access token; see [MCP server](#mcp-server-connect-an-external-client)).
+  permissions, access token; see [MCP server](#mcp-server-connect-an-external-client)),
+  and **Backups** (consistent scheduled snapshots to a host folder; see
+  [Backups & restore](#backups--restore)).
 - **Profile**: your presence **color**, your per-account **code accent**, and
   your **note heading colours** (one colour for every level, or per-level
   overrides; "Auto" inherits the body text). Changes preview live in open
@@ -801,6 +803,13 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `POST` | `/api/cmdlog/config` | admin | Enable/disable, set whitelist + default workspace (mints a token on first enable) |
 | `POST` | `/api/cmdlog/token` | admin | Regenerate (rotate) the ingest token |
 | `DELETE` | `/api/cmdlog/logs?workspaceId=…` | admin | Purge a workspace's command-log archive |
+| `GET` | `/api/backup/config` | admin | Backup settings: `enabled`, `fullIntervalMin`, `includes`, folder, host token |
+| `POST` | `/api/backup/config` | admin | Update any of `enabled`, `fullIntervalMin`, `includes` |
+| `POST` | `/api/backup/token` | admin | Regenerate the host-scheduler token |
+| `GET` | `/api/backup/status` | admin or backup token | Last/next run, last error, folder writability, disk usage |
+| `POST` | `/api/backup/run` | admin or backup token | Run a backup now (409 while one is already running) |
+| `GET` | `/api/backup/list` | admin | Inventory of backup folders |
+| `DELETE` | `/api/backup/archives/:name` | admin | Delete one backup folder |
 | WS | `/yjs/<room>?token=<jwt>` | yes (at upgrade) | Yjs CRDT relay; rooms = `btct-shared` + one per page id |
 
 The `users` table is `(id, username [NOCASE unique], salt, hash, iter, color,
@@ -836,7 +845,9 @@ uses a static bearer token (`cmdlog_enabled`/`cmdlog_token`/`cmdlog_whitelist`/
 ephemeral if unset, which silently invalidates tokens on restart), `HOST`,
 `PORT`, `STATIC_DIR`, `DB_PATH`, `ASSETS_DIR` (Typst image/font blobs; defaults
 to `assets/` beside `DB_PATH`, i.e. `/data/assets` in Docker), `YPERSISTENCE`
-(LevelDB dir; **set it or Yjs rooms are memory-only**),
+(LevelDB dir; **set it or Yjs rooms are memory-only**), `BACKUP_DIR` (where
+scheduled backups are written; `/backups` in Docker, bind-mounted from
+`./backups`, else `backups/` beside `DB_PATH`),
 `ALLOWED_ORIGIN` (CORS; unset = same-origin),
 `ADMIN_USERNAME`/`ADMIN_PASSWORD` (bootstrap admin, default `admin`/`changeme!`).
 Client build-time: `VITE_API_URL`, `VITE_WS_URL` (default same-origin).
@@ -901,6 +912,11 @@ server/
   db.mjs                      bun:sqlite users + settings + assets + command_logs, migrations
   assets.mjs                  Typst image/font blob store (disk + metadata rows)
   cmdlog.mjs                  Command-log ingest + config (SQLite archive + CRDT live window)
+  scheduler.mjs               Single-timeout job scheduler: no overlap, no drift, persisted last run
+  backup-format.mjs           Backup folder layout, manifest build/verify, config normalisation (pure)
+  data-export.mjs             Consistent reads: VACUUM INTO, per-room Yjs updates, asset inventory
+  backup.mjs                  Backup engine: config, scheduled + manual runs, inventory, host token
+  restore.mjs                 Restore CLI (run with the server stopped)
 cmdlog-agent/                 Standalone Python 3 shell-capture agent (own README + tests)
   btct_agent/                 matcher, redactor, spool, shipper, daemon, installer, hooks/
 ```
@@ -993,6 +1009,10 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    the server-written `settingsPublic.theme` map in the shared doc, stamped with
    `themeUpdatedAt` so a stale IndexedDB replay never beats a newer value. Never
    put anything secret in `settingsPublic`: the whole doc reaches every user.
+20. **Never copy the live SQLite file or the LevelDB directory.** A WAL-mode
+   database copied mid-transaction and an open LevelDB copied mid-compaction
+   are both corrupt. Read through `server/data-export.mjs` (`VACUUM INTO`,
+   per-room Yjs updates) as the backup engine does, or stop the container first.
 
 ### Recipes: how to extend
 
@@ -1025,6 +1045,7 @@ server/
   auth.mjs                 PBKDF2 + HMAC token helpers
   db.mjs                   bun:sqlite users + settings
   cmdlog.mjs               Command-log ingest + config
+  backup.mjs, restore.mjs  Backup engine + restore CLI (with scheduler, backup-format, data-export)
 cmdlog-agent/              Standalone Python 3 command-capture agent (stdlib only)
 blog/                      Short illustrated write-up (why it exists + feature tour)
 Dockerfile                 Multi-stage build (client → server-deps → runtime)
@@ -1170,28 +1191,69 @@ runs those.
 
 ## Backups & restore
 
-Full-volume backup capturing every byte in `/data` (users, notes, snapshots,
-everything):
+BTCT backs itself up from inside the container, so a snapshot is **consistent**
+even while people are editing: SQLite is exported with `VACUUM INTO` (never a
+raw copy of a WAL-mode file), every Yjs room is written out as one update
+(never a copy of the open LevelDB directory), and uploaded assets are copied
+by id. Configure it in **Admin panel → Backups**.
 
-```powershell
-# Snapshot the live volume to a timestamped .tgz under ./backups
-.\Backup-BTCT.ps1
+**Where backups go.** One folder per run under the host folder bind-mounted at
+`/backups` (`./backups` next to `docker-compose.yml`; change the left side of
+the `./backups:/backups` line to put them elsewhere, e.g. `C:/btct/backups` or
+`/srv/btct/backups`). Docker Desktop must have file sharing enabled for that
+drive; on Linux add `user:` to the service so the files are not root-owned.
 
-# Tag the snapshot for context (recommended before risky operations)
-.\Backup-BTCT.ps1 -Tag "before-import"
+```
+backups/btct-backup-20260823-101500/
+  manifest.json                 what is inside + sha256 of every file
+  sqlite/data.sqlite.gz         accounts, settings, chat sessions, asset index
+  yjs/btct-shared.yupdate.gz    workspace metadata (pages list, graphs, findings, ...)
+  yjs/<pageId>.yupdate.gz       one per page body
+  assets/<id>                   uploaded screenshots and fonts
 ```
 
-Restore (destructive; wipes current contents, prompts for confirmation):
+A run is built under a `.tmp` name and renamed into place only after the
+manifest is written, so an interrupted run never passes for a backup.
 
-```powershell
-.\Restore-BTCT.ps1 -ArchivePath .\backups\btct-backup-20260521-031530.tgz
+**Schedule and selection.** Turn on *Scheduled backups* and pick the interval
+in minutes (minimum 1; the last run is remembered, so an overdue backup fires
+right after a restart). The four checkboxes choose what a run covers; leaving
+out accounts or workspace metadata makes the run restorable only with
+`--partial`. *Back up now* runs one immediately. Nothing is deleted
+automatically: the panel lists every run with its size and a bin icon removes
+one.
+
+**Host scheduler (optional).** To drive it from the host instead, the panel
+shows a token and a ready-made command:
+
+```bash
+curl -X POST -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/backup/run
 ```
 
-The restore script stops the container, replaces the volume contents with the
-archive's, and brings the container back up. Pass `-Force` to skip the
-"type `restore` to continue" prompt. Schedule periodic backups with Windows Task
-Scheduler pointing at `pwsh.exe -File C:\path\to\Backup-BTCT.ps1` (nightly is a
-sensible default during active engagements).
+Windows: create a Task Scheduler task that runs that `curl.exe` command every
+N minutes *as your user* (Docker Desktop needs a logged-in session, so not as
+SYSTEM), or point it at `Backup-BTCT.ps1`, which wraps the call. Linux: a cron
+line or a systemd timer with `Persistent=true` running the same command.
+
+**Restore.** With the container stopped, run the restore CLI inside the same
+image, pointing at a backup folder:
+
+```powershell
+docker compose stop btct
+docker compose run --rm btct bun server/restore.mjs /backups/btct-backup-20260823-101500 --yes
+docker compose start btct
+```
+
+It re-hashes every file against the manifest first, refuses to run while the
+server still holds the LevelDB lock, moves the current data into
+`/data/pre-restore-<stamp>/` (kept, not deleted), then writes the SQLite file
+(without any stale `-wal`/`-shm`), rebuilds the Yjs rooms through y-leveldb,
+and copies the assets. `--partial` restores a backup that lacks a category on
+top of the existing data. `Restore-BTCT.ps1` wraps the three commands.
+
+A cold, byte-for-byte copy of the volume (for migrations) is still possible
+with `docker run --rm -v beenthereconqueredthat_btct-data:/data:ro -v ${PWD}/backups:/backup alpine tar czf /backup/volume.tgz -C /data .`,
+but only with the container stopped; a copy of the live files can be corrupt.
 
 For *per-workspace* portability (no users/SQLite) use the in-app
 [Lossless workspace ZIP](#export--import) instead.

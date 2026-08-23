@@ -29,6 +29,10 @@ import { getAiConfig, setAiConfig, testAiConnection, handleAiChat } from './ai.m
 import { getMcpConfig, setMcpConfig, regenerateMcpToken, handleMcp } from './mcp.mjs';
 import { publishPublicSettings } from './yjs-data.mjs';
 import {
+  getBackupConfig, setBackupConfig, regenerateBackupToken, runBackupNow,
+  listBackups, deleteBackup, backupStatus, matchesBackupToken, startBackupScheduler,
+} from './backup.mjs';
+import {
   getCmdlogConfig,
   setCmdlogConfig,
   regenerateCmdlogToken,
@@ -605,6 +609,54 @@ const httpServer = http.createServer(async (req, res) => {
       return handleCmdlogClear(req, res, { sendJson });
     }
 
+    // ── Backups (host folder target; see server/backup.mjs) ───────────
+    // Config and the inventory are admin-only. Status and "run now" also
+    // accept the static backup token so a host scheduler (Task Scheduler,
+    // cron, systemd) can drive them without an admin session.
+    if (req.method === 'GET' && req.url === '/api/backup/config') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      return sendJson(res, 200, getBackupConfig());
+    }
+    if (req.method === 'POST' && req.url === '/api/backup/config') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      const body = await readJsonBody(req, 8 * 1024);
+      try { return sendJson(res, 200, setBackupConfig(body)); }
+      catch (e) { return sendJson(res, 400, { error: String(e?.message || e) }); }
+    }
+    if (req.method === 'POST' && req.url === '/api/backup/token') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      return sendJson(res, 200, { token: regenerateBackupToken() });
+    }
+    if (req.method === 'GET' && req.url === '/api/backup/status') {
+      if (!authFromHeader(req)?.admin && !matchesBackupToken(req)) return sendJson(res, 401, { error: 'unauthorized' });
+      return sendJson(res, 200, backupStatus());
+    }
+    if (req.method === 'POST' && req.url === '/api/backup/run') {
+      if (!authFromHeader(req)?.admin && !matchesBackupToken(req)) return sendJson(res, 401, { error: 'unauthorized' });
+      try {
+        const r = await runBackupNow('manual');
+        if (!r.ran) return sendJson(res, 409, { ...r, error: 'a backup is already running' });
+        return sendJson(res, 200, r);
+      } catch (e) {
+        return sendJson(res, 500, { error: String(e?.message || e) });
+      }
+    }
+    if (req.method === 'GET' && req.url === '/api/backup/list') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      return sendJson(res, 200, { backups: listBackups() });
+    }
+    if (req.method === 'DELETE' && req.url?.startsWith('/api/backup/archives/')) {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      const name = decodeURIComponent(req.url.slice('/api/backup/archives/'.length).split('?')[0]);
+      try { deleteBackup(name); return sendJson(res, 200, { ok: true }); }
+      catch (e) { return sendJson(res, e?.code === 'NOT_FOUND' ? 404 : 400, { error: String(e?.message || e) }); }
+    }
+
     // ── MCP server (connect an external MCP client, e.g. Claude Code CLI) ──
     // Config is admin-only; the /mcp endpoint authenticates with its own token.
     if (req.method === 'GET' && req.url === '/api/mcp/config') {
@@ -784,4 +836,7 @@ httpServer.listen(PORT, HOST, () => {
   console.log(`[btct-server] HTTP/WS listening on http://${HOST}:${PORT}`);
   if (STATIC_DIR) console.log(`[btct-server] serving static client from ${STATIC_DIR}`);
   console.log(`[btct-server] CORS allowed origin: ${ALLOWED_ORIGIN || '(same-origin only)'}`);
+  // Scheduled backups (server/backup.mjs). Persisted last-run means an
+  // overdue backup fires right after a restart instead of a full interval later.
+  startBackupScheduler();
 });

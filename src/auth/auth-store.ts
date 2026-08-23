@@ -86,6 +86,76 @@ export interface CmdlogConfig {
   whitelist: string[];
   workspaceId: string | null;
 }
+/** Backup engine (server/backup.mjs): what a run covers. */
+export interface BackupIncludes {
+  sqlite: boolean;
+  yjsShared: boolean;
+  yjsPages: boolean;
+  assets: boolean;
+}
+
+export interface BackupConfig {
+  enabled: boolean;
+  fullIntervalMin: number;
+  includes: BackupIncludes;
+  dir: string;
+  token: string | null;
+  configured: boolean;
+  instanceId: string;
+}
+
+export interface BackupConfigInput {
+  enabled?: boolean;
+  fullIntervalMin?: number;
+  includes?: Partial<BackupIncludes>;
+}
+
+export interface BackupLast {
+  name: string;
+  bytes: number;
+  files: number;
+  docs?: number;
+  assets?: number;
+  at: number;
+  trigger: string;
+  durationMs?: number;
+}
+
+export interface BackupStatus {
+  enabled: boolean;
+  fullIntervalMin: number;
+  includes: BackupIncludes;
+  dir: string;
+  dirWritable: boolean;
+  running: boolean;
+  lastRunAt: number | null;
+  lastSuccessAt: number | null;
+  lastDurationMs: number | null;
+  lastError: string | null;
+  nextRunAt: number | null;
+  lastBackup: BackupLast | null;
+  usage: { count: number; totalBytes: number };
+}
+
+export interface BackupEntry {
+  name: string;
+  createdAt: string;
+  bytes: number;
+  files: number;
+  includes: BackupIncludes | null;
+  trigger: string | null;
+  partial: boolean;
+}
+
+export interface BackupRunResult {
+  ran: boolean;
+  reason?: string;
+  name?: string;
+  bytes?: number;
+  files?: number;
+  durationMs?: number;
+}
+
 export interface CmdlogConfigInput {
   enabled?: boolean;
   whitelist?: string[];
@@ -200,6 +270,14 @@ interface AuthState {
   cmdlogRegenerateToken: () => Promise<{ token: string }>;
   cmdlogQuery: (params: CmdlogQueryParams) => Promise<CommandLogEntry[]>;
   cmdlogAddManual: (entry: CmdlogManualInput) => Promise<CommandLogEntry>;
+  // Backups (admin only; status/run also accept the backup token server-side).
+  backupGetConfig: () => Promise<BackupConfig>;
+  backupSaveConfig: (patch: BackupConfigInput) => Promise<BackupConfig>;
+  backupRegenerateToken: () => Promise<{ token: string }>;
+  backupStatus: () => Promise<BackupStatus>;
+  backupRun: () => Promise<BackupRunResult>;
+  backupList: () => Promise<BackupEntry[]>;
+  backupDelete: (name: string) => Promise<void>;
 }
 
 /** A hand-entered command-log record (manual add). */
@@ -375,5 +453,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   cmdlogAddManual: async (entry) => {
     const data = await postJson<{ log: CommandLogEntry }>('/api/cmdlog/manual', entry, get().token);
     return data.log;
+  },
+
+  backupGetConfig: async () => getJson<BackupConfig>('/api/backup/config', get().token),
+  backupSaveConfig: async (patch) => postJson<BackupConfig>('/api/backup/config', patch, get().token),
+  backupRegenerateToken: async () => postJson<{ token: string }>('/api/backup/token', {}, get().token),
+  backupStatus: async () => getJson<BackupStatus>('/api/backup/status', get().token),
+  backupRun: async () => postJson<BackupRunResult>('/api/backup/run', {}, get().token),
+  backupList: async () => (await getJson<{ backups: BackupEntry[] }>('/api/backup/list', get().token)).backups,
+  backupDelete: async (name) => {
+    await deleteJson<{ ok: boolean }>(`/api/backup/archives/${encodeURIComponent(name)}`, get().token);
   },
 }));

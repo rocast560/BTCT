@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw, Terminal } from 'lucide-react';
-import { useAuthStore, type AdminUserRow, type AiConfig, type McpConfig, type CmdlogConfig } from '@/auth/auth-store';
+import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw, Terminal, HardDrive, Play } from 'lucide-react';
+import {
+  useAuthStore,
+  type AdminUserRow,
+  type AiConfig,
+  type McpConfig,
+  type CmdlogConfig,
+  type BackupConfig,
+  type BackupConfigInput,
+  type BackupStatus,
+  type BackupEntry,
+} from '@/auth/auth-store';
 import { useAppStore } from '@/stores';
 
 /**
@@ -124,6 +134,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
 
           {/* Command-log ingest configuration */}
           <CmdlogConfigSection />
+
+          {/* Scheduled backups to the host folder */}
+          <BackupConfigSection />
 
           {/* Create-user form */}
           <form
@@ -655,6 +668,281 @@ function CmdlogConfigSection() {
 
       {(msg || err) && (
         <div className={`mt-2 text-[11px] ${err ? 'text-[hsl(var(--status-red))]' : 'text-white/60'}`}>{err || msg}</div>
+      )}
+    </div>
+  );
+}
+
+// ── Backups ─────────────────────────────────────────────────────────────
+//
+// Consistent snapshots of the whole instance into the host folder mounted
+// at BACKUP_DIR (server/backup.mjs). Toggles save immediately (the MCP
+// section's pattern); the interval commits on blur/Enter. Nothing is deleted
+// automatically, so the inventory below is the retention tool.
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let x = n / 1024;
+  let i = 0;
+  while (x >= 1024 && i < units.length - 1) { x /= 1024; i++; }
+  return `${x.toFixed(1)} ${units[i]}`;
+}
+
+function fmtWhen(ms: number | null | undefined): string {
+  if (!ms) return 'never';
+  return new Date(ms).toLocaleString();
+}
+
+function fmtUntil(ms: number | null | undefined): string {
+  if (!ms) return 'not scheduled';
+  const mins = Math.round((ms - Date.now()) / 60000);
+  if (mins <= 0) return 'now';
+  if (mins < 60) return `in ${mins} min`;
+  const h = Math.floor(mins / 60);
+  return `in ${h} h ${mins - h * 60} min`;
+}
+
+const INCLUDE_LABELS: ReadonlyArray<{ key: keyof BackupConfig['includes']; label: string; hint: string }> = [
+  { key: 'sqlite', label: 'Accounts & settings', hint: 'SQLite: users, prefs, settings, chat sessions, asset index' },
+  { key: 'yjsShared', label: 'Workspace metadata', hint: 'the shared doc: pages list, graphs, findings, chains, nmap, change log' },
+  { key: 'yjsPages', label: 'Page bodies', hint: 'one Yjs document per page' },
+  { key: 'assets', label: 'Uploaded assets', hint: 'Typst screenshots and fonts' },
+];
+
+function BackupConfigSection() {
+  const backupGetConfig = useAuthStore((s) => s.backupGetConfig);
+  const backupSaveConfig = useAuthStore((s) => s.backupSaveConfig);
+  const backupRegenerateToken = useAuthStore((s) => s.backupRegenerateToken);
+  const backupStatus = useAuthStore((s) => s.backupStatus);
+  const backupRun = useAuthStore((s) => s.backupRun);
+  const backupList = useAuthStore((s) => s.backupList);
+  const backupDelete = useAuthStore((s) => s.backupDelete);
+
+  const [cfg, setCfg] = useState<BackupConfig | null>(null);
+  const [status, setStatus] = useState<BackupStatus | null>(null);
+  const [list, setList] = useState<BackupEntry[]>([]);
+  const [intervalMin, setIntervalMin] = useState('60');
+  const [busy, setBusy] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const [c, s, l] = await Promise.all([backupGetConfig(), backupStatus(), backupList()]);
+      setCfg(c);
+      setStatus(s);
+      setList(l);
+      setIntervalMin(String(c.fullIntervalMin));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'failed to load backup settings');
+    }
+  };
+  useEffect(() => {
+    void refresh();
+    // Status is cheap; poll it while the panel is open so a scheduled run shows up.
+    const t = window.setInterval(() => { void backupStatus().then(setStatus).catch(() => {}); }, 15000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const save = async (patch: BackupConfigInput, note: string) => {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      setCfg(await backupSaveConfig(patch));
+      setMsg(note);
+      setStatus(await backupStatus());
+    } catch (e) { setErr(e instanceof Error ? e.message : 'save failed'); }
+    finally { setBusy(false); }
+  };
+  const commitInterval = () => {
+    const n = Number(intervalMin);
+    if (!Number.isFinite(n) || n < 1) { setErr('interval must be at least 1 minute'); return; }
+    if (cfg && Math.floor(n) !== cfg.fullIntervalMin) void save({ fullIntervalMin: Math.floor(n) }, `Backing up every ${Math.floor(n)} min`);
+  };
+  const runNow = async () => {
+    setRunning(true); setErr(null); setMsg(null);
+    try {
+      const r = await backupRun();
+      setMsg(r.ran
+        ? `Wrote ${r.name} (${fmtBytes(r.bytes ?? 0)}, ${r.files ?? 0} files, ${Math.max(1, Math.round((r.durationMs ?? 0) / 1000))} s)`
+        : 'A backup is already running');
+    } catch (e) { setErr(e instanceof Error ? e.message : 'backup failed'); }
+    finally { setRunning(false); await refresh(); }
+  };
+  const remove = async (name: string) => {
+    if (!window.confirm(`Delete backup ${name}? This cannot be undone.`)) return;
+    setBusy(true); setErr(null); setMsg(null);
+    try { await backupDelete(name); setMsg(`Deleted ${name}`); await refresh(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'delete failed'); }
+    finally { setBusy(false); }
+  };
+  const regen = async () => {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const { token } = await backupRegenerateToken();
+      setCfg((c) => (c ? { ...c, token, configured: true } : c));
+      setRevealed(true); setMsg('Backup token regenerated');
+    } catch (e) { setErr(e instanceof Error ? e.message : 'failed'); }
+    finally { setBusy(false); }
+  };
+  const copy = (text: string) => {
+    try { void navigator.clipboard.writeText(text); setMsg('Copied'); } catch { /* ignore */ }
+  };
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const token = cfg?.token || '';
+  const runCmd = `curl -X POST -H "Authorization: Bearer ${token || '<token>'}" ${origin}/api/backup/run`;
+  const isRunning = running || !!status?.running;
+
+  return (
+    <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
+      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/70">
+        <HardDrive size={12} className="text-[hsl(var(--primary))]" /> Backups
+      </div>
+      <p className="mb-2 text-[10px] text-white/50">
+        Consistent snapshots of the whole instance, written as one folder per run into the host folder below.
+        Nothing is deleted automatically; remove old runs from the list when you want the space back.
+      </p>
+
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="text-white/50">Folder</span>
+        <code className="rounded bg-black/30 px-1.5 py-0.5 text-[10px] text-white/80">{cfg?.dir ?? status?.dir ?? '…'}</code>
+        {status && (
+          <span className={`rounded px-1.5 py-0.5 text-[10px] ${status.dirWritable ? 'bg-[hsl(var(--status-green))]/15 text-[hsl(var(--status-green))]' : 'bg-[hsl(var(--status-red))]/15 text-[hsl(var(--status-red))]'}`}>
+            {status.dirWritable ? 'writable' : 'not writable: check the ./backups bind mount'}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-[11px] text-white/70">
+          <input
+            type="checkbox"
+            checked={!!cfg?.enabled}
+            disabled={!cfg || busy}
+            onChange={(e) => save({ enabled: e.target.checked }, e.target.checked ? 'Scheduled backups on' : 'Scheduled backups off')}
+          />
+          Scheduled backups
+        </label>
+        <label className="flex items-center gap-1.5 text-[11px] text-white/70">
+          every
+          <input
+            type="number"
+            min={1}
+            value={intervalMin}
+            disabled={!cfg || busy}
+            onChange={(e) => setIntervalMin(e.target.value)}
+            onBlur={commitInterval}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitInterval(); }}
+            className="w-16 rounded-md border border-white/15 bg-black/30 px-1.5 py-0.5 text-[11px] text-white/80 outline-none focus:border-[hsl(var(--primary))]"
+          />
+          min
+        </label>
+        <button
+          type="button"
+          onClick={runNow}
+          disabled={!cfg || isRunning}
+          className="flex items-center gap-1 rounded-md border border-[hsl(var(--primary))]/50 bg-[hsl(var(--primary))]/15 px-2 py-1 text-[11px] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/25 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Play size={11} /> {isRunning ? 'Backing up…' : 'Back up now'}
+        </button>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+        {INCLUDE_LABELS.map((inc) => (
+          <label key={inc.key} className="flex items-center gap-1.5 text-[11px] text-white/70" title={inc.hint}>
+            <input
+              type="checkbox"
+              checked={cfg ? cfg.includes[inc.key] : true}
+              disabled={!cfg || busy}
+              onChange={(e) => save({ includes: { [inc.key]: e.target.checked } }, `${inc.label}: ${e.target.checked ? 'included' : 'excluded'}`)}
+            />
+            {inc.label}
+          </label>
+        ))}
+      </div>
+      {cfg && (!cfg.includes.sqlite || !cfg.includes.yjsShared) && (
+        <p className="mt-1 text-[10px] text-[hsl(var(--status-amber))]">
+          A backup without accounts or workspace metadata can only be restored with --partial on top of existing data.
+        </p>
+      )}
+
+      {status && (
+        <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-0.5 text-[10px] text-white/60 sm:grid-cols-2">
+          <div>
+            Last run: {fmtWhen(status.lastRunAt)}
+            {status.lastError ? (
+              <span className="text-[hsl(var(--status-red))]"> failed: {status.lastError}</span>
+            ) : status.lastBackup ? (
+              <span className="text-[hsl(var(--status-green))]"> ok, {fmtBytes(status.lastBackup.bytes)} in {Math.max(1, Math.round((status.lastBackup.durationMs ?? 0) / 1000))} s</span>
+            ) : null}
+          </div>
+          <div>Next run: {status.enabled ? fmtUntil(status.nextRunAt) : 'schedule off'}</div>
+          <div>On disk: {status.usage.count} backup{status.usage.count === 1 ? '' : 's'}, {fmtBytes(status.usage.totalBytes)}</div>
+          {status.lastBackup && <div>Latest: <code className="text-white/70">{status.lastBackup.name}</code></div>}
+        </div>
+      )}
+
+      {list.length > 0 && (
+        <div className="mt-2 max-h-40 overflow-y-auto rounded-md border border-white/10">
+          <table className="w-full text-[10px]">
+            <tbody>
+              {list.map((b) => (
+                <tr key={b.name} className="border-b border-white/5 last:border-0">
+                  <td className="px-2 py-1 font-mono text-white/80">{b.name}{b.partial ? <span className="ml-1 text-[hsl(var(--status-amber))]">(incomplete)</span> : null}</td>
+                  <td className="px-2 py-1 text-white/50">{new Date(b.createdAt).toLocaleString()}</td>
+                  <td className="px-2 py-1 text-right text-white/60">{fmtBytes(b.bytes)}</td>
+                  <td className="px-2 py-1 text-right text-white/40">{b.files} files</td>
+                  <td className="px-1 py-1 text-right">
+                    <button
+                      type="button"
+                      onClick={() => remove(b.name)}
+                      disabled={busy}
+                      title="Delete this backup"
+                      className="rounded p-1 text-white/40 hover:bg-[hsl(var(--status-red))]/15 hover:text-[hsl(var(--status-red))] disabled:opacity-40"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="mt-2 rounded-md border border-white/10 bg-black/20 p-2">
+        <div className="mb-1 text-[10px] text-white/50">
+          Host scheduler (optional): a Task Scheduler job, cron entry or systemd timer can trigger a run with this token instead of an admin login.
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <code className="flex-1 truncate rounded bg-black/30 px-1.5 py-0.5 font-mono text-[10px] text-white/70">
+            {cfg?.configured ? (revealed ? token : '•'.repeat(24)) : 'no token yet (enable backups or regenerate)'}
+          </code>
+          {cfg?.configured && (
+            <button type="button" onClick={() => setRevealed((r) => !r)} className="text-[10px] text-white/60 hover:text-white">
+              {revealed ? 'Hide' : 'Reveal'}
+            </button>
+          )}
+          {cfg?.configured && (
+            <button type="button" onClick={() => copy(runCmd)} title="Copy a curl command that runs a backup" className="flex items-center gap-1 text-[10px] text-white/60 hover:text-white">
+              <Copy size={10} /> Copy curl
+            </button>
+          )}
+          <button type="button" onClick={regen} disabled={busy} className="flex items-center gap-1 text-[10px] text-white/60 hover:text-white disabled:opacity-40">
+            <RefreshCw size={10} /> Regenerate
+          </button>
+        </div>
+        <div className="mt-1 text-[10px] text-white/40">
+          Restore: stop the container, then <code>docker compose run --rm btct bun server/restore.mjs /backups/&lt;name&gt; --yes</code>, then start it. See README "Backups".
+        </div>
+      </div>
+
+      {(msg || err) && (
+        <div className={`mt-2 text-[10px] ${err ? 'text-[hsl(var(--status-red))]' : 'text-[hsl(var(--status-green))]'}`}>{err || msg}</div>
       )}
     </div>
   );

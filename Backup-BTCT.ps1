@@ -1,50 +1,36 @@
-# Backup-BTCT.ps1 — snapshot the BTCT Docker volume to a timestamped .tgz.
+# Backup-BTCT.ps1: trigger a BTCT backup through the app's own engine.
 #
-# What it captures:
-#   - /data/data.sqlite       (user accounts)
-#   - /data/yjs/              (Yjs LevelDB: all pages, graphs, attack chains,
-#                              nmap scans, change logs)
+# The app writes consistent snapshots itself (Admin panel -> Backups), one
+# folder per run into the host folder bind-mounted at /backups (./backups next
+# to docker-compose.yml by default). This script only calls the "run now"
+# endpoint, so it can be scheduled from Windows Task Scheduler (run the task as
+# your own user: Docker Desktop needs a logged-in session).
 #
-# Output filename: btct-backup-YYYYMMDD-HHmmss.tgz under -OutputDir
-# (default: <repo>\backups\).
+# Token: Admin panel -> Backups -> Reveal. Pass -Token or set BTCT_BACKUP_TOKEN.
 
 [CmdletBinding()]
 param(
-    [string] $OutputDir  = (Join-Path (Split-Path -Parent $PSCommandPath) 'backups'),
-    [string] $VolumeName = 'beenthereconqueredthat_btct-data',
-    [string] $Tag                                # optional human-readable suffix
+    [string] $BaseUrl = 'http://127.0.0.1:8080',   # 127.0.0.1, not localhost (see README "Running on Windows")
+    [string] $Token   = $env:BTCT_BACKUP_TOKEN
 )
 $ErrorActionPreference = 'Stop'
 
-if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-    throw "Docker CLI not found on PATH. Install Docker Desktop for Windows first."
+if (-not $Token) {
+    throw "No token. Pass -Token or set BTCT_BACKUP_TOKEN (Admin panel -> Backups -> Reveal)."
 }
 
-# Confirm the volume actually exists; bail clearly if not.
-$volumeExists = & docker volume inspect $VolumeName 2>$null
-if ($LASTEXITCODE -ne 0) {
-    throw "Docker volume '$VolumeName' not found. Has the app ever been started? Run Start-BTCT.ps1 first."
+$headers = @{ Authorization = "Bearer $Token" }
+Write-Host "[Backup-BTCT] requesting a backup from $BaseUrl ..." -ForegroundColor Cyan
+try {
+    $r = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/backup/run" -Headers $headers -TimeoutSec 3600
+} catch {
+    throw "Backup request failed: $($_.Exception.Message)"
 }
 
-if (-not (Test-Path $OutputDir)) {
-    New-Item -ItemType Directory -Path $OutputDir | Out-Null
+if ($r.ran) {
+    $mb = [math]::Round($r.bytes / 1MB, 1)
+    $secs = [math]::Round($r.durationMs / 1000)
+    Write-Host "[Backup-BTCT] wrote $($r.name) ($mb MB, $($r.files) files, $secs s)" -ForegroundColor Green
+} else {
+    Write-Host "[Backup-BTCT] a backup is already running" -ForegroundColor Yellow
 }
-$stamp    = Get-Date -Format 'yyyyMMdd-HHmmss'
-$suffix   = if ($Tag) { "-$Tag" } else { '' }
-$fileName = "btct-backup-$stamp$suffix.tgz"
-$outPath  = Join-Path $OutputDir $fileName
-
-Write-Host "[Backup-BTCT] dumping '$VolumeName' -> $outPath" -ForegroundColor Cyan
-
-# Mount the volume into a throwaway alpine container and tar it out to the
-# host via a bind mount. -C /data so paths inside the archive are relative.
-$hostMount = (Resolve-Path $OutputDir).Path -replace '\\', '/'
-& docker run --rm `
-    -v "${VolumeName}:/data:ro" `
-    -v "${hostMount}:/backup" `
-    alpine `
-    tar czf "/backup/$fileName" -C /data .
-if ($LASTEXITCODE -ne 0) { throw "docker tar failed (exit $LASTEXITCODE)." }
-
-$size = (Get-Item $outPath).Length
-Write-Host ("[Backup-BTCT] wrote {0} ({1:N1} MB)" -f $outPath, ($size/1MB)) -ForegroundColor Green
