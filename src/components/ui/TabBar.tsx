@@ -43,7 +43,7 @@ export function TabBar() {
   if (isSplit) {
     if (leftSidebarOpen && rightSidebarOpen) return null;
     return (
-      <div className="flex h-8 shrink-0 items-center border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2">
+      <div data-ui="tabbar" className="flex h-8 shrink-0 items-center border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2">
         {!leftSidebarOpen && (
           <button onClick={toggleLeftSidebar} className="shrink-0 rounded-md p-1.5 hover:bg-[hsl(var(--accent))]" title="Open sidebar">
             <PanelLeftOpen size={14} />
@@ -60,7 +60,7 @@ export function TabBar() {
   }
 
   return (
-    <div className="flex h-10 items-center gap-1 border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2">
+    <div data-ui="tabbar" className="flex h-10 items-center gap-1 border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2">
       {!leftSidebarOpen && (
         <button onClick={toggleLeftSidebar} className="shrink-0 rounded-md p-1.5 hover:bg-[hsl(var(--accent))]" title="Open sidebar">
           <PanelLeftOpen size={14} />

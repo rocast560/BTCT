@@ -211,7 +211,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
     >
       {/* Per-pane tab strip (only shown when splits exist — global TabBar handles single-pane tabs) */}
       {hasSplits && paneTabs.length > 0 && (
-        <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2">
+        <div data-ui="tabbar" className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2">
           {paneTabs.map((tab) => (
             <PaneTabChip
               key={tab.id}

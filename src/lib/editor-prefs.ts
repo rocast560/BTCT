@@ -9,11 +9,15 @@
 //   3. `follow`: live-follow precision and pane placement.
 //   4. `theme`: note heading colours (see src/lib/theme.ts
 //      `applyHeadingColors`; an admin can override or hard-lock these).
+//   5. `uiTheme`: which interface look this account uses (classic or glass;
+//      see src/themes/registry.ts).
 //
 // Prefs are persisted server-side on the user row (JSON blob) and arrive on the
 // `AuthUser.prefs` field. The defaults below are merged under whatever the
 // account has saved so a brand-new / never-customized account still works.
 // ─────────────────────────────────────────────────────────────────────────
+
+import { DEFAULT_UI_THEME, normalizeUiTheme, type UiThemeId } from '@/themes/registry';
 
 export type KeybindAction =
   | 'bold'
@@ -68,6 +72,8 @@ export interface EditorPrefs {
   follow: FollowPrefs;
   /** Note heading colours. */
   theme: ThemePrefs;
+  /** Interface theme id (src/themes/registry.ts). */
+  uiTheme: UiThemeId;
 }
 
 // GitHub Dark's keyword color. The rest of the code palette is fixed GitHub
@@ -102,6 +108,7 @@ export const DEFAULT_EDITOR_PREFS: EditorPrefs = {
   keybinds: { ...DEFAULT_KEYBINDS },
   follow: { ...DEFAULT_FOLLOW_PREFS, precisionByUserId: {} },
   theme: { headingColor: null, headings: {} },
+  uiTheme: DEFAULT_UI_THEME,
 };
 
 // Human-readable labels + display order for the keybinds dialog.
@@ -192,8 +199,9 @@ export function resolvePrefs(user: MaybeUser | null | undefined): EditorPrefs {
   }
 
   const theme = resolveThemePrefs(stored.theme);
+  const uiTheme = normalizeUiTheme(stored.uiTheme);
 
-  return { codeAccent, keybinds, follow, theme };
+  return { codeAccent, keybinds, follow, theme, uiTheme };
 }
 
 // ── Shortcut parsing / matching ──────────────────────────────────────────

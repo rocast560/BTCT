@@ -6,6 +6,8 @@ import { WorkspaceSelector } from '@/components/ui/WorkspaceSelector';
 import { AdminPanel } from '@/components/sidebar/AdminPanel';
 import { ProfileEditor } from '@/components/sidebar/ProfileEditor';
 import { ThemePicker } from '@/components/sidebar/ThemePicker';
+import { applyUiTheme, nextUiTheme, UI_THEMES } from '@/themes/registry';
+import { resolvePrefs } from '@/lib/editor-prefs';
 import {
   ChevronDown,
   ChevronRight,
@@ -24,6 +26,7 @@ import {
   Clock,
   Link2,
   Shield,
+  Layers,
   LogOut,
   Palette,
   Sparkles,
@@ -129,6 +132,18 @@ export function LeftSidebar() {
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const authUser = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const updateProfile = useAuthStore((s) => s.updateProfile);
+
+  // Interface theme toggle: applies instantly, then persists on the account
+  // (and reverts if the save fails).
+  const uiTheme = resolvePrefs(authUser).uiTheme;
+  const cycleUiTheme = () => {
+    const next = nextUiTheme(uiTheme);
+    applyUiTheme(next);
+    if (!authUser) return;
+    const prefs = resolvePrefs(authUser);
+    void updateProfile({ prefs: { ...prefs, uiTheme: next } }).catch(() => applyUiTheme(uiTheme));
+  };
 
   // Per-page expansion state, persisted across reloads. Used to remember
   // which page-tree nodes the user has opened so subpages stay visible.
@@ -282,7 +297,7 @@ export function LeftSidebar() {
   }, [leftSidebarWidth, setLeftSidebarWidth]);
 
   return (
-    <div className="relative flex h-full flex-col border-r border-[hsl(var(--border))] bg-[hsl(var(--card))]" style={{ width: leftSidebarWidth }}>
+    <div data-ui="sidebar" className="relative flex h-full flex-col border-r border-[hsl(var(--border))] bg-[hsl(var(--card))]" style={{ width: leftSidebarWidth }}>
       {/* Resize handle */}
       <div
         onMouseDown={handleMouseDown}
@@ -295,6 +310,13 @@ export function LeftSidebar() {
           <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--foreground))]">BTCT</span>
         </div>
         <div className="flex items-center gap-1">
+          <button
+            onClick={cycleUiTheme}
+            className="rounded-md p-1.5 hover:bg-[hsl(var(--accent))]"
+            title={`Interface: ${UI_THEMES.find((t) => t.id === uiTheme)?.label ?? uiTheme}. Click to switch.`}
+          >
+            <Layers size={13} />
+          </button>
           <button onClick={toggleDarkMode} className="rounded-md p-1.5 hover:bg-[hsl(var(--accent))]" title="Toggle theme">
             {darkMode ? <Sun size={13} /> : <Moon size={13} />}
           </button>

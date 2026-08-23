@@ -12,6 +12,7 @@ import { useThemeStore } from '@/stores/theme-store';
 import { resolvePrefs, matchShortcut } from '@/lib/editor-prefs';
 import { applyCodeAccent } from '@/lib/code-theme';
 import { applyHeadingColors, resolveEffectiveHeadings } from '@/lib/theme';
+import { applyUiTheme } from '@/themes/registry';
 import { setEditorKeybinds } from '@/lib/editor-keybinds';
 import { LoginScreen } from '@/auth/LoginScreen';
 import { getSharedDoc } from '@/realtime/shared-doc';
@@ -50,6 +51,9 @@ export function App() {
     setEditorKeybinds(prefs.keybinds);
     const effective = resolveEffectiveHeadings({ headings: adminHeadings, lock: themeLock }, prefs.theme);
     applyHeadingColors(effective.headings);
+    // The interface theme is an account pref; while logged out keep whatever
+    // main.tsx restored from the cache so the login screen matches the last look.
+    if (user) applyUiTheme(prefs.uiTheme);
   }, [user, adminHeadings, themeLock]);
 
   if (authStatus === 'unknown') {
@@ -339,9 +343,9 @@ function AuthedApp() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+    <div data-ui="shell" className="flex h-screen w-screen overflow-hidden bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
       {leftSidebarOpen && <LeftSidebar />}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div data-ui="main" className="flex flex-1 flex-col overflow-hidden">
         <TabBar />
         <SplitContainer />
       </div>

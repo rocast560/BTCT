@@ -414,6 +414,13 @@ const httpServer = http.createServer(async (req, res) => {
           const themeErr = validateThemePrefs(prefs.theme);
           if (themeErr) return sendJson(res, 400, { error: `prefs.theme ${themeErr}` });
         }
+        // Interface theme id. The client registry (src/themes/registry.ts)
+        // decides what ids exist; the server only keeps it a short slug, and
+        // an unknown id falls back to the default on the client.
+        if (prefs.uiTheme !== undefined &&
+            !(typeof prefs.uiTheme === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(prefs.uiTheme))) {
+          return sendJson(res, 400, { error: 'prefs.uiTheme must be a short lowercase slug' });
+        }
         updateUserPrefs(user.id, JSON.stringify(prefs));
       }
       const fresh = getUserById(user.id);

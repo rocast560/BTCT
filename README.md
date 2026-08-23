@@ -518,6 +518,16 @@ full mechanics:
   heading colours on everyone (users' own choices are kept but ignored until
   unlocked). Saved server-side and pushed to every connected client live. Plus
   a per-client **dark/light** toggle.
+- **Interface themes**: two looks for the whole app, switchable per account
+  from the layers icon in the sidebar header or **Profile → Interface**.
+  **Classic** is the original flat dark grey; **Glass** is floating translucent
+  panels in the style of Apple's Liquid Glass on the same dark-grey palette
+  (system font, capsule chips, blurred sheets and popovers; it honours Reduce
+  Transparency, Increase Contrast and Reduce Motion, and falls back to solid
+  panels where `backdrop-filter` is missing). The choice is saved on the
+  account and cached locally so the login screen paints in the right look.
+  Both themes come from one registry; see [Interface themes](#interface-themes)
+  for how they are layered and how to remove one.
 
 ---
 
@@ -741,6 +751,8 @@ custom plugins layered on:
   `src/test/theme-prefs.test.ts`. `src/stores/theme-store.ts` holds the admin
   policy, seeded by `GET /api/settings` and then followed live through the
   server-written `settingsPublic.theme` map.
+- [src/themes/registry.ts](src/themes/registry.ts) + [src/themes/glass.css](src/themes/glass.css):
+  the interface themes (see [Interface themes](#interface-themes)).
 - [src/lib/editor-keybinds.ts](src/lib/editor-keybinds.ts):
   `codeBlockShellDefault` (schema default language = shell), `codeFenceInputRule`
   (replaces commonmark's ``` rule, which stores the captured language verbatim
@@ -760,6 +772,44 @@ Live settings (keybinds, code accent) are applied through **module-level refs**
 updated by an effect in `App.tsx`, never by rebuilding the editor, which would
 tear down the Yjs collab binding.
 
+### Interface themes
+
+The overall look is a per-account choice between the themes declared in
+[src/themes/registry.ts](src/themes/registry.ts). That file is the only place
+a theme exists: the sidebar toggle, the Profile section, `resolvePrefs`
+(`prefs.uiTheme`) and the `<html data-ui-theme="…">` stamp all read it.
+
+- **Classic** is the base look: `src/index.css` plus the Tailwind utilities in
+  the components. It has no stylesheet of its own.
+- **Glass** is [src/themes/glass.css](src/themes/glass.css), imported once in
+  `src/main.tsx`, with every rule scoped under `html[data-ui-theme="glass"]`.
+  It restyles the surfaces the components already render and adds no
+  components and no JavaScript. Two mechanics make that possible: Tailwind v4
+  emits utilities inside `@layer utilities`, and an unlayered stylesheet beats
+  layered rules by cascade-layer order, so the skin can override
+  `bg-[hsl(var(--card))]`-style recipes without specificity games (every
+  restyled surface therefore carries its own `:hover`, because the utility's
+  hover loses too); and selectors match class tokens (`[class~="…"]`), never
+  substrings, so `hover:` and `/10` variants are not caught by accident. Five
+  `data-ui` hooks (`shell`, `main`, `sidebar`, `tabbar`, `toolbar`) mark the
+  only places where the layout itself changes (floating rails with gaps).
+- The rails and the content column never create stacking contexts or
+  containing blocks (no `backdrop-filter`, `filter`, `transform`,
+  `isolation` or `z-index` on them): dialogs render inside those elements
+  with `position: fixed` and would be trapped behind later siblings. The
+  blurred material lives on a `::before` with `z-index: -1` instead.
+- `main.tsx` applies the cached theme (`localStorage` `btct.ui-theme`) before
+  the first paint; after login the account pref wins. The server only checks
+  `prefs.uiTheme` is a short slug; an unknown id falls back to the default on
+  the client.
+
+**Removing a theme.** To drop Glass: delete `src/themes/glass.css`, its import
+in `src/main.tsx`, and the `glass` entry in the registry; accounts that had it
+selected fall back to the default on their next load. To make Glass the only
+look: set `DEFAULT_UI_THEME` to `'glass'` and delete the `classic` entry
+(`index.css` stays, Glass builds on it). Adding a theme is the reverse: a new
+scoped stylesheet plus a registry entry.
+
 ### Server & HTTP API reference
 
 Base URL defaults to the same origin. Bearer token from `/api/login`
@@ -774,7 +824,7 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `POST` | `/api/settings/theme` | admin | Set any of `color`, `headings`, `lock`; the result is mirrored into the shared doc (`settingsPublic.theme`) |
 | `POST` | `/api/login` | none | Authenticate → `{ token, user }` |
 | `GET` | `/api/me` | yes | Current user |
-| `POST` | `/api/me/profile` | yes | Update own `color` and/or `prefs` (`codeAccent`, `keybinds`, `follow`, `theme`) |
+| `POST` | `/api/me/profile` | yes | Update own `color` and/or `prefs` (`codeAccent`, `keybinds`, `follow`, `theme`, `uiTheme`) |
 | `GET` | `/api/admin/users` | admin | List users |
 | `POST` | `/api/admin/users` | admin | Create user (username 3–32, password ≥8) |
 | `DELETE` | `/api/admin/users/:id` | admin | Delete user (not self / not last admin) |
@@ -1013,6 +1063,13 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    database copied mid-transaction and an open LevelDB copied mid-compaction
    are both corrupt. Read through `server/data-export.mjs` (`VACUUM INTO`,
    per-room Yjs updates) as the backup engine does, or stop the container first.
+21. **Interface skins stay in their own scoped stylesheet.** A theme is a
+   registry entry plus one file scoped under `html[data-ui-theme="…"]`; never
+   branch component code on the theme. In that file, never give the rails or
+   the content column a stacking context (dialogs render inside them with
+   `position: fixed`), match class tokens with `[class~=]`, and pair every
+   restyled surface with its own `:hover` (unlayered rules beat Tailwind's
+   hover utilities too).
 
 ### Recipes: how to extend
 

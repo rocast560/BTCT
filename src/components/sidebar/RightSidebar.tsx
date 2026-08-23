@@ -38,7 +38,7 @@ export function RightSidebar() {
   };
 
   return (
-    <div className="flex h-full w-[var(--properties-width)] flex-col border-l border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+    <div data-ui="sidebar" className="flex h-full w-[var(--properties-width)] flex-col border-l border-[hsl(var(--border))] bg-[hsl(var(--card))]">
       <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2">
         <span className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--foreground))]">Properties</span>
         <button onClick={toggleRightSidebar} className="p-1 hover:bg-[hsl(var(--accent))]">
