@@ -93,7 +93,9 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
 - **Code blocks**: full syntax highlighting via CodeMirror using the **GitHub
   Dark** palette. Click the language button to pick a language; or press
   **Ctrl+Shift+L** inside a block to jump to the picker and **arrow-key** through
-  it (Enter selects, Esc closes). New code blocks default to `shell`.
+  it (Enter selects, Esc closes). New code blocks default to `shell`, whether
+  they come from `/code` or from typing ``` and pressing Enter; type a language
+  after the fence (```py) to keep it.
 - **Notion-style block selection**: tap **Esc twice** to leave text editing and
   select whole blocks. Then **↑/↓** to move, **Shift+↑/↓** to multi-select,
   **Backspace/Delete** to delete the selected block(s), **Ctrl/⌘+A** to select
@@ -529,6 +531,7 @@ panel).
 | Editor | `Mod+Shift+H` ⚙ | Highlight (yellow) |
 | Editor | `` ` `` around a selection | Wrap selection as inline code |
 | Editor | `/` | Slash block-insert menu |
+| Editor | ``````````` + `Enter` | Code block (Shell unless a language follows the fence) |
 | Editor | **double `Esc`** | Enter block-selection mode |
 | Block mode | `↑`/`↓`, `Shift+↑`/`↓`, `Mod+A` | Move / extend / select-all blocks |
 | Block mode | `Backspace`/`Delete`, `Enter`, `Esc`/click | Delete / edit / exit |
@@ -721,7 +724,10 @@ custom plugins layered on:
   a class-based `HighlightStyle` (`Prec.highest`) whose colors come from
   `--code-*` CSS vars; `applyCodeAccent(hex)` live-retints `--code-keyword`.
 - [src/lib/editor-keybinds.ts](src/lib/editor-keybinds.ts):
-  `codeBlockShellDefault` (schema default language = shell), `userKeybindsPlugin`
+  `codeBlockShellDefault` (schema default language = shell), `codeFenceInputRule`
+  (replaces commonmark's ``` rule, which stores the captured language verbatim
+  and so bypassed that default for a bare fence; `PageEditor` `remove()`s the
+  preset's rule because input rules are first-match-wins), `userKeybindsPlugin`
   (runs *before* commonmark's keymap so rebinds win; also implements
   backtick-wrap), and `focusLanguageKeymap` + `installLanguagePickerNav()` for the
   language picker.
@@ -1055,6 +1061,15 @@ docker run --rm -it -v beenthereconqueredthat_btct-data:/data alpine ls -la /dat
 Compose binds `8080` on all interfaces, so any machine on the LAN can hit
 `http://<your-windows-ip>:8080`. Allow it through Windows Defender Firewall
 (TCP 8080 inbound) the first time someone connects.
+
+**On the Docker host itself, open `http://127.0.0.1:8080`, not `localhost`.**
+Browsers and curl resolve `localhost` to `::1` first. With Docker Desktop on
+WSL2, Windows' localhost relay (`wslrelay.exe`) listens on `[::1]:8080` as well
+as `127.0.0.1:8080`, but only the IPv4 side is forwarded into the Docker VM: the
+IPv6 connection is accepted and then never answered, and because the TCP
+connect succeeded the browser does not fall back to IPv4, so the page spins
+forever. `netstat -ano | findstr :8080` shows the relay owning `[::1]:8080`.
+Other machines on the LAN are unaffected (they use the IPv4 address).
 
 ### Dev mode (hot reload, without Docker)
 

@@ -6,6 +6,9 @@
 //   • `codeBlockShellDefault` — overrides the commonmark code-block schema so
 //     the `/code` slash command defaults to the `shell` language.
 //
+//   • `codeFenceInputRule`: replaces commonmark's ``` input rule so a bare
+//     fence + Enter lands on `shell` too, instead of an empty language.
+//
 //   • `userKeybindsPlugin` — a ProseMirror plugin whose `handleKeyDown` runs
 //     *before* commonmark's own keymap, so per-account shortcut overrides win.
 //     It also implements backtick-wraps-selection → inline code.
@@ -23,13 +26,14 @@ import { keymap, type EditorView as CodeMirrorView } from '@codemirror/view';
 import { Prec } from '@codemirror/state';
 import { commandsCtx, editorViewCtx, type CommandManager } from '@milkdown/core';
 import { codeBlockSchema, inlineCodeSchema } from '@milkdown/preset-commonmark';
+import { textblockTypeInputRule } from '@milkdown/prose/inputrules';
 import { Plugin } from '@milkdown/prose/state';
-import { $prose } from '@milkdown/utils';
+import { $inputRule, $prose } from '@milkdown/utils';
 
 import { toggleHighlightCommand } from '@/lib/highlight-plugin';
 import { getActiveMilkdownEditor } from '@/lib/active-editor';
 import { selectBlockAt } from '@/lib/block-select';
-import { DEFAULT_CODE_LANGUAGE } from '@/lib/code-theme';
+import { DEFAULT_CODE_LANGUAGE, fenceLanguage } from '@/lib/code-theme';
 import {
   DEFAULT_KEYBINDS,
   matchShortcut,
@@ -64,6 +68,23 @@ export const codeBlockShellDefault = codeBlockSchema.extendSchema((prev) => (ctx
     },
   };
 });
+
+// ── Bare ``` fence → shell ───────────────────────────────────────────────
+//
+// The schema default above only applies when a node is created *without* a
+// language, and commonmark's own ``` rule never does that: it stores whatever
+// the regex captured, which for a bare fence is "". So `/code` opened a shell
+// block while ``` + Enter opened a plain-text one. This is the same rule
+// (same regex, so ```py still keeps py) with the empty capture routed through
+// `fenceLanguage()`. ProseMirror runs input rules first-match-wins, so
+// PageEditor *removes* the preset's copy rather than just adding this one.
+export const codeFenceInputRule = $inputRule((ctx) =>
+  textblockTypeInputRule(
+    /^```(?<language>[a-z]*)?[\s\n]$/,
+    codeBlockSchema.type(ctx),
+    (match) => ({ language: fenceLanguage(match.groups?.language) }),
+  ),
+);
 
 // ── Inline code: don't let the mark "trap" the caret ─────────────────────
 //

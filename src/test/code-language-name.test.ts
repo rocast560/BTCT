@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CODE_LANGUAGE, displayLanguageName } from '@/lib/code-theme';
+import { DEFAULT_CODE_LANGUAGE, displayLanguageName, fenceLanguage } from '@/lib/code-theme';
 
 describe('displayLanguageName', () => {
   it('canonicalises a name to the picker\'s own casing', () => {
@@ -28,5 +28,21 @@ describe('displayLanguageName', () => {
   it('exports a default that matches what the picker would store', () => {
     expect(DEFAULT_CODE_LANGUAGE).toBe('Shell');
     expect(displayLanguageName(DEFAULT_CODE_LANGUAGE)).toBe(DEFAULT_CODE_LANGUAGE);
+  });
+});
+
+describe('fenceLanguage', () => {
+  // The regression: typing ``` and pressing Enter went through commonmark's
+  // own input rule, which stores the captured language verbatim. A bare fence
+  // captures nothing, so the block landed as plain text even though the
+  // schema default (and `/code`) is Shell.
+  it('falls back to the default language for a bare fence', () => {
+    expect(fenceLanguage(undefined)).toBe(DEFAULT_CODE_LANGUAGE);
+    expect(fenceLanguage('')).toBe(DEFAULT_CODE_LANGUAGE);
+  });
+
+  it('keeps a language the user typed after the fence', () => {
+    expect(fenceLanguage('python')).toBe('python');
+    expect(fenceLanguage('js')).toBe('js');
   });
 });

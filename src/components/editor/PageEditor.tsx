@@ -22,10 +22,12 @@ import {
 import { codeLanguages, codeSyntaxThemeExtension, codeLanguageAttrPlugin } from '@/lib/code-theme';
 import {
   codeBlockShellDefault,
+  codeFenceInputRule,
   inlineCodeNonInclusive,
   userKeybindsPlugin,
   focusLanguageKeymap,
 } from '@/lib/editor-keybinds';
+import { createCodeBlockInputRule } from '@milkdown/preset-commonmark';
 import { blockSelectPlugin } from '@/lib/block-select';
 import {
   DEFAULT_HEADER_LABELS,
@@ -435,14 +437,22 @@ function MarkdownEditor({
         },
       },
     });
+    // Commonmark's ``` rule stores the captured language verbatim ("" for a
+    // bare fence), bypassing the schema default, and input rules are
+    // first-match-wins, so the preset's copy has to go rather than be
+    // shadowed. `remove()` is async by signature but drops the plugin from
+    // the store synchronously while the editor is still idle, which it is
+    // here: `create()` only runs after this factory returns.
+    void crepe.editor.remove(createCodeBlockInputRule);
     crepe.editor
       .use(listener)
       .use(highlightPlugin)
-      // `/code` defaults to shell; inline-code mark made non-inclusive so the
-      // caret stays visible and code styling stops at the closing backtick;
-      // per-account keybinds + backtick-wrap; Notion-style block selection
-      // (double-Esc); per-language data attr.
+      // `/code` and a bare ``` both default to shell; inline-code mark made
+      // non-inclusive so the caret stays visible and code styling stops at
+      // the closing backtick; per-account keybinds + backtick-wrap;
+      // Notion-style block selection (double-Esc); per-language data attr.
       .use(codeBlockShellDefault)
+      .use(codeFenceInputRule)
       .use(inlineCodeNonInclusive)
       .use(userKeybindsPlugin)
       .use(blockSelectPlugin)

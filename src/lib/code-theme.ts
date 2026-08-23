@@ -95,6 +95,16 @@ export function displayLanguageName(raw: unknown): string | null {
 /** Canonical display name for the language new code blocks start in. */
 export const DEFAULT_CODE_LANGUAGE = displayLanguageName('shell') ?? 'Shell';
 
+/**
+ * Language for a code block opened by typing a ``` fence. The text after the
+ * backticks wins when there is any (```py stays py); a bare fence gets the
+ * same default `/code` uses instead of the empty string commonmark's own rule
+ * would store, which rendered as a plain-text block.
+ */
+export function fenceLanguage(captured: string | undefined): string {
+  return captured || DEFAULT_CODE_LANGUAGE;
+}
+
 // Stamps each code block's DOM node with `data-language` (via a node
 // decoration) so index.css can give specific languages their own look — e.g.
 // the Linux-terminal palette for shell. Recomputed when a block's language

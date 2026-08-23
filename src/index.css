@@ -363,7 +363,31 @@ button:focus-visible {
   color: inherit;
   font-family: 'Poppins', 'Inter', system-ui, sans-serif;
   font-size: 15px;
-  line-height: 1.65;
+  line-height: 1.35;
+  /* Note line metrics. Crepe's reset pins a <p> to 16px text on a 24px line
+     with 4px padding top and bottom (the root line-height above never
+     reaches a paragraph), and each Enter starts a new paragraph, so the gap
+     between note lines was 24 + 8 + the 12px block margin = 44px. 1.35 with
+     no padding and a 0.5em block gap makes that about 29.6px, roughly a
+     third tighter, while wrapped lines inside one paragraph close up ~10%.
+     Font size stays at Crepe's 16px so the text itself doesn't change. The
+     selectors below carry an extra `.milkdown` so they outrank the reset
+     whatever order the stylesheets land in the bundle. */
+  --note-font-size: 16px;
+  --note-line: calc(var(--note-font-size) * 1.35);
+}
+.milkdown-host .milkdown .ProseMirror p {
+  font-size: var(--note-font-size);
+  line-height: var(--note-line);
+  padding: 0;
+}
+/* Crepe sizes the bullet / checkbox column to its old 32px paragraph box.
+   Track the paragraph line instead so the marker stays centred on the first
+   line of text. */
+.milkdown-host .milkdown .milkdown-list-item-block li .label-wrapper,
+.milkdown-host .milkdown .milkdown-list-item-block li .label-wrapper .label {
+  height: var(--note-line);
+  padding: 0;
 }
 
 .milkdown-host .milkdown,
@@ -439,7 +463,7 @@ button:focus-visible {
     hsl(var(--background));
 }
 
-.milkdown-host .ProseMirror > * + * { margin-top: 0.75em; }
+.milkdown-host .ProseMirror > * + * { margin-top: 0.5em; }
 .milkdown-host .ProseMirror h1,
 .milkdown-host .ProseMirror h2,
 .milkdown-host .ProseMirror h3,

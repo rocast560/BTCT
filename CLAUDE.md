@@ -51,7 +51,7 @@ Server (in `server/`, plain `.mjs`, no build step; Bun runs it directly):
 - `cd server && bun run dev`: server with `--watch`. Requires env: `AUTH_SECRET`, and set `YPERSISTENCE=./data/yjs` or Yjs rooms are memory-only. For a full local dev pair, run this + `bun run dev` in two terminals (client falls back to same-origin; set `VITE_API_URL`/`VITE_WS_URL` only for a split host).
 
 Deploy / run the real app (single container, serves client + API + Yjs on one port):
-- `docker compose up -d --build`: build image and (re)launch. Requires `AUTH_SECRET` in `.env`. Health: `curl localhost:8080/healthz`.
+- `docker compose up -d --build`: build image and (re)launch. Requires `AUTH_SECRET` in `.env`. Health: `curl 127.0.0.1:8080/healthz` (use `127.0.0.1`, not `localhost`, on a Windows/WSL2 Docker host: `wslrelay.exe` accepts `[::1]:8080` but cannot forward IPv6, so `localhost` hangs; see README "Running on Windows").
 - Typst asset blobs land in `ASSETS_DIR` (default: `assets/` beside `DB_PATH` → `/data/assets`), on the same `btct-data` volume as SQLite + Yjs, so existing backups cover them.
 - After editing a `server/*.mjs` file, note the **Dockerfile copies server files individually**. A new server file must be added to the `COPY server/...` lines or it won't be in the image.
 
@@ -87,6 +87,7 @@ UI → repo/store action → write a Y.Map / Y.Text (inside doc.transact)
 - `src/db/*-repo.ts`: one repo per entity: CRUD + queries, pre-seeds `Y.Text`s on create, cascades deletes.
 - `src/stores/app-store.ts`: the Zustand store (workspaces, pages, graphs, tabs, split-pane layout, selection, nmap, chains, change log). Mutating actions call repos **and** `log()` a change-log entry.
 - `src/stores/shared-bindings.ts`: `bindSharedSubscriptions()` maps each table's `Y.Map.observe` to a microtask-debounced store reload.
+- `src/lib/editor-keybinds.ts`: editor plugins that apply settings without a rebuild (invariant #3) plus the code-block language defaults: `codeBlockShellDefault` (schema default) **and** `codeFenceInputRule`, which replaces commonmark's own ``` input rule (`PageEditor` calls `crepe.editor.remove(createCodeBlockInputRule)` before `.use()`-ing ours) because that rule stores the captured language verbatim and ProseMirror input rules are first-match-wins. Re-adding the preset rule silently turns bare fences back into plain-text blocks.
 - Tabs/panes: `src/lib/pane-layout.ts` (pure tree ops) + `app-store` (`openTab`, `moveTabToPane`, …); rendered by `src/components/ui/SplitContainer.tsx` (the live one; `MainContent.tsx` is dead). Adding a `TabKind` means: `types/index.ts`, a render branch in `SplitContainer`, and icons in `TabBar.tsx` + the pane chip.
 
 ### Typst figure slots (how screenshots get placed)
@@ -171,6 +172,9 @@ These are non-obvious and easy to break; full list in README "Conventions & inva
 
 ## Performance
 Full CPU/memory audit and the fixes applied: [docs/perf-audit-2026-08-19.md](docs/perf-audit-2026-08-19.md). Static assets are precompressed at build time (the Dockerfile gzips `dist/`) and `tryServeStatic` serves the `.gz` sibling plus an mtime+size ETag; keep both when touching static serving.
+
+## Planned work
+Backups (OneDrive + local host folder), Google Docs-style per-user page history, per-user heading colours and the admin theme hardlock are broken down into tasks, with the research behind the design, in [docs/backups-history-theming-plan-2026-08-22.md](docs/backups-history-theming-plan-2026-08-22.md). None of it is implemented yet.
 
 ## Extending: see README "Recipes" and "Key files map"
 The README (bottom half) is the detailed orientation guide with a full file map, the REST API table, entity/type reference, and step-by-step recipes (new entity, new node/edge type, new editor shortcut, new endpoint, new export). All shared types + default factories live in `src/types/index.ts`; the `@/` import alias maps to `src/`.
