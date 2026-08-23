@@ -1,0 +1,21 @@
+{
+  "name": "btct-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun run index.mjs",
+    "dev": "bun --watch run index.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": ">=0.60.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "lib0": "^0.2.99",
+    "ws": "^8.18.0",
+    "y-leveldb": "^0.1.2",
+    "y-protocols": "^1.0.7",
+    "y-websocket": "^2.1.0",
+    "yjs": "^13.6.30",
+    "zod": "^3.25.0"
+  }
+}

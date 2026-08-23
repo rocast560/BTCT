@@ -1,4 +1,15 @@
+# Monorepo root ignore. web/ (the Bun+Docker app) and wails/ (the desktop app)
+# each have their own build outputs too.
+
+# Dependencies (matches any level: web/node_modules, wails/frontend/node_modules)
 node_modules
-# Scheduled backups written by the app (docker-compose bind mount)
+
+# App-written backups (docker bind mount / dev)
 backups/
 server/backups/
+
+# Wails desktop app build artifacts
+wails/build/bin/
+wails/build/sidecar/
+wails/frontend/dist/
+wails/frontend/wailsjs/
