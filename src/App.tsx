@@ -11,6 +11,7 @@ import { useAuthStore } from '@/auth/auth-store';
 import { useThemeStore } from '@/stores/theme-store';
 import { resolvePrefs, matchShortcut } from '@/lib/editor-prefs';
 import { applyCodeAccent } from '@/lib/code-theme';
+import { applyHeadingColors, resolveEffectiveHeadings } from '@/lib/theme';
 import { setEditorKeybinds } from '@/lib/editor-keybinds';
 import { LoginScreen } from '@/auth/LoginScreen';
 import { getSharedDoc } from '@/realtime/shared-doc';
@@ -25,6 +26,8 @@ export function App() {
   const authStatus = useAuthStore((s) => s.status);
   const bootstrap = useAuthStore((s) => s.bootstrap);
   const loadTheme = useThemeStore((s) => s.loadTheme);
+  const adminHeadings = useThemeStore((s) => s.headings);
+  const themeLock = useThemeStore((s) => s.lock);
   const user = useAuthStore((s) => s.user);
 
   // Validate any stored token on first mount, and pull the global theme
@@ -35,15 +38,19 @@ export function App() {
     void loadTheme();
   }, [bootstrap, loadTheme]);
 
-  // Apply this account's editor preferences (code-block syntax accent +
-  // custom keybinds) on load and whenever the user object changes — after
-  // bootstrap, login, or a profile/keybinds save. Both apply live without
-  // rebuilding the editor.
+  // Apply this account's editor preferences (code-block syntax accent,
+  // custom keybinds, heading colours) on load and whenever the user object
+  // or the admin theme policy changes: after bootstrap, login, a profile
+  // save, or an admin toggling the hard-lock. All apply live without
+  // rebuilding the editor. Heading colours go through the precedence rule
+  // (lock → user prefs → admin defaults → inherit).
   useEffect(() => {
     const prefs = resolvePrefs(user);
     applyCodeAccent(prefs.codeAccent);
     setEditorKeybinds(prefs.keybinds);
-  }, [user]);
+    const effective = resolveEffectiveHeadings({ headings: adminHeadings, lock: themeLock }, prefs.theme);
+    applyHeadingColors(effective.headings);
+  }, [user, adminHeadings, themeLock]);
 
   if (authStatus === 'unknown') {
     return (

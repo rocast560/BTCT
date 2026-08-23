@@ -51,6 +51,10 @@ export const TABLE_NAMES = [
   'nmapMachines',
   'typstAssets',
   'commandLogs',
+  // Server-written mirror of the public settings (admin theme policy), so
+  // clients re-theme live. Read by theme-store via shared-bindings; never
+  // written by clients.
+  'settingsPublic',
 ] as const;
 export type TableName = (typeof TABLE_NAMES)[number];
 

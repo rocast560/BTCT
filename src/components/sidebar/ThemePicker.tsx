@@ -1,7 +1,10 @@
-import { useState } from 'react';
-import { X, Palette, RotateCcw } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { X, Palette, RotateCcw, Lock } from 'lucide-react';
 import { useThemeStore } from '@/stores/theme-store';
-import { DEFAULT_THEME_COLOR } from '@/lib/theme';
+import { useAuthStore } from '@/auth/auth-store';
+import { applyHeadingColors, DEFAULT_THEME_COLOR, resolveEffectiveHeadings } from '@/lib/theme';
+import { resolvePrefs, type ThemePrefs } from '@/lib/editor-prefs';
+import { HeadingColorPicker } from '@/components/ui/HeadingColorPicker';
 
 // Curated swatches that read well as a UI accent against the dark canvas.
 // Each one is a sane standalone choice; the native color wheel below
@@ -23,13 +26,36 @@ const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 export function ThemePicker({ onClose }: { onClose: () => void }) {
   const currentColor = useThemeStore((s) => s.color);
+  const storeHeadings = useThemeStore((s) => s.headings);
+  const storeLock = useThemeStore((s) => s.lock);
   const updateTheme = useThemeStore((s) => s.updateTheme);
+  const user = useAuthStore((s) => s.user);
 
   const [color, setColor] = useState(currentColor);
+  const [headings, setHeadings] = useState<ThemePrefs>(storeHeadings);
+  const [lock, setLock] = useState(storeLock);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const dirty = color.toLowerCase() !== currentColor.toLowerCase();
+  // Preview the candidate default heading colours in open editors while the
+  // dialog is open (what an account without its own colours will see);
+  // revert to this admin's own effective colours on close unless saved.
+  const initialHeadings = useRef(
+    resolveEffectiveHeadings({ headings: storeHeadings, lock: storeLock }, resolvePrefs(user).theme).headings,
+  );
+  const saved = useRef(false);
+  useEffect(() => () => {
+    if (!saved.current) applyHeadingColors(initialHeadings.current);
+  }, []);
+  const handleHeadingsChange = (t: ThemePrefs) => {
+    setHeadings(t);
+    applyHeadingColors(t);
+  };
+
+  const dirty =
+    color.toLowerCase() !== currentColor.toLowerCase() ||
+    JSON.stringify(headings) !== JSON.stringify(storeHeadings) ||
+    lock !== storeLock;
 
   const handleSave = async () => {
     if (!HEX_RE.test(color)) {
@@ -39,7 +65,8 @@ export function ThemePicker({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await updateTheme(color);
+      await updateTheme({ color, headings, lock });
+      saved.current = true;
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'save failed');
@@ -65,7 +92,7 @@ export function ThemePicker({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-4 py-3">
           <div className="flex items-center gap-2">
             <Palette size={14} style={{ color }} />
-            <span className="text-[11px] font-bold uppercase tracking-widest">Theme Color</span>
+            <span className="text-[11px] font-bold uppercase tracking-widest">Theme</span>
           </div>
           <button onClick={onClose} className="rounded-md p-1 hover:bg-[hsl(var(--accent))]" title="Close">
             <X size={14} />
@@ -74,7 +101,7 @@ export function ThemePicker({ onClose }: { onClose: () => void }) {
 
         <div className="space-y-4 p-4">
           <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
-            Pick the primary accent color for the entire workspace. Affects every user — saved to SQLite.
+            The accent colour and default note heading colours for the entire workspace. Affects every user; saved on the server.
           </p>
 
           {/* Live preview swatches */}
@@ -150,6 +177,33 @@ export function ThemePicker({ onClose }: { onClose: () => void }) {
                 <RotateCcw size={11} /> Default
               </button>
             </div>
+          </div>
+
+          {/* Default heading colours for everyone + the hard-lock */}
+          <div>
+            <label className="mb-1.5 block text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+              Note Headings
+            </label>
+            <p className="mb-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+              Default heading colours for every account. Users can pick their own unless you lock them.
+            </p>
+            <HeadingColorPicker value={headings} onChange={handleHeadingsChange} />
+            <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] p-2.5 text-[11px]">
+              <input
+                type="checkbox"
+                checked={lock}
+                onChange={(e) => setLock(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="flex items-center gap-1 font-medium">
+                  <Lock size={11} /> Hardlock heading colours
+                </span>
+                <span className="block text-[10px] text-[hsl(var(--muted-foreground))]">
+                  Force these colours on everyone. Users' own choices are kept but ignored until you unlock.
+                </span>
+              </span>
+            </label>
           </div>
 
           {error && (

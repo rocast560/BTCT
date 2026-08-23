@@ -473,11 +473,19 @@ button:focus-visible {
   font-weight: 700;
   line-height: 1.25;
   margin-top: 1.2em;
+  /* Heading colours are per account (or forced by the admin). Nothing sets
+     these variables by default, so headings inherit the body colour;
+     applyHeadingColors() in src/lib/theme.ts writes --heading-color and the
+     per-level --heading-N onto :root, and a per-level value beats the
+     shared one. A CSS-variable rewrite, so no editor rebuild (invariant #3). */
+  color: var(--heading-color, inherit);
 }
-.milkdown-host .ProseMirror h1 { font-size: 1.9em; }
-.milkdown-host .ProseMirror h2 { font-size: 1.55em; }
-.milkdown-host .ProseMirror h3 { font-size: 1.3em; }
-.milkdown-host .ProseMirror h4 { font-size: 1.1em; }
+.milkdown-host .ProseMirror h1 { font-size: 1.9em;  color: var(--heading-1, var(--heading-color, inherit)); }
+.milkdown-host .ProseMirror h2 { font-size: 1.55em; color: var(--heading-2, var(--heading-color, inherit)); }
+.milkdown-host .ProseMirror h3 { font-size: 1.3em;  color: var(--heading-3, var(--heading-color, inherit)); }
+.milkdown-host .ProseMirror h4 { font-size: 1.1em;  color: var(--heading-4, var(--heading-color, inherit)); }
+.milkdown-host .ProseMirror h5 { color: var(--heading-5, var(--heading-color, inherit)); }
+.milkdown-host .ProseMirror h6 { color: var(--heading-6, var(--heading-color, inherit)); }
 .milkdown-host .ProseMirror ul,
 .milkdown-host .ProseMirror ol { padding-left: 1.5em; }
 .milkdown-host .ProseMirror ul li { list-style: disc; }

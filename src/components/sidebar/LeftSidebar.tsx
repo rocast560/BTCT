@@ -567,10 +567,10 @@ export function LeftSidebar() {
             <button
               onClick={() => setThemePickerOpen(true)}
               className="flex items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--primary))]/40 bg-[hsl(var(--primary))]/10 px-2 py-1.5 text-[11px] font-medium text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/20"
-              title="Change the workspace accent color"
+              title="Workspace accent, default heading colours and the theme lock"
             >
               <Palette size={12} />
-              <span>Theme Color</span>
+              <span>Theme</span>
             </button>
           </div>
         )}

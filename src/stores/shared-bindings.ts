@@ -11,6 +11,7 @@
  */
 import { subscribeTable } from '@/realtime/shared-doc';
 import { useAppStore } from './app-store';
+import { useThemeStore, type PublicThemeSettings } from './theme-store';
 
 let bound = false;
 
@@ -39,6 +40,14 @@ export function bindSharedSubscriptions(): () => void {
   unsubs.push(subscribeTable('attackChains', debounce(() => { void s().loadAttackChains(); })));
   unsubs.push(subscribeTable('typstAssets',  debounce(() => { void s().loadTypstAssets(); })));
   unsubs.push(subscribeTable('commandLogs',  debounce(() => { void s().loadCommandLogs(); })));
+
+  // Admin theme policy, mirrored into the doc by the server on every save
+  // (LWW JSON): re-theme live. The store drops payloads older than the one
+  // it already holds, so a stale IndexedDB replay can't undo a REST seed.
+  unsubs.push(subscribeTable('settingsPublic', (e) => {
+    if (!e.keys.has('theme')) return;
+    useThemeStore.getState().applyServerTheme(e.current('theme') as PublicThemeSettings | undefined);
+  }));
 
   // For graph nodes/edges + nmap machines we re-run the corresponding
   // detail loader if a relevant entity is currently being viewed. The

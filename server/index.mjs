@@ -27,6 +27,7 @@ import {
 } from './db.mjs';
 import { getAiConfig, setAiConfig, testAiConnection, handleAiChat } from './ai.mjs';
 import { getMcpConfig, setMcpConfig, regenerateMcpToken, handleMcp } from './mcp.mjs';
+import { publishPublicSettings } from './yjs-data.mjs';
 import {
   getCmdlogConfig,
   setCmdlogConfig,
@@ -46,6 +47,57 @@ import {
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const DEFAULT_THEME_COLOR = '#f59e0b'; // yellow-orange (amber-500)
+
+// ── Theme policy (note heading colours + hard-lock) ─────────────────────
+// Same shape the client's resolveThemePrefs() accepts:
+//   { headingColor: '#RRGGBB' | null, headings: { h1..h6: '#RRGGBB' } }
+// Stored as JSON in settings.theme_headings; settings.theme_lock ('1'/'0')
+// forces it on every account; settings.theme_updated_at lets clients drop a
+// stale copy of the live mirror (see publishPublicSettings in yjs-data.mjs).
+const HEADING_LEVELS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+
+function validateThemePrefs(t) {
+  if (typeof t !== 'object' || t === null || Array.isArray(t)) return 'must be an object';
+  if (t.headingColor !== undefined && t.headingColor !== null &&
+      !(typeof t.headingColor === 'string' && HEX_COLOR_RE.test(t.headingColor))) {
+    return 'headingColor must be null or a #RRGGBB hex value';
+  }
+  if (t.headings !== undefined) {
+    const h = t.headings;
+    if (typeof h !== 'object' || h === null || Array.isArray(h)) return 'headings must be an object';
+    for (const [k, v] of Object.entries(h)) {
+      if (!HEADING_LEVELS.includes(k)) return `headings.${k} is not a heading level`;
+      if (!(typeof v === 'string' && HEX_COLOR_RE.test(v))) return `headings.${k} must be a #RRGGBB hex value`;
+    }
+  }
+  return null;
+}
+
+function normalizeThemePrefs(t) {
+  const out = { headingColor: null, headings: {} };
+  if (validateThemePrefs(t)) return out;
+  if (typeof t.headingColor === 'string') out.headingColor = t.headingColor;
+  for (const k of HEADING_LEVELS) {
+    if (t.headings && typeof t.headings[k] === 'string') out.headings[k] = t.headings[k];
+  }
+  return out;
+}
+
+// The public (unauthenticated) view of the theme: what GET /api/settings
+// returns and what the live mirror carries.
+function publicThemeSettings() {
+  let themeHeadings = { headingColor: null, headings: {} };
+  try {
+    const raw = getSetting('theme_headings');
+    if (raw) themeHeadings = normalizeThemePrefs(JSON.parse(raw));
+  } catch { /* malformed row: fall back to inherit */ }
+  return {
+    themeColor: getSetting('theme_color') || DEFAULT_THEME_COLOR,
+    themeHeadings,
+    themeLock: getSetting('theme_lock') === '1',
+    themeUpdatedAt: Number(getSetting('theme_updated_at') || 0),
+  };
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -352,6 +404,12 @@ const httpServer = http.createServer(async (req, res) => {
             }
           }
         }
+        // Note heading colours (per-account theme). Same validator the admin
+        // policy uses; a bad blob is rejected rather than stored.
+        if (prefs.theme !== undefined) {
+          const themeErr = validateThemePrefs(prefs.theme);
+          if (themeErr) return sendJson(res, 400, { error: `prefs.theme ${themeErr}` });
+        }
         updateUserPrefs(user.id, JSON.stringify(prefs));
       }
       const fresh = getUserById(user.id);
@@ -360,23 +418,40 @@ const httpServer = http.createServer(async (req, res) => {
 
     // Public settings (no auth) — needed on the login screen so the
     // primary theme color matches the rest of the app from first paint.
+    // Also carries the admin heading-colour policy (defaults + hard-lock).
     if (req.method === 'GET' && req.url === '/api/settings') {
-      const themeColor = getSetting('theme_color') || DEFAULT_THEME_COLOR;
-      return sendJson(res, 200, { themeColor });
+      return sendJson(res, 200, publicThemeSettings());
     }
 
-    // Admin-only: update the global primary theme color. Stored in the
-    // SQLite settings table so it persists across container restarts.
+    // Admin-only: update the workspace theme policy. `color` is the accent
+    // every client paints with; `headings` are the default note heading
+    // colours for every account; `lock` forces them on everyone. Stored in
+    // the SQLite settings table, then mirrored into the shared doc so
+    // connected clients re-theme without a reload.
     if (req.method === 'POST' && req.url === '/api/settings/theme') {
       const gate = requireAdmin(req);
       if (gate.error) return sendJson(res, gate.status, { error: gate.error });
-      const body = await readJsonBody(req, 4 * 1024);
-      const color = typeof body.color === 'string' ? body.color.trim() : '';
-      if (!HEX_COLOR_RE.test(color)) {
-        return sendJson(res, 400, { error: 'color must be a #RRGGBB hex value' });
+      const body = await readJsonBody(req, 8 * 1024);
+      if (body.color !== undefined) {
+        const color = typeof body.color === 'string' ? body.color.trim() : '';
+        if (!HEX_COLOR_RE.test(color)) {
+          return sendJson(res, 400, { error: 'color must be a #RRGGBB hex value' });
+        }
+        setSetting('theme_color', color);
       }
-      setSetting('theme_color', color);
-      return sendJson(res, 200, { themeColor: color });
+      if (body.headings !== undefined) {
+        const headingsErr = validateThemePrefs(body.headings);
+        if (headingsErr) return sendJson(res, 400, { error: `headings ${headingsErr}` });
+        setSetting('theme_headings', JSON.stringify(normalizeThemePrefs(body.headings)));
+      }
+      if (body.lock !== undefined) {
+        if (typeof body.lock !== 'boolean') return sendJson(res, 400, { error: 'lock must be a boolean' });
+        setSetting('theme_lock', body.lock ? '1' : '0');
+      }
+      setSetting('theme_updated_at', String(Date.now()));
+      const pub = publicThemeSettings();
+      publishPublicSettings(pub).catch((e) => console.warn('[theme] live mirror failed:', e?.message || e));
+      return sendJson(res, 200, pub);
     }
 
     // ── AI assistant (Claude) ──────────────────────────────────────────

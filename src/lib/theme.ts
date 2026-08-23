@@ -4,7 +4,19 @@
  * color, attack-chain glow, etc. (see src/index.css). To recolor the app
  * we just rewrite those two variables on `:root`. Hex is what users
  * (and the SQLite settings row) speak, so we convert at the edge.
+ *
+ * Note heading colours work the same way through `--heading-color` and
+ * `--heading-1`..`--heading-6` (see the heading rules in index.css). They
+ * come from three places with a fixed precedence, resolved by
+ * `resolveEffectiveHeadings`: the admin hard-lock beats everything, then a
+ * user's own prefs, then the admin defaults, then "inherit". Applying is a
+ * CSS-variable rewrite, never an editor rebuild (invariant #3).
  */
+import {
+  HEADING_LEVELS,
+  isThemeCustomized,
+  type ThemePrefs,
+} from '@/lib/editor-prefs';
 
 // Yellow-orange (amber-500). Picked as a softer, more pen-test-flavored
 // default than the original signature red.
@@ -58,4 +70,59 @@ export function applyThemeColor(hex: string): void {
   const root = document.documentElement;
   root.style.setProperty('--primary', triplet);
   root.style.setProperty('--ring', triplet);
+}
+
+// ── Heading colours ──────────────────────────────────────────────────────
+
+/** The admin side of heading theming, as served by GET /api/settings. */
+export interface ThemePolicy {
+  /** Admin-chosen heading colours: the default for everyone, or forced when `lock` is on. */
+  headings: ThemePrefs;
+  /** When true, users' own heading colours are ignored. */
+  lock: boolean;
+}
+
+export interface EffectiveHeadings {
+  headings: ThemePrefs;
+  /** True when the admin lock decided the result (UI disables the user controls). */
+  locked: boolean;
+}
+
+/**
+ * Precedence: lock → user prefs (as a whole, once customised) → admin
+ * defaults → inherit. A customised user theme replaces the admin default
+ * entirely rather than merging per level, so "I set all my headings to
+ * white" is not silently undercut by an admin's per-level override.
+ */
+export function resolveEffectiveHeadings(
+  policy: ThemePolicy | null | undefined,
+  user: ThemePrefs,
+): EffectiveHeadings {
+  if (policy?.lock) return { headings: policy.headings, locked: true };
+  if (isThemeCustomized(user)) return { headings: user, locked: false };
+  return { headings: policy?.headings ?? { headingColor: null, headings: {} }, locked: false };
+}
+
+/** The subset of CSSStyleDeclaration we write; injectable for tests. */
+export interface StyleTarget {
+  setProperty(name: string, value: string): void;
+  removeProperty(name: string): string | void;
+}
+
+/**
+ * Paint heading colours onto :root. Every variable is either set or removed
+ * so a level that was coloured before and is not any more falls back to
+ * inherit instead of keeping a stale value.
+ */
+export function applyHeadingColors(theme: ThemePrefs, target?: StyleTarget): void {
+  const style = target ?? (typeof document !== 'undefined' ? document.documentElement.style : null);
+  if (!style) return;
+  if (theme.headingColor) style.setProperty('--heading-color', theme.headingColor);
+  else style.removeProperty('--heading-color');
+  HEADING_LEVELS.forEach((level, i) => {
+    const v = theme.headings[level];
+    const name = '--heading-' + (i + 1);
+    if (v) style.setProperty(name, v);
+    else style.removeProperty(name);
+  });
 }

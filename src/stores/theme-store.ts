@@ -1,13 +1,22 @@
 /**
- * Global theme color store. The color lives in the server's SQLite
- * settings table so every LAN client sees the same theme; this store
- * fetches it on app start and writes updates back through the admin-only
- * REST endpoint. Side-effect: every successful read/write also paints
- * the new color onto :root via applyThemeColor.
+ * Global theme store. The accent colour and the admin heading-colour policy
+ * (default heading colours for everyone, plus the hard-lock) live in the
+ * server's SQLite settings table so every LAN client sees the same theme.
+ * The store seeds from `GET /api/settings` on app start, then follows the
+ * server-written `settingsPublic.theme` mirror in the shared doc (wired in
+ * shared-bindings.ts) so an admin change re-themes every connected client
+ * without a reload. `updatedAt` is the server's stamp for the last change:
+ * a payload older than what we already hold (a stale mirror copy replayed
+ * from IndexedDB) is ignored.
+ *
+ * Side-effect: every accepted payload paints the accent onto :root via
+ * applyThemeColor. Heading colours are painted by App.tsx, which combines
+ * this policy with the user's own prefs through resolveEffectiveHeadings.
  */
 import { create } from 'zustand';
 import { useAuthStore } from '@/auth/auth-store';
 import { applyThemeColor, DEFAULT_THEME_COLOR } from '@/lib/theme';
+import { resolveThemePrefs, type ThemePrefs } from '@/lib/editor-prefs';
 
 function apiUrl(): string {
   if (typeof window === 'undefined') return 'http://127.0.0.1:1234';
@@ -15,27 +24,70 @@ function apiUrl(): string {
   return fromEnv || window.location.origin;
 }
 
+/** Shape of GET /api/settings and of the `settingsPublic.theme` mirror. */
+export interface PublicThemeSettings {
+  themeColor?: string;
+  themeHeadings?: unknown;
+  themeLock?: boolean;
+  themeUpdatedAt?: number;
+}
+
+/** Admin-only patch for POST /api/settings/theme; every field is optional. */
+export interface ThemeUpdate {
+  color?: string;
+  headings?: ThemePrefs;
+  lock?: boolean;
+}
+
 interface ThemeState {
   color: string;
+  /** Admin heading colours: the default for everyone, forced when `lock` is on. */
+  headings: ThemePrefs;
+  lock: boolean;
+  /** Server stamp of the last theme change; older payloads are ignored. */
+  updatedAt: number;
   loaded: boolean;
   loadTheme: () => Promise<void>;
-  // Admin-only — fails with 403 otherwise. Optimistically paints the new
-  // color so the picker feels instant; reverts on server error.
-  updateTheme: (color: string) => Promise<void>;
+  /** Accept a server payload (REST seed or live mirror); stale ones are dropped. */
+  applyServerTheme: (data: PublicThemeSettings | null | undefined) => void;
+  // Admin-only: fails with 403 otherwise. Optimistically paints a new
+  // accent so the picker feels instant; reverts on server error.
+  updateTheme: (patch: ThemeUpdate) => Promise<void>;
 }
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
   color: DEFAULT_THEME_COLOR,
+  headings: { headingColor: null, headings: {} },
+  lock: false,
+  updatedAt: 0,
   loaded: false,
+
+  applyServerTheme: (data) => {
+    if (!data || typeof data !== 'object') return;
+    const raw = Number(data.themeUpdatedAt ?? 0);
+    const stamp = Number.isFinite(raw) ? raw : 0;
+    if (stamp < get().updatedAt) return; // stale copy of the mirror
+    const color =
+      typeof data.themeColor === 'string' && HEX_RE.test(data.themeColor)
+        ? data.themeColor
+        : get().color;
+    applyThemeColor(color);
+    set({
+      color,
+      headings: resolveThemePrefs(data.themeHeadings),
+      lock: data.themeLock === true,
+      updatedAt: stamp,
+      loaded: true,
+    });
+  },
 
   loadTheme: async () => {
     try {
       const res = await fetch(`${apiUrl()}/api/settings`);
       if (!res.ok) throw new Error(String(res.status));
-      const data = (await res.json()) as { themeColor?: string };
-      const color = data.themeColor || DEFAULT_THEME_COLOR;
-      applyThemeColor(color);
-      set({ color, loaded: true });
+      get().applyServerTheme((await res.json()) as PublicThemeSettings);
     } catch {
       // Network/server hiccup: fall back to the default so the UI never
       // ends up uncolored, but leave `loaded` false so a later retry can
@@ -45,10 +97,12 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     }
   },
 
-  updateTheme: async (color: string) => {
+  updateTheme: async (patch) => {
     const prev = get().color;
-    applyThemeColor(color);
-    set({ color });
+    if (patch.color) {
+      applyThemeColor(patch.color);
+      set({ color: patch.color });
+    }
     try {
       const token = useAuthStore.getState().token;
       const res = await fetch(`${apiUrl()}/api/settings/theme`, {
@@ -57,13 +111,11 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ color }),
+        body: JSON.stringify(patch),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; themeColor?: string };
+      const data = (await res.json().catch(() => ({}))) as { error?: string } & PublicThemeSettings;
       if (!res.ok) throw new Error(data.error || `request failed (${res.status})`);
-      const next = data.themeColor || color;
-      applyThemeColor(next);
-      set({ color: next, loaded: true });
+      get().applyServerTheme(data);
     } catch (err) {
       applyThemeColor(prev);
       set({ color: prev });

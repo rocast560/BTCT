@@ -30,6 +30,7 @@ const ROOM = 'btct-shared';
 const TABLE_NAMES = [
   'workspaces', 'pages', 'graphs', 'graphNodes', 'graphEdges',
   'attackChains', 'changeLogs', 'nmapScans', 'nmapMachines', 'commandLogs',
+  'settingsPublic',
 ];
 
 // The shared doc holds only a bounded live window of command logs per workspace
@@ -289,6 +290,19 @@ export async function appendCommandLogs(records) {
       tables.commandLogs.set(r.id, existing ? { ...existing, ...r } : r);
     }
     pruneCommandLogs(tables.commandLogs);
+  });
+}
+
+// Public settings mirror. The server writes the admin theme policy (accent,
+// heading colours, hard-lock) under `settingsPublic.theme` so every connected
+// client re-themes live; the REST `GET /api/settings` response is the seed on
+// load, and `themeUpdatedAt` lets a client ignore a stale copy replayed from
+// its IndexedDB cache. LWW JSON with no Y.Text fields, so invariant #1 does
+// not apply. Never put anything secret here: the whole doc reaches every user.
+export async function publishPublicSettings(theme) {
+  const { doc, tables } = await shared();
+  doc.transact(() => {
+    tables.settingsPublic.set('theme', theme);
   });
 }
 

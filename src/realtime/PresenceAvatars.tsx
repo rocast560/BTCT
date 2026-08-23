@@ -71,6 +71,7 @@ export function PresenceAvatars() {
           codeAccent: resolved.codeAccent,
           keybinds: resolved.keybinds,
           follow: { ...resolved.follow, panePlacement: choice },
+          theme: resolved.theme,
         },
       });
     } catch {

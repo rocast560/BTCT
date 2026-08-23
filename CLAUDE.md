@@ -79,7 +79,7 @@ UI → repo/store action → write a Y.Map / Y.Text (inside doc.transact)
 | Holds | all entity records (one `Y.Map` per table) + one `texts` `Y.Map` of `Y.Text`s | one page body as a `prosemirror` `Y.XmlFragment` |
 | Edited by | repos/stores | Milkdown collab plugin |
 
-- **Records** = plain JSON in a per-table `Y.Map` keyed by `id` (last-writer-wins). Tables: `workspaces, pages, graphs, graphNodes, graphEdges, attackChains, changeLogs, pageSnapshots, nmapScans, nmapMachines, typstAssets, commandLogs`.
+- **Records** = plain JSON in a per-table `Y.Map` keyed by `id` (last-writer-wins). Tables: `workspaces, pages, graphs, graphNodes, graphEdges, attackChains, changeLogs, pageSnapshots, nmapScans, nmapMachines, typstAssets, commandLogs`. One more map, `settingsPublic`, is a **server-written** mirror of the public settings (the admin theme policy under key `theme`, stamped `themeUpdatedAt`); clients only read it.
 - **Collaborative text fields** (page title/slug, node/edge label, workspace/graph/nmap-scan name, nmap hostname, chain name) are authoritative as a `Y.Text` in the `texts` map, keyed `<entity>:<id>:<field>`. A `mirrorTextsToRecords` observer copies each `Y.Text` back into the JSON record so everything else reads plain JSON.
 - **Page bodies never go in the shared doc**: they're per-page docs, checkpointed via `pageSnapshots` (`src/realtime/page-snapshots.ts`).
 
@@ -87,6 +87,7 @@ UI → repo/store action → write a Y.Map / Y.Text (inside doc.transact)
 - `src/db/*-repo.ts`: one repo per entity: CRUD + queries, pre-seeds `Y.Text`s on create, cascades deletes.
 - `src/stores/app-store.ts`: the Zustand store (workspaces, pages, graphs, tabs, split-pane layout, selection, nmap, chains, change log). Mutating actions call repos **and** `log()` a change-log entry.
 - `src/stores/shared-bindings.ts`: `bindSharedSubscriptions()` maps each table's `Y.Map.observe` to a microtask-debounced store reload.
+- `src/lib/theme.ts` + `src/stores/theme-store.ts`: accent and note-heading theming by CSS-variable rewrite (never an editor rebuild). Precedence is one pure function, `resolveEffectiveHeadings` (admin hardlock → the user's own prefs, as a whole once customised → admin defaults → inherit), applied from `App.tsx`. The admin policy is seeded by `GET /api/settings` and then followed live through `settingsPublic.theme`; the store drops payloads older than the `themeUpdatedAt` it already holds. Per-user prefs (`theme` next to `codeAccent`/`keybinds`/`follow`) are validated by `resolveThemePrefs` on the client and the matching validator in `server/index.mjs`.
 - `src/lib/editor-keybinds.ts`: editor plugins that apply settings without a rebuild (invariant #3) plus the code-block language defaults: `codeBlockShellDefault` (schema default) **and** `codeFenceInputRule`, which replaces commonmark's own ``` input rule (`PageEditor` calls `crepe.editor.remove(createCodeBlockInputRule)` before `.use()`-ing ours) because that rule stores the captured language verbatim and ProseMirror input rules are first-match-wins. Re-adding the preset rule silently turns bare fences back into plain-text blocks.
 - Tabs/panes: `src/lib/pane-layout.ts` (pure tree ops) + `app-store` (`openTab`, `moveTabToPane`, …); rendered by `src/components/ui/SplitContainer.tsx` (the live one; `MainContent.tsx` is dead). Adding a `TabKind` means: `types/index.ts`, a render branch in `SplitContainer`, and icons in `TabBar.tsx` + the pane chip.
 
@@ -168,13 +169,14 @@ These are non-obvious and easy to break; full list in README "Conventions & inva
 7. Deletes cascade and are logged with a full snapshot (restorable). Highlight marks and page bodies are intentionally not in the change log.
 8. **Subscribe to the store with a selector, never bare `useAppStore()`.** A selectorless call re-renders on every `set()` (each sync event, each debounced save). Use per-field selectors or `useShallow` for multi-field reads.
 9. **Password hashing is async and must stay off the event loop.** `hashPassword`/`verifyPassword` (`server/auth.mjs`) use `crypto.pbkdf2` on the libuv threadpool because the process also runs the Yjs relay; a synchronous hash freezes every editor. Login is throttled per username+IP (`server/index.mjs`).
+11. **Never put secrets in `settingsPublic`.** It is mirrored to every connected client; only the public theme policy belongs there.
 10. **Batch CRDT/SQLite writes.** Wrap multi-record Yjs writes in one `sharedTransact` and SQLite batches in one `db.transaction` (`upsertCommandLogBatch`); `PRAGMA synchronous = NORMAL` pairs with WAL so a batch is one commit, not one fsync per row.
 
 ## Performance
 Full CPU/memory audit and the fixes applied: [docs/perf-audit-2026-08-19.md](docs/perf-audit-2026-08-19.md). Static assets are precompressed at build time (the Dockerfile gzips `dist/`) and `tryServeStatic` serves the `.gz` sibling plus an mtime+size ETag; keep both when touching static serving.
 
 ## Planned work
-Backups (OneDrive + local host folder), Google Docs-style per-user page history, per-user heading colours and the admin theme hardlock are broken down into tasks, with the research behind the design, in [docs/backups-history-theming-plan-2026-08-22.md](docs/backups-history-theming-plan-2026-08-22.md). None of it is implemented yet.
+Backups (OneDrive + local host folder), Google Docs-style per-user page history, per-user heading colours and the admin theme hardlock are broken down into tasks, with the research behind the design, in [docs/backups-history-theming-plan-2026-08-22.md](docs/backups-history-theming-plan-2026-08-22.md). Epics E and G (heading colours, theme hardlock) shipped on 2026-08-22; backups and history are not implemented yet.
 
 ## Extending: see README "Recipes" and "Key files map"
 The README (bottom half) is the detailed orientation guide with a full file map, the REST API table, entity/type reference, and step-by-step recipes (new entity, new node/edge type, new editor shortcut, new endpoint, new export). All shared types + default factories live in `src/types/index.ts`; the `@/` import alias maps to `src/`.

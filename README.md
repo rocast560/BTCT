@@ -505,9 +505,17 @@ full mechanics:
   **Claude AI Assistant** (API key, View/Edit mode, model, enable; see
   [AI assistant](#ai-assistant-claude)), and the **MCP Server** (enable, edit
   permissions, access token; see [MCP server](#mcp-server-connect-an-external-client)).
-- **Profile**: your presence **color** and your per-account **code accent**.
-- **Theme** (admins only): the workspace-wide accent color (saved server-side,
-  applied to every client). Plus a per-client **dark/light** toggle.
+- **Profile**: your presence **color**, your per-account **code accent**, and
+  your **note heading colours** (one colour for every level, or per-level
+  overrides; "Auto" inherits the body text). Changes preview live in open
+  editors. **Export / Import** turns your settings into a JSON file
+  (`btct-prefs-<username>.json`) you can keep and re-apply on another machine;
+  an imported file is validated field by field and only applied when you Save.
+- **Theme** (admins only): the workspace-wide accent color, the **default
+  heading colours** for every account, and a **hardlock** that forces those
+  heading colours on everyone (users' own choices are kept but ignored until
+  unlocked). Saved server-side and pushed to every connected client live. Plus
+  a per-client **dark/light** toggle.
 
 ---
 
@@ -723,6 +731,14 @@ custom plugins layered on:
 - [src/lib/code-theme.ts](src/lib/code-theme.ts): CodeMirror language list +
   a class-based `HighlightStyle` (`Prec.highest`) whose colors come from
   `--code-*` CSS vars; `applyCodeAccent(hex)` live-retints `--code-keyword`.
+- [src/lib/theme.ts](src/lib/theme.ts): the accent (`applyThemeColor` writes
+  `--primary`/`--ring`) and note heading colours (`applyHeadingColors` writes
+  `--heading-color` and `--heading-1..6`). `resolveEffectiveHeadings` is the
+  precedence rule: admin hardlock → the user's own prefs (as a whole, once
+  customised) → admin defaults → inherit. Pure; tested in
+  `src/test/theme-prefs.test.ts`. `src/stores/theme-store.ts` holds the admin
+  policy, seeded by `GET /api/settings` and then followed live through the
+  server-written `settingsPublic.theme` map.
 - [src/lib/editor-keybinds.ts](src/lib/editor-keybinds.ts):
   `codeBlockShellDefault` (schema default language = shell), `codeFenceInputRule`
   (replaces commonmark's ``` rule, which stores the captured language verbatim
@@ -752,11 +768,11 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/healthz` | none | Liveness probe (`{ ok: true }`) |
-| `GET` | `/api/settings` | none | Public theme color (so login paints correctly) |
-| `POST` | `/api/settings/theme` | admin | Set the global accent color (SQLite) |
+| `GET` | `/api/settings` | none | Public theme: `themeColor`, `themeHeadings`, `themeLock`, `themeUpdatedAt` (so login paints correctly) |
+| `POST` | `/api/settings/theme` | admin | Set any of `color`, `headings`, `lock`; the result is mirrored into the shared doc (`settingsPublic.theme`) |
 | `POST` | `/api/login` | none | Authenticate → `{ token, user }` |
 | `GET` | `/api/me` | yes | Current user |
-| `POST` | `/api/me/profile` | yes | Update own `color` and/or `prefs` (`codeAccent` + `keybinds`) |
+| `POST` | `/api/me/profile` | yes | Update own `color` and/or `prefs` (`codeAccent`, `keybinds`, `follow`, `theme`) |
 | `GET` | `/api/admin/users` | admin | List users |
 | `POST` | `/api/admin/users` | admin | Create user (username 3–32, password ≥8) |
 | `DELETE` | `/api/admin/users/:id` | admin | Delete user (not self / not last admin) |
@@ -789,9 +805,11 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 
 The `users` table is `(id, username [NOCASE unique], salt, hash, iter, color,
 avatar, is_admin, prefs [JSON], created_at)`. The `prefs` column is added by an
-idempotent migration. Per-account editor prefs (`codeAccent`, `keybinds`) are
-validated at the REST edge and stored as a JSON blob. The `settings` table is a
-simple key/value store: `theme_color`, the Claude assistant config
+idempotent migration. Per-account editor prefs (`codeAccent`, `keybinds`,
+`follow`, `theme`) are validated at the REST edge and stored as a JSON blob.
+The `settings` table is a simple key/value store: the theme policy
+(`theme_color`, `theme_headings`, `theme_lock`, `theme_updated_at`), the Claude
+assistant config
 (`anthropic_api_key`, `ai_mode`, `ai_model`, `ai_enabled`, where the key is
 write-only and never returned to clients), and the MCP server config
 (`mcp_enabled`, `mcp_mode`, `mcp_token`; the token is admin-readable so it can be
@@ -969,6 +987,12 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    check (see the `prefs`/`avatar`/`is_admin` migration in `db.mjs`).
 18. **Set `AUTH_SECRET` and `YPERSISTENCE`** in any real deployment, or tokens and
    rooms evaporate on restart.
+19. **Theme precedence lives in one function.** Every heading-colour write goes
+   through `resolveEffectiveHeadings` + `applyHeadingColors` from `App.tsx`.
+   The admin policy reaches clients by REST seed (`GET /api/settings`) and then
+   the server-written `settingsPublic.theme` map in the shared doc, stamped with
+   `themeUpdatedAt` so a stale IndexedDB replay never beats a newer value. Never
+   put anything secret in `settingsPublic`: the whole doc reaches every user.
 
 ### Recipes: how to extend
 

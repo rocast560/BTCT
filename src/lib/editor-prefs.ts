@@ -1,11 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Per-account editor preferences.
 //
-// Two things are customizable on a per-account basis:
+// Customizable on a per-account basis:
 //   1. `codeAccent` — the base color that tints code-block syntax highlighting
 //      (see src/lib/code-theme.ts `applyCodeAccent`).
 //   2. `keybinds` — shortcuts for the floating-format-panel actions plus the
 //      "focus the code-block language picker" action (see editor-keybinds.ts).
+//   3. `follow`: live-follow precision and pane placement.
+//   4. `theme`: note heading colours (see src/lib/theme.ts
+//      `applyHeadingColors`; an admin can override or hard-lock these).
 //
 // Prefs are persisted server-side on the user row (JSON blob) and arrive on the
 // `AuthUser.prefs` field. The defaults below are merged under whatever the
@@ -43,6 +46,19 @@ export interface FollowPrefs {
   panePlacement: FollowPanePlacement;
 }
 
+export type HeadingLevel = 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
+export const HEADING_LEVELS: readonly HeadingLevel[] = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+
+/**
+ * Note heading colours. `headingColor` applies to every level; `headings`
+ * holds per-level overrides that win over it. `null` / absent means "inherit
+ * the body text colour", which is what a fresh account gets.
+ */
+export interface ThemePrefs {
+  headingColor: string | null;
+  headings: Partial<Record<HeadingLevel, string>>;
+}
+
 export interface EditorPrefs {
   /** #RRGGBB base color for code-block syntax highlighting. */
   codeAccent: string;
@@ -50,6 +66,8 @@ export interface EditorPrefs {
   keybinds: Record<KeybindAction, string>;
   /** Live-follow preferences (presence / spectate feature). */
   follow: FollowPrefs;
+  /** Note heading colours. */
+  theme: ThemePrefs;
 }
 
 // GitHub Dark's keyword color. The rest of the code palette is fixed GitHub
@@ -74,10 +92,16 @@ export const DEFAULT_FOLLOW_PREFS: FollowPrefs = {
   panePlacement: null,
 };
 
+export const DEFAULT_THEME_PREFS: ThemePrefs = Object.freeze({
+  headingColor: null,
+  headings: Object.freeze({}),
+}) as ThemePrefs;
+
 export const DEFAULT_EDITOR_PREFS: EditorPrefs = {
   codeAccent: DEFAULT_CODE_ACCENT,
   keybinds: { ...DEFAULT_KEYBINDS },
   follow: { ...DEFAULT_FOLLOW_PREFS, precisionByUserId: {} },
+  theme: { headingColor: null, headings: {} },
 };
 
 // Human-readable labels + display order for the keybinds dialog.
@@ -93,6 +117,34 @@ export const KEYBIND_ACTIONS: ReadonlyArray<{ id: KeybindAction; label: string }
 ];
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Validate a theme blob from anywhere (account prefs, the admin settings
+ * row, an imported file). Malformed colours and unknown levels are dropped
+ * rather than rejected so one bad key never blanks the whole theme. Always
+ * returns a fresh object.
+ */
+export function resolveThemePrefs(raw: unknown): ThemePrefs {
+  const out: ThemePrefs = { headingColor: null, headings: {} };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.headingColor === 'string' && HEX_RE.test(r.headingColor)) {
+    out.headingColor = r.headingColor;
+  }
+  const levels = r.headings;
+  if (levels && typeof levels === 'object' && !Array.isArray(levels)) {
+    for (const level of HEADING_LEVELS) {
+      const v = (levels as Record<string, unknown>)[level];
+      if (typeof v === 'string' && HEX_RE.test(v)) out.headings[level] = v;
+    }
+  }
+  return out;
+}
+
+/** True once the user has set any heading colour (so their theme should replace the admin default). */
+export function isThemeCustomized(theme: ThemePrefs): boolean {
+  return theme.headingColor !== null || Object.keys(theme.headings).length > 0;
+}
 
 interface MaybeUser {
   prefs?: Partial<EditorPrefs> | null;
@@ -139,7 +191,9 @@ export function resolvePrefs(user: MaybeUser | null | undefined): EditorPrefs {
     }
   }
 
-  return { codeAccent, keybinds, follow };
+  const theme = resolveThemePrefs(stored.theme);
+
+  return { codeAccent, keybinds, follow, theme };
 }
 
 // ── Shortcut parsing / matching ──────────────────────────────────────────
