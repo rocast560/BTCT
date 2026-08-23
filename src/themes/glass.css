@@ -1,0 +1,445 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Glass interface theme (src/themes/registry.ts → id "glass").
+
+   A skin in the style of Apple's Liquid Glass, on BTCT's own dark-grey
+   palette. Everything here is scoped under html[data-ui-theme="glass"], so
+   the file is inert for the classic theme and can be deleted wholesale (see
+   the registry header for the removal recipe).
+
+   How it works, and why it can live in one file:
+     • Tailwind v4 emits utilities inside `@layer utilities`. Rules in this
+       sheet are unlayered, so by cascade-layer rules they win over every
+       utility regardless of specificity. That is what lets the skin restyle
+       `bg-[hsl(var(--card))]`-style recipes without touching components.
+       The flip side: a utility's hover/focus variant loses too, so every
+       surface restyled here gets its own :hover / :focus-visible rule.
+     • Selectors match class TOKENS (`[class~="…"]`), never substrings, so
+       `hover:bg-…` and `bg-…/10` variants are not caught by accident.
+     • Five `data-ui` hooks in the components mark the shell, the sidebars
+       and the tab bars, the only places where the layout itself changes
+       (floating panels with gaps instead of edge-to-edge columns).
+
+   Apple's rules applied: glass only on the floating chrome (sidebars, tab
+   strip, toolbars, popovers, sheets); the content layer stays opaque; one
+   material per stack, never glass on glass; concentric radii (22 → 16 → 12
+   → 10); capsules for chips and pills; a single tinted primary action;
+   monochrome everything else; solid fallbacks under reduced transparency or
+   without backdrop-filter; no motion under reduced motion.
+
+   The rails and the content column must NOT create stacking contexts or
+   containing blocks (no backdrop-filter, filter, transform, isolation or
+   z-index on them): the dialogs are rendered inside those elements with
+   position: fixed, and a stacking context there would trap them behind
+   later siblings. The blurred material therefore lives on a ::before
+   pseudo-element with z-index: -1, which sits in the root stacking context
+   above the wallpaper and below everything in flow.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── Tokens ─────────────────────────────────────────────────────────────── */
+
+html[data-ui-theme="glass"] {
+  --g-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text",
+    "Segoe UI", "Inter", system-ui, sans-serif;
+  --g-blur: 24px;
+  --g-blur-modal: 28px;
+  --g-blur-scrim: 6px;
+  --g-saturate: 160%;
+  --g-r-xl: 22px;
+  --g-r-lg: 16px;
+  --g-r-md: 12px;
+  --g-r-sm: 10px;
+  --g-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+html[data-ui-theme="glass"].dark {
+  --g-wallpaper:
+    radial-gradient(55% 45% at 10% 6%, hsl(var(--primary) / 0.28), transparent 62%),
+    radial-gradient(45% 40% at 92% 94%, rgba(110, 140, 190, 0.26), transparent 62%),
+    radial-gradient(35% 35% at 65% 18%, rgba(255, 255, 255, 0.07), transparent 60%),
+    radial-gradient(40% 30% at 30% 88%, rgba(170, 120, 200, 0.12), transparent 60%),
+    #121214;
+  --g-content: #18181a;
+  --g-panel: rgba(28, 28, 30, 0.55);
+  --g-modal: rgba(30, 30, 32, 0.86);
+  --g-popover: rgba(34, 34, 36, 0.80);
+  --g-card: rgba(255, 255, 255, 0.04);
+  --g-node: rgba(38, 38, 40, 0.94);
+  --g-control: rgba(255, 255, 255, 0.07);
+  --g-control-hover: rgba(255, 255, 255, 0.11);
+  --g-control-active: rgba(255, 255, 255, 0.15);
+  --g-field: rgba(255, 255, 255, 0.06);
+  --g-border: rgba(255, 255, 255, 0.10);
+  --g-border-strong: rgba(255, 255, 255, 0.16);
+  --g-hairline: rgba(255, 255, 255, 0.07);
+  --g-hl-top: rgba(255, 255, 255, 0.22);
+  --g-hl-bottom: rgba(255, 255, 255, 0.05);
+  --g-shadow-control: 0 1px 2px rgba(0, 0, 0, 0.30), 0 4px 12px rgba(0, 0, 0, 0.22);
+  --g-shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 32px rgba(0, 0, 0, 0.40);
+  --g-shadow-modal: 0 2px 4px rgba(0, 0, 0, 0.40), 0 28px 72px rgba(0, 0, 0, 0.55);
+  --g-scrim: rgba(0, 0, 0, 0.45);
+  --g-scroll-thumb: rgba(255, 255, 255, 0.14);
+  --g-scroll-thumb-hover: rgba(255, 255, 255, 0.24);
+}
+
+html[data-ui-theme="glass"]:not(.dark) {
+  --g-wallpaper:
+    radial-gradient(60% 50% at 12% 8%, hsl(var(--primary) / 0.16), transparent 60%),
+    radial-gradient(50% 45% at 88% 92%, rgba(120, 140, 170, 0.22), transparent 60%),
+    #e7e7ec;
+  --g-content: #f5f5f7;
+  --g-panel: rgba(255, 255, 255, 0.55);
+  --g-modal: rgba(250, 250, 252, 0.90);
+  --g-popover: rgba(255, 255, 255, 0.82);
+  --g-card: rgba(255, 255, 255, 0.75);
+  --g-node: rgba(255, 255, 255, 0.96);
+  --g-control: rgba(0, 0, 0, 0.04);
+  --g-control-hover: rgba(0, 0, 0, 0.07);
+  --g-control-active: rgba(0, 0, 0, 0.10);
+  --g-field: rgba(255, 255, 255, 0.70);
+  --g-border: rgba(0, 0, 0, 0.10);
+  --g-border-strong: rgba(0, 0, 0, 0.16);
+  --g-hairline: rgba(0, 0, 0, 0.07);
+  --g-hl-top: rgba(255, 255, 255, 0.80);
+  --g-hl-bottom: rgba(255, 255, 255, 0.30);
+  --g-shadow-control: 0 1px 2px rgba(0, 0, 0, 0.10), 0 4px 12px rgba(0, 0, 0, 0.08);
+  --g-shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.10), 0 12px 32px rgba(0, 0, 0, 0.14);
+  --g-shadow-modal: 0 2px 4px rgba(0, 0, 0, 0.12), 0 28px 72px rgba(0, 0, 0, 0.22);
+  --g-scrim: rgba(0, 0, 0, 0.25);
+  --g-scroll-thumb: rgba(0, 0, 0, 0.16);
+  --g-scroll-thumb-hover: rgba(0, 0, 0, 0.28);
+}
+
+/* Solid fallbacks: the same look without the translucency. */
+@media (prefers-reduced-transparency: reduce) {
+  html[data-ui-theme="glass"] { --g-blur: 0px; --g-blur-modal: 0px; --g-blur-scrim: 0px; }
+  html[data-ui-theme="glass"].dark { --g-panel: #1c1c1e; --g-modal: #222224; --g-popover: #242426; }
+  html[data-ui-theme="glass"]:not(.dark) { --g-panel: #fafafc; --g-modal: #ffffff; --g-popover: #ffffff; }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-ui-theme="glass"].dark { --g-panel: #1c1c1e; --g-modal: #222224; --g-popover: #242426; }
+  html[data-ui-theme="glass"]:not(.dark) { --g-panel: #fafafc; --g-modal: #ffffff; --g-popover: #ffffff; }
+}
+@media (prefers-contrast: more) {
+  html[data-ui-theme="glass"].dark { --g-border: rgba(255, 255, 255, 0.32); --g-border-strong: rgba(255, 255, 255, 0.45); --g-hairline: rgba(255, 255, 255, 0.22); }
+  html[data-ui-theme="glass"]:not(.dark) { --g-border: rgba(0, 0, 0, 0.32); --g-border-strong: rgba(0, 0, 0, 0.45); --g-hairline: rgba(0, 0, 0, 0.22); }
+}
+
+/* ── Wallpaper, type, shell ─────────────────────────────────────────────── */
+
+html[data-ui-theme="glass"] body {
+  background: var(--g-wallpaper);
+  background-attachment: fixed;
+  font-family: var(--g-font);
+}
+html[data-ui-theme="glass"] .milkdown-host .ProseMirror,
+html[data-ui-theme="glass"] .milkdown-host .milkdown {
+  font-family: var(--g-font);
+  --crepe-font-default: var(--g-font);
+  --crepe-font-title: var(--g-font);
+}
+
+/* The app root, the login screen and the splash all paint --background
+   edge to edge; let the wallpaper through instead. */
+html[data-ui-theme="glass"] #root > div {
+  background: transparent;
+}
+
+html[data-ui-theme="glass"] [data-ui="shell"] {
+  padding: 8px;
+  gap: 8px;
+}
+
+/* Floating glass rails. The material sits on ::before (see header). */
+html[data-ui-theme="glass"] [data-ui="sidebar"] {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-r-xl);
+  background: transparent;
+  box-shadow: var(--g-shadow-panel), inset 0 1px 0 var(--g-hl-top), inset 0 -1px 0 var(--g-hl-bottom);
+}
+html[data-ui-theme="glass"] [data-ui="sidebar"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--g-panel);
+  -webkit-backdrop-filter: blur(var(--g-blur)) saturate(var(--g-saturate));
+  backdrop-filter: blur(var(--g-blur)) saturate(var(--g-saturate));
+  pointer-events: none;
+}
+
+/* The content layer: opaque, rounded to match the rails (concentric). */
+html[data-ui-theme="glass"] [data-ui="main"] {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--g-hairline);
+  border-radius: var(--g-r-xl);
+  background: var(--g-content);
+}
+
+/* Hairlines inside the chrome. */
+html[data-ui-theme="glass"] [data-ui="sidebar"] [class~="border-b"],
+html[data-ui-theme="glass"] [data-ui="sidebar"] [class~="border-t"],
+html[data-ui-theme="glass"] [data-ui="sidebar"] [class~="border-l"],
+html[data-ui-theme="glass"] [data-ui="main"] [class~="border-b"],
+html[data-ui-theme="glass"] [data-ui="main"] [class~="border-t"],
+html[data-ui-theme="glass"] [data-ui="toolbar"] {
+  border-color: var(--g-hairline);
+}
+
+/* ── Tab strips and chips ───────────────────────────────────────────────── */
+
+html[data-ui-theme="glass"] [data-ui="tabbar"],
+html[data-ui-theme="glass"] [data-ui="toolbar"] {
+  background: transparent;
+  border-bottom: 1px solid var(--g-hairline);
+}
+html[data-ui-theme="glass"] [data-ui="tabbar"][class~="h-10"] {
+  height: 2.75rem;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+html[data-ui-theme="glass"] [class~="cursor-grab"][class~="rounded-full"] {
+  border: 1px solid transparent;
+  transition: background-color 0.15s var(--g-ease), border-color 0.15s var(--g-ease), box-shadow 0.15s var(--g-ease), color 0.15s var(--g-ease);
+}
+html[data-ui-theme="glass"] [class~="cursor-grab"][class~="rounded-full"]:hover {
+  background: var(--g-control-hover);
+}
+html[data-ui-theme="glass"] [class~="cursor-grab"][class~="rounded-full"][class~="bg-[hsl(var(--accent))]"] {
+  background: var(--g-control-active);
+  border-color: var(--g-border);
+  box-shadow: inset 0 1px 0 var(--g-hl-top), var(--g-shadow-control);
+}
+
+/* ── Generic controls ───────────────────────────────────────────────────── */
+
+/* Bordered buttons become glass controls (capsules keep their shape). */
+html[data-ui-theme="glass"] button[class~="border-[hsl(var(--border))]"],
+html[data-ui-theme="glass"] button[class~="border-[hsl(var(--input))]"],
+html[data-ui-theme="glass"] [class~="rounded-full"][class~="bg-[hsl(var(--card))]"],
+html[data-ui-theme="glass"] [class~="rounded-lg"][class~="bg-[hsl(var(--background))]"][class~="border-[hsl(var(--border))]"],
+html[data-ui-theme="glass"] [class~="rounded-lg"][class~="bg-[hsl(var(--card))]"][class~="border-[hsl(var(--border))]"] {
+  background: var(--g-control);
+  border-color: var(--g-border);
+  box-shadow: inset 0 1px 0 var(--g-hl-top), 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: background-color 0.15s var(--g-ease), border-color 0.15s var(--g-ease), box-shadow 0.15s var(--g-ease), transform 0.15s var(--g-ease), filter 0.15s var(--g-ease);
+}
+html[data-ui-theme="glass"] button[class~="border-[hsl(var(--border))]"]:not([class~="rounded-full"]),
+html[data-ui-theme="glass"] button[class~="border-[hsl(var(--input))]"]:not([class~="rounded-full"]),
+html[data-ui-theme="glass"] [class~="rounded-lg"][class~="bg-[hsl(var(--background))]"][class~="border-[hsl(var(--border))]"],
+html[data-ui-theme="glass"] [class~="rounded-lg"][class~="bg-[hsl(var(--card))]"][class~="border-[hsl(var(--border))]"] {
+  border-radius: var(--g-r-md);
+}
+html[data-ui-theme="glass"] button[class~="border-[hsl(var(--border))]"]:hover,
+html[data-ui-theme="glass"] button[class~="border-[hsl(var(--input))]"]:hover,
+html[data-ui-theme="glass"] button[class~="rounded-full"][class~="bg-[hsl(var(--card))]"]:hover,
+html[data-ui-theme="glass"] button[class~="rounded-lg"][class~="bg-[hsl(var(--card))]"][class~="border-[hsl(var(--border))]"]:hover {
+  background: var(--g-control-hover);
+  border-color: var(--g-border-strong);
+}
+html[data-ui-theme="glass"] button[class~="rounded-full"][class~="bg-[hsl(var(--card))]"]:hover {
+  transform: translateY(-1px);
+}
+html[data-ui-theme="glass"] button[class~="border-[hsl(var(--border))]"]:active:not(:disabled),
+html[data-ui-theme="glass"] button[class~="rounded-full"][class~="bg-[hsl(var(--card))]"]:active:not(:disabled) {
+  transform: scale(0.97);
+  background: var(--g-control-active);
+}
+
+/* Status-tinted rows and shortcuts in the rails: keep the colour, soften the frame. */
+html[data-ui-theme="glass"] [data-ui="sidebar"] [class~="rounded-lg"] {
+  border-radius: var(--g-r-md);
+}
+
+/* The one tinted action: the primary button gets a glass gloss. */
+html[data-ui-theme="glass"] [class~="bg-[hsl(var(--primary))]"] {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 55%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 1px 2px rgba(0, 0, 0, 0.30), 0 6px 16px hsl(var(--primary) / 0.35);
+  transition: filter 0.15s var(--g-ease), transform 0.15s var(--g-ease), opacity 0.15s var(--g-ease);
+}
+html[data-ui-theme="glass"] button[class~="bg-[hsl(var(--primary))]"]:not([class~="rounded-full"]):not([class~="rounded-2xl"]) {
+  border-radius: var(--g-r-md);
+}
+html[data-ui-theme="glass"] button[class~="bg-[hsl(var(--primary))]"]:hover:not(:disabled) {
+  filter: brightness(1.06);
+  opacity: 1;
+}
+html[data-ui-theme="glass"] button[class~="bg-[hsl(var(--primary))]"]:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Icon buttons. */
+html[data-ui-theme="glass"] button[class~="rounded-md"]:not([class~="border-[hsl(var(--border))]"]):not([class~="bg-[hsl(var(--primary))]"]) {
+  border-radius: var(--g-r-sm);
+  transition: background-color 0.15s var(--g-ease), color 0.15s var(--g-ease);
+}
+html[data-ui-theme="glass"] button[class~="rounded-md"]:not([class~="border-[hsl(var(--border))]"]):not([class~="bg-[hsl(var(--primary))]"]):hover {
+  background: var(--g-control-hover);
+}
+
+/* Fields. Transparent inline inputs (page title, search, rename) are left alone. */
+html[data-ui-theme="glass"] input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]):not([class~="bg-transparent"]),
+html[data-ui-theme="glass"] textarea:not([class~="bg-transparent"]),
+html[data-ui-theme="glass"] select {
+  background-color: var(--g-field);
+  border-color: var(--g-border);
+  border-radius: var(--g-r-md);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22);
+  transition: border-color 0.15s var(--g-ease), box-shadow 0.15s var(--g-ease), background-color 0.15s var(--g-ease);
+}
+html[data-ui-theme="glass"] input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]):not([class~="bg-transparent"]):focus,
+html[data-ui-theme="glass"] textarea:not([class~="bg-transparent"]):focus,
+html[data-ui-theme="glass"] select:focus {
+  border-color: hsl(var(--primary) / 0.70);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22), 0 0 0 3px hsl(var(--primary) / 0.22);
+}
+html[data-ui-theme="glass"] input[type="checkbox"],
+html[data-ui-theme="glass"] input[type="radio"] {
+  accent-color: hsl(var(--primary));
+}
+/* The sidebar search capsule is a bordered pill, not an input. */
+html[data-ui-theme="glass"] [data-ui="sidebar"] [class~="rounded-full"][class~="bg-[hsl(var(--background))]"] {
+  background: var(--g-field);
+  border-color: var(--g-border);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22);
+}
+html[data-ui-theme="glass"] button:focus-visible,
+html[data-ui-theme="glass"] [class~="cursor-grab"]:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.6);
+  outline-offset: 2px;
+}
+
+/* ── Sheets, popovers, menus ────────────────────────────────────────────── */
+
+/* Scrims blur what is behind them, Apple-sheet style. */
+html[data-ui-theme="glass"] [class~="fixed"][class~="inset-0"][class*="bg-black/"] {
+  background: var(--g-scrim);
+  -webkit-backdrop-filter: blur(var(--g-blur-scrim));
+  backdrop-filter: blur(var(--g-blur-scrim));
+}
+
+/* Dialog cards, the login card, the presence card, the command palette. */
+html[data-ui-theme="glass"] [class~="shadow-2xl"][class~="rounded-2xl"],
+html[data-ui-theme="glass"] [class~="shadow-2xl"][class~="rounded-lg"][class~="bg-[hsl(var(--card))]"],
+html[data-ui-theme="glass"] [class~="shadow-2xl"][class~="bg-[hsl(var(--popover))]"],
+html[data-ui-theme="glass"] [class~="shadow-xl"][class~="bg-[hsl(var(--popover))]"][class~="relative"],
+html[data-ui-theme="glass"] [class~="shadow-xl"][class~="rounded-2xl"] {
+  background: var(--g-modal);
+  border: 1px solid var(--g-border-strong);
+  border-radius: var(--g-r-xl);
+  box-shadow: var(--g-shadow-modal), inset 0 1px 0 var(--g-hl-top), inset 0 -1px 0 var(--g-hl-bottom);
+  -webkit-backdrop-filter: blur(var(--g-blur-modal)) saturate(var(--g-saturate));
+  backdrop-filter: blur(var(--g-blur-modal)) saturate(var(--g-saturate));
+}
+/* The admin panel is built on white/10 + black/20 instead of the tokens. */
+html[data-ui-theme="glass"] [class~="shadow-2xl"][class~="rounded-lg"][class~="bg-[hsl(var(--card))]"] [class~="border-white/10"] {
+  border-color: var(--g-hairline);
+}
+html[data-ui-theme="glass"] [class~="shadow-2xl"][class~="rounded-lg"][class~="bg-[hsl(var(--card))]"] [class~="bg-black/20"] {
+  background: var(--g-card);
+  border-radius: var(--g-r-lg);
+}
+html[data-ui-theme="glass"] [class~="shadow-2xl"][class~="rounded-lg"][class~="bg-[hsl(var(--card))]"] [class~="bg-black/30"],
+html[data-ui-theme="glass"] [class~="shadow-2xl"][class~="rounded-lg"][class~="bg-[hsl(var(--card))]"] [class~="bg-black/40"] {
+  background: var(--g-field);
+}
+
+/* Popovers: context menus, dropdowns, the floating format panel, search bars. */
+html[data-ui-theme="glass"] [class~="shadow-xl"][class~="bg-[hsl(var(--popover))]"]:not([class~="relative"]),
+html[data-ui-theme="glass"] [class~="shadow-xl"][class~="bg-[hsl(var(--card))]"],
+html[data-ui-theme="glass"] [class~="shadow-lg"][class~="bg-[hsl(var(--card))]"],
+html[data-ui-theme="glass"] [class~="shadow-2xl"][class~="rounded-lg"][class~="bg-[hsl(var(--card))]"][class~="absolute"] {
+  background: var(--g-popover);
+  border-color: var(--g-border-strong);
+  box-shadow: var(--g-shadow-panel), inset 0 1px 0 var(--g-hl-top);
+  -webkit-backdrop-filter: blur(var(--g-blur)) saturate(var(--g-saturate));
+  backdrop-filter: blur(var(--g-blur)) saturate(var(--g-saturate));
+}
+html[data-ui-theme="glass"] [class~="rounded-xl"][class~="shadow-xl"][class~="bg-[hsl(var(--popover))]"],
+html[data-ui-theme="glass"] [class~="rounded-xl"][class~="shadow-xl"][class~="bg-[hsl(var(--card))]"] {
+  border-radius: var(--g-r-lg);
+  padding-left: 4px;
+  padding-right: 4px;
+}
+html[data-ui-theme="glass"] [class~="bg-[hsl(var(--popover))]"] button[class~="w-full"]:not([class~="rounded-lg"]) {
+  border-radius: var(--g-r-sm);
+  transition: background-color 0.15s var(--g-ease);
+}
+html[data-ui-theme="glass"] [class~="bg-[hsl(var(--popover))]"] button[class~="w-full"]:hover {
+  background: var(--g-control-hover);
+}
+html[data-ui-theme="glass"] [class~="bg-[hsl(var(--popover))]"] [cmdk-item][aria-selected="true"],
+html[data-ui-theme="glass"] [class~="bg-[hsl(var(--popover))]"] [aria-selected="true"] {
+  background: var(--g-control-active);
+}
+
+/* ── Content-layer surfaces (no blur: glass stays on the chrome) ───────── */
+
+html[data-ui-theme="glass"] [class~="rounded-xl"][class~="bg-[hsl(var(--card))]"]:not([class~="shadow-xl"]):not([class~="shadow-md"]),
+html[data-ui-theme="glass"] [class~="rounded-2xl"][class~="bg-[hsl(var(--card))]"]:not([class~="shadow-2xl"]):not([class~="shadow-xl"]) {
+  background: var(--g-card);
+  border-color: var(--g-hairline);
+  border-radius: var(--g-r-lg);
+}
+/* Graph node cards and the nmap machine cards float on the canvas. */
+html[data-ui-theme="glass"] [class~="rounded-xl"][class~="bg-[hsl(var(--card))]"][class~="shadow-md"],
+html[data-ui-theme="glass"] [class~="rounded-xl"][class~="bg-[hsl(var(--card))]"][class~="shadow-sm"] {
+  background: var(--g-node);
+  border-color: var(--g-border);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 var(--g-hl-top), var(--g-shadow-control);
+}
+html[data-ui-theme="glass"] [class~="rounded-xl"][class~="bg-[hsl(var(--card))]"][class~="shadow-sm"]:hover {
+  background: var(--g-control-hover);
+}
+/* Full-bleed view roots that paint --background (graph canvas, assistant). */
+html[data-ui-theme="glass"] [data-ui="main"] [class~="bg-[hsl(var(--background))]"][class~="h-full"] {
+  background: transparent;
+}
+html[data-ui-theme="glass"] [class~="rounded-xl"] [class~="border-b"],
+html[data-ui-theme="glass"] [class~="divide-[hsl(var(--border))]"] > * + * {
+  border-color: var(--g-hairline);
+}
+/* Tag pills and kbd hints. */
+html[data-ui-theme="glass"] [class~="rounded-full"][class~="bg-[hsl(var(--muted))]"],
+html[data-ui-theme="glass"] kbd[class~="bg-[hsl(var(--muted))]"] {
+  background: var(--g-control);
+  border: 1px solid var(--g-hairline);
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+
+html[data-ui-theme="glass"] * {
+  scrollbar-color: var(--g-scroll-thumb) transparent;
+}
+html[data-ui-theme="glass"] ::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+html[data-ui-theme="glass"] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+html[data-ui-theme="glass"] ::-webkit-scrollbar-thumb {
+  background: var(--g-scroll-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+html[data-ui-theme="glass"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--g-scroll-thumb-hover);
+  background-clip: content-box;
+}
+
+/* ── Motion ─────────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui-theme="glass"] *,
+  html[data-ui-theme="glass"] *::before,
+  html[data-ui-theme="glass"] *::after {
+    transition: none !important;
+    transform: none !important;
+  }
+}
