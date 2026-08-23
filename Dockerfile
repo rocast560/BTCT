@@ -16,6 +16,11 @@ RUN bun install --frozen-lockfile
 COPY tsconfig.json vite.config.ts vite-env.d.ts index.html ./
 COPY public ./public
 COPY src ./src
+# Type declarations for the pure server modules that src/test imports
+# (scheduler, backup-format). `bun run build` runs tsc over the tests too,
+# so the .d.mts files must exist here even though the server itself is
+# built in a later stage.
+COPY server/*.d.mts ./server/
 RUN bun run build
 
 # Precompress the compressible static files so the server can hand a

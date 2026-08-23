@@ -54,7 +54,7 @@ Deploy / run the real app (single container, serves client + API + Yjs on one po
 - `docker compose up -d --build`: build image and (re)launch. Requires `AUTH_SECRET` in `.env`. Health: `curl 127.0.0.1:8080/healthz` (use `127.0.0.1`, not `localhost`, on a Windows/WSL2 Docker host: `wslrelay.exe` accepts `[::1]:8080` but cannot forward IPv6, so `localhost` hangs; see README "Running on Windows").
 - Typst asset blobs land in `ASSETS_DIR` (default: `assets/` beside `DB_PATH` → `/data/assets`), on the same `btct-data` volume as SQLite + Yjs, so existing backups cover them.
 - Backups: **Admin panel → Backups** (`server/backup.mjs`) writes one folder per run to `BACKUP_DIR` (`/backups`, bind-mounted from `./backups`). Restore with the container stopped: `docker compose stop btct && docker compose run --rm btct bun server/restore.mjs /backups/<name> --yes && docker compose start btct`.
-- After editing a `server/*.mjs` file, note the **Dockerfile copies server files individually**. A new server file must be added to the `COPY server/...` lines or it won't be in the image.
+- After editing a `server/*.mjs` file, note the **Dockerfile copies server files individually**. A new server file must be added to the `COPY server/...` lines or it won't be in the image. A pure server module that `src/test` imports needs a `.d.mts` beside it; those are copied into the client-build stage too (`COPY server/*.d.mts`) because `bun run build` typechecks the tests.
 
 > The `.mjs` server is not covered by `tsc`. Sanity-check syntax with `bun build ./server/<file>.mjs --target=bun --external '<npm deps>' --outfile /tmp/x.js`.
 
