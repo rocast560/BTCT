@@ -60,7 +60,7 @@ export function RightSidebar() {
             <div className="mt-2"><LastEditedBadge target="edge" targetId={selectedEdgeId} /></div>
           </>
         )}
-        {!selectedNodeId && !selectedEdgeId && activeTab?.kind === 'page' && (
+        {!selectedNodeId && !selectedEdgeId && activeTab && (activeTab.kind === 'page' || activeTab.kind === 'history') && (
           <>
             <BacklinksPanel pageId={activeTab.entityId} />
             <div className="mt-2"><LastEditedBadge target="page" targetId={activeTab.entityId} /></div>

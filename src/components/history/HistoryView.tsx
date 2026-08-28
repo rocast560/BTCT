@@ -162,6 +162,8 @@ function VersionViewer({
 // ── The tab ──────────────────────────────────────────────────────────────
 export function HistoryView({ pageId }: { pageId: string }) {
   const page = useAppStore((s) => s.pages.find((p) => p.id === pageId));
+  const closeTab = useAppStore((s) => s.closeTab);
+  const ownTab = useAppStore((s) => s.tabs.find((t) => t.kind === 'history' && t.entityId === pageId));
   const authUser = useAuthStore((s) => s.user);
 
   const [data, setData] = useState<VersionListResponse | null>(null);
@@ -389,6 +391,14 @@ export function HistoryView({ pageId }: { pageId: string }) {
             <RotateCcw size={12} /> Restore this version
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => { if (ownTab) closeTab(ownTab.id); }}
+          className="shrink-0 rounded-md p-1 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
+          title="Close version history"
+        >
+          <X size={14} />
+        </button>
       </div>
 
       {selected && confirmRestore && (

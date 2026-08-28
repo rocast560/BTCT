@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Clock, History, Save } from 'lucide-react';
+import { Clock, History, Save, X } from 'lucide-react';
 import { useAppStore } from '@/stores';
 import { createVersion, listVersions, type VersionListResponse } from '@/realtime/page-history-api';
 import { formatVersionTime, dayLabel, versionLabel } from '@/lib/page-history';
@@ -12,6 +12,9 @@ import { formatVersionTime, dayLabel, versionLabel } from '@/lib/page-history';
 export function PageHistoryPanel({ pageId }: { pageId: string }) {
   const page = useAppStore((s) => s.pages.find((p) => p.id === pageId));
   const openTab = useAppStore((s) => s.openTab);
+  const closeTab = useAppStore((s) => s.closeTab);
+  // The History tab for this page, if open: the button below toggles it.
+  const historyTab = useAppStore((s) => s.tabs.find((t) => t.kind === 'history' && t.entityId === pageId));
   const [data, setData] = useState<VersionListResponse | null>(null);
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
@@ -109,11 +112,11 @@ export function PageHistoryPanel({ pageId }: { pageId: string }) {
 
       <button
         type="button"
-        onClick={openHistory}
+        onClick={historyTab ? () => closeTab(historyTab.id) : openHistory}
         className="flex w-full items-center justify-center gap-2 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-xs font-medium hover:bg-[hsl(var(--accent))]"
       >
-        <History size={13} />
-        Open version history
+        {historyTab ? <X size={13} /> : <History size={13} />}
+        {historyTab ? 'Close version history' : 'Open version history'}
       </button>
 
       {status && (

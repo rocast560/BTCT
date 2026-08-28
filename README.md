@@ -477,6 +477,11 @@ Everything is live and multi-user over the LAN:
 - **Tabs**: open pages, narratives, nmap groups/machines, Findings, Timeline,
   the Typst editor, and the Claude assistant as tabs. Cycle with **←/→**, close
   with **Alt+W**, and the **browser back/forward** buttons walk your tab history.
+  **Drag a tab left or right** along its strip to reorder it (a bar shows where
+  it lands; dropping on the empty end of the strip moves it last). The
+  Properties panel's **Open version history** button turns into **Close
+  version history** while that page's History tab is open, and the tab has its
+  own close button in its header.
 - **Split panes**: drag a tab to a pane edge (left/right/top/bottom) to split;
   drag the divider to resize; emptying a pane collapses the split automatically.
 - **Command palette**: **Ctrl/⌘+K** to create pages/narratives, toggle dark

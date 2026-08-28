@@ -163,3 +163,39 @@ export function moveTab(
 
   return layout;
 }
+
+// ── Reordering within a strip ──
+
+/**
+ * Move the item `id` next to `targetId` in a list (before or after it). A
+ * no-op when either id is missing or they are the same item.
+ */
+export function moveWithin<T>(
+  list: T[],
+  id: string,
+  targetId: string,
+  place: 'before' | 'after',
+  key: (item: T) => string,
+): T[] {
+  if (id === targetId) return list;
+  const item = list.find((x) => key(x) === id);
+  if (!item || !list.some((x) => key(x) === targetId)) return list;
+  const without = list.filter((x) => key(x) !== id);
+  const idx = without.findIndex((x) => key(x) === targetId);
+  const at = place === 'before' ? idx : idx + 1;
+  return [...without.slice(0, at), item, ...without.slice(at)];
+}
+
+/** Reorder a tab inside one leaf's strip (dragged left or right past `targetTabId`). */
+export function reorderTabInLeaf(
+  root: PaneNode,
+  paneId: string,
+  tabId: string,
+  targetTabId: string,
+  place: 'before' | 'after',
+): PaneNode {
+  return mapLeaf(root, paneId, (leaf) => ({
+    ...leaf,
+    tabIds: moveWithin(leaf.tabIds, tabId, targetTabId, place, (id) => id),
+  }));
+}

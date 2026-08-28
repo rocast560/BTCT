@@ -5,7 +5,7 @@ import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, chang
 import type { LogAuthor, LogDelta } from '@/db/changelog-repo';
 import { db } from '@/db/database';
 import { useAuthStore } from '@/auth/auth-store';
-import { createLeaf, findLeafContainingTab, firstLeaf, addTabToPane, removeTab as removeTabFromLayout, collapse, moveTab, removeTabsWhere, setActiveInPane, updateRatio } from '@/lib/pane-layout';
+import { createLeaf, findLeafContainingTab, firstLeaf, addTabToPane, removeTab as removeTabFromLayout, collapse, moveTab, moveWithin, reorderTabInLeaf, removeTabsWhere, setActiveInPane, updateRatio } from '@/lib/pane-layout';
 
 // ─────────────────────────────────────────────────────────────────────────
 // UI persistence: keep tabs / active tab / pane layout / active workspace
@@ -96,6 +96,8 @@ interface AppState {
   activePaneId: string | null;
   setActivePane: (paneId: string) => void;
   moveTabToPane: (tabId: string, targetPaneId: string, position: DropPosition) => void;
+  /** Drag a tab left or right: place it before or after another tab (same strip, or into that tab's pane). */
+  reorderTab: (tabId: string, targetTabId: string, place: 'before' | 'after') => void;
   updateSplitRatio: (splitId: string, ratio: number) => void;
   /**
    * Collapse every split pane into a single pane holding all current tabs
@@ -653,6 +655,23 @@ export const useAppStore = create<AppState>((set, get) => {
         activeTabId: tabId,
         activePaneId: newLeaf?.id ?? s.activePaneId,
       };
+    });
+  },
+
+  reorderTab: (tabId, targetTabId, place) => {
+    if (tabId === targetTabId) return;
+    set((s) => {
+      const tabs = moveWithin(s.tabs, tabId, targetTabId, place, (t) => t.id);
+      const from = findLeafContainingTab(s.paneLayout, tabId);
+      const to = findLeafContainingTab(s.paneLayout, targetTabId);
+      let paneLayout = s.paneLayout;
+      if (from && to) {
+        if (from.id !== to.id) paneLayout = moveTab(paneLayout, tabId, to.id, 'center');
+        const leaf = findLeafContainingTab(paneLayout, targetTabId);
+        if (leaf) paneLayout = reorderTabInLeaf(paneLayout, leaf.id, tabId, targetTabId, place);
+      }
+      const leaf = findLeafContainingTab(paneLayout, tabId);
+      return { tabs, paneLayout, activeTabId: tabId, activePaneId: leaf?.id ?? s.activePaneId };
     });
   },
 

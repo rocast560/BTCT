@@ -141,6 +141,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const closeTab = useAppStore((s) => s.closeTab);
   const moveTabToPane = useAppStore((s) => s.moveTabToPane);
+  const reorderTab = useAppStore((s) => s.reorderTab);
   const paneLayout = useAppStore((s) => s.paneLayout);
 
   const [dropZone, setDropZone] = useState<DropPosition | null>(null);
@@ -212,7 +213,29 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
     >
       {/* Per-pane tab strip (only shown when splits exist: global TabBar handles single-pane tabs) */}
       {hasSplits && paneTabs.length > 0 && (
-        <div data-ui="tabbar" className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2">
+        <div
+          data-ui="tabbar"
+          className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2"
+          // The strip owns drags over it: reordering, not the pane drop zones.
+          onDragEnter={(e) => { if (e.dataTransfer.types.includes(TAB_DRAG_TYPE)) e.stopPropagation(); }}
+          onDragLeave={(e) => e.stopPropagation()}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes(TAB_DRAG_TYPE)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setDropZone(null);
+          }}
+          onDrop={(e) => {
+            const dragged = e.dataTransfer.getData(TAB_DRAG_TYPE);
+            if (!dragged) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const last = paneTabs[paneTabs.length - 1];
+            if (last && last.id !== dragged) reorderTab(dragged, last.id, 'after');
+            setDropZone(null);
+            dragCounter.current = 0;
+          }}
+        >
           {paneTabs.map((tab) => (
             <PaneTabChip
               key={tab.id}
@@ -220,6 +243,12 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
               active={tab.id === activeTab?.id}
               onActivate={() => setActiveTab(tab.id)}
               onClose={() => closeTab(tab.id)}
+              onDragHover={() => setDropZone(null)}
+              onReorder={(dragged, place) => {
+                reorderTab(dragged, tab.id, place);
+                setDropZone(null);
+                dragCounter.current = 0;
+              }}
             />
           ))}
         </div>
@@ -257,12 +286,17 @@ const PaneTabChip = memo(function PaneTabChip({
   active,
   onActivate,
   onClose,
+  onDragHover,
+  onReorder,
 }: {
   tab: TabItem;
   active: boolean;
   onActivate: () => void;
   onClose: () => void;
+  onDragHover: () => void;
+  onReorder: (draggedId: string, place: 'before' | 'after') => void;
 }) {
+  const [dropHint, setDropHint] = useState<'before' | 'after' | null>(null);
   const handleDragStart = useCallback(
     (e: React.DragEvent) => {
       e.dataTransfer.setData(TAB_DRAG_TYPE, tab.id);
@@ -275,14 +309,42 @@ const PaneTabChip = memo(function PaneTabChip({
     <div
       draggable
       onDragStart={handleDragStart}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(TAB_DRAG_TYPE)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        onDragHover();
+        const r = e.currentTarget.getBoundingClientRect();
+        setDropHint(e.clientX < r.left + r.width / 2 ? 'before' : 'after');
+      }}
+      onDragLeave={() => setDropHint(null)}
+      onDrop={(e) => {
+        const dragged = e.dataTransfer.getData(TAB_DRAG_TYPE);
+        if (!dragged) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (dropHint && dragged !== tab.id) onReorder(dragged, dropHint);
+        setDropHint(null);
+      }}
+      onDragEnd={() => setDropHint(null)}
       onClick={onActivate}
       className={cn(
-        'group flex shrink-0 cursor-grab items-center gap-1.5 rounded-full px-3 py-1 text-[10px] transition-colors active:cursor-grabbing',
+        'group relative flex shrink-0 cursor-grab items-center gap-1.5 rounded-full px-3 py-1 text-[10px] transition-colors active:cursor-grabbing',
         active
           ? 'bg-[hsl(var(--accent))] text-[hsl(var(--foreground))]'
           : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]/60',
       )}
     >
+      {dropHint && (
+        <span
+          aria-hidden
+          className={cn(
+            'pointer-events-none absolute bottom-1 top-1 w-0.5 rounded-full bg-[hsl(var(--primary))]',
+            dropHint === 'before' ? '-left-[3px]' : '-right-[3px]',
+          )}
+        />
+      )}
       {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'findings' ? <Bug size={9} /> : tab.kind === 'timeline' ? <Clock size={9} /> : tab.kind === 'typst' ? <FileType2 size={9} /> : tab.kind === 'ai' ? <Sparkles size={9} /> : tab.kind === 'cmdlog' ? <Terminal size={9} /> : tab.kind === 'history' ? <History size={9} /> : <Network size={9} />}
       <span className="max-w-[100px] truncate">{tab.title}</span>
       <button

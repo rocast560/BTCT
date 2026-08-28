@@ -17,12 +17,13 @@ function LiveClock() {
 }
 
 export function TabBar() {
-  const { tabs, activeTabId, setActiveTab, closeTab, leftSidebarOpen, rightSidebarOpen, toggleLeftSidebar, toggleRightSidebar, paneLayout } =
+  const { tabs, activeTabId, setActiveTab, closeTab, reorderTab, leftSidebarOpen, rightSidebarOpen, toggleLeftSidebar, toggleRightSidebar, paneLayout } =
     useAppStore(useShallow((s) => ({
       tabs: s.tabs,
       activeTabId: s.activeTabId,
       setActiveTab: s.setActiveTab,
       closeTab: s.closeTab,
+      reorderTab: s.reorderTab,
       leftSidebarOpen: s.leftSidebarOpen,
       rightSidebarOpen: s.rightSidebarOpen,
       toggleLeftSidebar: s.toggleLeftSidebar,
@@ -31,6 +32,8 @@ export function TabBar() {
     })));
 
   const isSplit = paneLayout.type === 'split';
+  // Which chip the dragged tab would land next to, and on which side.
+  const [dropHint, setDropHint] = useState<{ id: string; place: 'before' | 'after' } | null>(null);
 
   // When the layout is split, each PaneLeaf renders its own tab strip and
   // the global TabBar's tab area is empty. Rendering the full h-10 bar in
@@ -66,7 +69,19 @@ export function TabBar() {
           <PanelLeftOpen size={14} />
         </button>
       )}
-      <div className="flex flex-1 items-center gap-1 overflow-x-auto">
+      <div
+        className="flex flex-1 items-center gap-1 overflow-x-auto"
+        onDragOver={(e) => { if (e.dataTransfer.types.includes(TAB_DRAG_TYPE)) e.preventDefault(); }}
+        onDrop={(e) => {
+          // Dropped on the strip itself (past the last chip): move to the end.
+          const dragged = e.dataTransfer.getData(TAB_DRAG_TYPE);
+          if (!dragged) return;
+          e.preventDefault();
+          const last = tabs[tabs.length - 1];
+          if (last && last.id !== dragged) reorderTab(dragged, last.id, 'after');
+          setDropHint(null);
+        }}
+      >
         {tabs.map((tab) => (
           <div
             key={tab.id}
@@ -75,14 +90,40 @@ export function TabBar() {
               e.dataTransfer.setData(TAB_DRAG_TYPE, tab.id);
               e.dataTransfer.effectAllowed = 'move';
             }}
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes(TAB_DRAG_TYPE)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              const r = e.currentTarget.getBoundingClientRect();
+              setDropHint({ id: tab.id, place: e.clientX < r.left + r.width / 2 ? 'before' : 'after' });
+            }}
+            onDragLeave={() => setDropHint((h) => (h?.id === tab.id ? null : h))}
+            onDrop={(e) => {
+              const dragged = e.dataTransfer.getData(TAB_DRAG_TYPE);
+              if (!dragged) return;
+              e.preventDefault();
+              e.stopPropagation();
+              if (dropHint?.id === tab.id && dragged !== tab.id) reorderTab(dragged, tab.id, dropHint.place);
+              setDropHint(null);
+            }}
+            onDragEnd={() => setDropHint(null)}
             className={cn(
-              'group flex shrink-0 cursor-grab items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors active:cursor-grabbing',
+              'group relative flex shrink-0 cursor-grab items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors active:cursor-grabbing',
               activeTabId === tab.id
                 ? 'bg-[hsl(var(--accent))] text-[hsl(var(--foreground))]'
                 : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]/60'
             )}
             onClick={() => setActiveTab(tab.id)}
           >
+            {dropHint?.id === tab.id && (
+              <span
+                aria-hidden
+                className={cn(
+                  'pointer-events-none absolute bottom-1 top-1 w-0.5 rounded-full bg-[hsl(var(--primary))]',
+                  dropHint.place === 'before' ? '-left-[3px]' : '-right-[3px]',
+                )}
+              />
+            )}
             {tab.kind === 'page' ? <FileText size={11} /> : tab.kind === 'nmap-machine' ? <Monitor size={11} /> : tab.kind === 'nmap' ? <Radar size={11} /> : tab.kind === 'findings' ? <Bug size={11} /> : tab.kind === 'timeline' ? <Clock size={11} /> : tab.kind === 'typst' ? <FileType2 size={11} /> : tab.kind === 'ai' ? <Sparkles size={11} /> : tab.kind === 'cmdlog' ? <Terminal size={11} /> : tab.kind === 'history' ? <History size={11} /> : <Network size={11} />}
             <span className="max-w-[140px] truncate">{tab.title}</span>
             <button
