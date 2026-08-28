@@ -2,9 +2,9 @@
    Glass interface theme (src/themes/registry.ts → id "glass").
 
    A skin in the style of Apple's Liquid Glass (macOS Tahoe) on BTCT's own
-   dark-grey palette. Everything here is scoped under
-   html[data-ui-theme="glass"], so the file is inert for the classic theme
-   and can be deleted wholesale (see the registry header for the recipe).
+   dark-grey palette, and since 2026-08-28 the only look BTCT ships. It
+   restyles the base stylesheet (src/index.css) under
+   html[data-ui-theme="glass"], which index.html and main.tsx both stamp.
 
    How it works, and why it can live in one file:
      • Tailwind v4 emits utilities inside `@layer utilities`. Rules in this

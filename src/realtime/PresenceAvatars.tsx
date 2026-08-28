@@ -73,7 +73,6 @@ export function PresenceAvatars() {
           keybinds: resolved.keybinds,
           follow: { ...resolved.follow, panePlacement: choice },
           theme: resolved.theme,
-          uiTheme: resolved.uiTheme,
         },
       });
     } catch {

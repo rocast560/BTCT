@@ -2,15 +2,14 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import './index.css';
-// Interface themes. index.css is the classic look; glass.css is scoped under
-// html[data-ui-theme="glass"] and inert otherwise (see src/themes/registry.ts).
+// The Glass look: index.css is the base, glass.css restyles it under
+// html[data-ui-theme="glass"] (see src/themes/registry.ts).
 import './themes/glass.css';
-import { applyUiTheme, readCachedUiTheme } from './themes/registry';
+import { applyUiTheme } from './themes/registry';
 
-// Stamp the remembered interface theme before the first paint so the login
-// screen and the shell never flash the other look; the account pref
-// re-applies it after login.
-applyUiTheme(readCachedUiTheme());
+// index.html already carries the attribute; stamping it here too keeps a
+// cached or hand-edited html from painting the unstyled base.
+applyUiTheme();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

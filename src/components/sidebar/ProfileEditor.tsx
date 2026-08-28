@@ -14,7 +14,6 @@ import { applyHeadingColors, resolveEffectiveHeadings } from '@/lib/theme';
 import { useThemeStore } from '@/stores/theme-store';
 import { usePresenceRoster } from '@/realtime/presence';
 import { HeadingColorPicker } from '@/components/ui/HeadingColorPicker';
-import { UI_THEMES, applyUiTheme, type UiThemeId } from '@/themes/registry';
 
 const COLOR_PRESETS = [
   '#ef4444', '#f59e0b', '#10b981', '#3b82f6',
@@ -34,7 +33,6 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
   const [keybinds, setKeybinds] = useState(resolved.keybinds);
   const [follow, setFollow] = useState<FollowPrefs>(resolved.follow);
   const [theme, setTheme] = useState<ThemePrefs>(resolved.theme);
-  const [uiTheme, setUiTheme] = useState<UiThemeId>(resolved.uiTheme);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -67,22 +65,16 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
   const initialHeadings = useRef(
     resolveEffectiveHeadings({ headings: adminHeadings, lock: themeLock }, resolved.theme).headings,
   );
-  const initialUiTheme = useRef(resolved.uiTheme);
   const saved = useRef(false);
   useEffect(() => () => {
     if (!saved.current) {
       applyCodeAccent(initialCodeAccent.current);
       applyHeadingColors(initialHeadings.current);
-      applyUiTheme(initialUiTheme.current);
     }
   }, []);
   const handleCodeAccentChange = (v: string) => {
     setCodeAccent(v);
     if (HEX_RE.test(v)) applyCodeAccent(v);
-  };
-  const handleUiThemeChange = (id: UiThemeId) => {
-    setUiTheme(id);
-    applyUiTheme(id);
   };
   const handleThemeChange = (t: ThemePrefs) => {
     setTheme(t);
@@ -98,7 +90,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
       format: 'btct-prefs',
       version: 1,
       exportedAt: new Date().toISOString(),
-      prefs: { codeAccent, keybinds, follow, theme, uiTheme },
+      prefs: { codeAccent, keybinds, follow, theme },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -127,7 +119,6 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
       setKeybinds(next.keybinds);
       setFollow(next.follow);
       handleThemeChange(next.theme);
-      handleUiThemeChange(next.uiTheme);
       setError(null);
       setNotice(`Loaded ${file.name}. Review, then Save to apply.`);
     } catch {
@@ -140,8 +131,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
     codeAccent.toLowerCase() !== resolved.codeAccent.toLowerCase() ||
     JSON.stringify(keybinds) !== JSON.stringify(resolved.keybinds) ||
     JSON.stringify(follow) !== JSON.stringify(resolved.follow) ||
-    JSON.stringify(theme) !== JSON.stringify(resolved.theme) ||
-    uiTheme !== resolved.uiTheme;
+    JSON.stringify(theme) !== JSON.stringify(resolved.theme);
 
   const handleSave = async () => {
     if (!HEX_RE.test(color)) {
@@ -155,7 +145,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await updateProfile({ color, prefs: { codeAccent, keybinds, follow, theme, uiTheme } });
+      await updateProfile({ color, prefs: { codeAccent, keybinds, follow, theme } });
       saved.current = true;
       onClose();
     } catch (err) {
@@ -281,31 +271,6 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
               onChange={handleThemeChange}
               disabled={themeLock}
             />
-          </div>
-
-          {/* Interface: which overall look this account uses. Applies at once
-              as a preview; Cancel puts the previous one back. */}
-          <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-              Interface
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {UI_THEMES.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => handleUiThemeChange(t.id)}
-                  className={`rounded-lg border p-2.5 text-left transition ${
-                    uiTheme === t.id
-                      ? 'border-[hsl(var(--primary))] bg-[hsl(var(--primary))]/10'
-                      : 'border-[hsl(var(--border))] bg-[hsl(var(--background))] hover:bg-[hsl(var(--accent))]'
-                  }`}
-                >
-                  <div className="text-[11px] font-semibold">{t.label}</div>
-                  <div className="mt-0.5 text-[10px] leading-snug text-[hsl(var(--muted-foreground))]">{t.description}</div>
-                </button>
-              ))}
-            </div>
           </div>
 
           {/* Following: how precisely to mirror a teammate when you follow

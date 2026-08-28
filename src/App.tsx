@@ -12,7 +12,6 @@ import { useThemeStore } from '@/stores/theme-store';
 import { resolvePrefs, matchShortcut } from '@/lib/editor-prefs';
 import { applyCodeAccent } from '@/lib/code-theme';
 import { applyHeadingColors, resolveEffectiveHeadings } from '@/lib/theme';
-import { applyUiTheme } from '@/themes/registry';
 import { setEditorKeybinds } from '@/lib/editor-keybinds';
 import { LoginScreen } from '@/auth/LoginScreen';
 import { getSharedDoc } from '@/realtime/shared-doc';
@@ -51,9 +50,6 @@ export function App() {
     setEditorKeybinds(prefs.keybinds);
     const effective = resolveEffectiveHeadings({ headings: adminHeadings, lock: themeLock }, prefs.theme);
     applyHeadingColors(effective.headings);
-    // The interface theme is an account pref; while logged out keep whatever
-    // main.tsx restored from the cache so the login screen matches the last look.
-    if (user) applyUiTheme(prefs.uiTheme);
   }, [user, adminHeadings, themeLock]);
 
   if (authStatus === 'unknown') {
