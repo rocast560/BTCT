@@ -39,7 +39,7 @@ export const nmapScanRepo = {
 
   async rename(id: ID, name: string): Promise<void> {
     await db.nmapScans.update(id, { name });
-    // `name` is a collaborative Y.Text — update it too or the mirror reverts
+    // `name` is a collaborative Y.Text: update it too or the mirror reverts
     // the record on the next sync/reload (invariant #2).
     setYTextValue('nmapScan', id, 'name', name);
   },
@@ -76,7 +76,7 @@ export const nmapMachineRepo = {
 
   async update(id: ID, data: Partial<Pick<NmapMachine, 'hostname' | 'os'>>): Promise<void> {
     await db.nmapMachines.update(id, { ...data, updatedAt: Date.now() });
-    // hostname is a collaborative Y.Text — keep it in sync when set here (the
+    // hostname is a collaborative Y.Text: keep it in sync when set here (the
     // inline editor uses useYTextInput, but a programmatic set must too).
     if (data.hostname !== undefined) setYTextValue('nmapMachine', id, 'hostname', data.hostname);
   },

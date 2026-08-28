@@ -60,7 +60,7 @@ export const graphNodeRepo = {
 
   async update(id: string, data: Partial<Omit<GraphNode, 'id' | 'graphId' | 'createdAt'>>): Promise<void> {
     await db.graphNodes.update(id, { ...data, updatedAt: Date.now() });
-    // `label` is a collaborative Y.Text — keep it in sync (invariant #2).
+    // `label` is a collaborative Y.Text: keep it in sync (invariant #2).
     if (typeof data.label === 'string') setYTextValue('node', id, 'label', data.label);
   },
 

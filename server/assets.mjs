@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Binary asset store — screenshots and custom fonts for the Typst reports.
+// Binary asset store: screenshots and custom fonts for the Typst reports.
 //
 // This is the one place the server holds workspace *content* on disk. It is
 // deliberately dumb about meaning: it takes bytes, writes them to a file
@@ -13,8 +13,8 @@
 // permanently cached by every connected client. Keeping blobs out of the
 // CRDT keeps the doc small enough to stay snappy.
 //
-// Bytes are immutable once written — a crop is a render-time transform of
-// the original, never a destructive edit — so responses are safe to cache
+// Bytes are immutable once written: a crop is a render-time transform of
+// the original, never a destructive edit, so responses are safe to cache
 // forever, and re-cropping never loses the pixels outside the crop.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -104,7 +104,7 @@ function bytesStartWith(buf, sig, offset = 0) {
  *
  * Mirrors `src/lib/image-format.ts` on the client. It's duplicated rather
  * than shared because the server is plain `.mjs` with no build step and can't
- * import the TypeScript module — the two are small, and both are covered by
+ * import the TypeScript module: the two are small, and both are covered by
  * tests that use the same fixtures.
  */
 export function sniffImageFormat(buf) {
@@ -128,8 +128,8 @@ export function sniffImageFormat(buf) {
  *
  * Typst chooses its decoder from the file extension, so a PNG that someone
  * saved as `screenshot.jpg` would fail to decode at compile time with a
- * message about illegal start bytes. Correcting the name at upload — before
- * any document references it — means that mismatch can never reach a
+ * message about illegal start bytes. Correcting the name at upload (before
+ * any document references it) means that mismatch can never reach a
  * document in the first place.
  *
  * Returns the (possibly renamed) filename and its true MIME type.
@@ -140,7 +140,7 @@ export function reconcileImageName(filename, buf) {
 
   const wantExt = EXT_BY_FORMAT[actual];
   const currentExt = path.extname(filename).toLowerCase();
-  // .jpeg and .jpg are the same format — don't churn a name over spelling.
+  // .jpeg and .jpg are the same format: don't churn a name over spelling.
   const alreadyCorrect =
     currentExt === wantExt || (actual === 'jpeg' && (currentExt === '.jpeg' || currentExt === '.jfif'));
   if (alreadyCorrect) {
@@ -180,7 +180,7 @@ function readBinaryBody(req, limit = MAX_ASSET_BYTES) {
 
 /**
  * POST /api/assets?workspaceId=…&kind=image|font&filename=…
- * Body is the raw file bytes (not multipart — there is exactly one file per
+ * Body is the raw file bytes (not multipart: there is exactly one file per
  * request, so a multipart parser would be pure overhead).
  */
 export async function handleAssetUpload(req, res, { user, sendJson }) {
@@ -198,7 +198,7 @@ export async function handleAssetUpload(req, res, { user, sendJson }) {
   let mime = mimeFor(kind, filename);
   if (!mime) {
     const allowed = Object.keys(kind === 'font' ? FONT_MIME : IMAGE_MIME).join(', ');
-    return sendJson(res, 400, { error: `unsupported ${kind} type — allowed: ${allowed}` });
+    return sendJson(res, 400, { error: `unsupported ${kind} type (allowed: ${allowed})` });
   }
 
   let bytes;
@@ -216,7 +216,7 @@ export async function handleAssetUpload(req, res, { user, sendJson }) {
     if (reconciled.mime) {
       if (reconciled.corrected) {
         console.warn(
-          `[assets] "${filename}" contains ${sniffImageFormat(bytes)} data — stored as "${reconciled.filename}"`,
+          `[assets] "${filename}" contains ${sniffImageFormat(bytes)} data: stored as "${reconciled.filename}"`,
         );
       }
       filename = reconciled.filename;
@@ -240,7 +240,7 @@ export async function handleAssetUpload(req, res, { user, sendJson }) {
   return sendJson(res, 201, { asset });
 }
 
-/** GET /api/assets/:id — the raw bytes. */
+/** GET /api/assets/:id: the raw bytes. */
 export function handleAssetGet(req, res, id, { sendJson }) {
   const asset = getAsset(id);
   if (!asset) return sendJson(res, 404, { error: 'asset not found' });
@@ -263,7 +263,7 @@ export function handleAssetGet(req, res, id, { sendJson }) {
   fs.createReadStream(file).pipe(res);
 }
 
-/** GET /api/assets?workspaceId=… — metadata inventory for one workspace. */
+/** GET /api/assets?workspaceId=…: metadata inventory for one workspace. */
 export function handleAssetList(req, res, { sendJson }) {
   const url = new URL(req.url, 'http://x');
   const workspaceId = String(url.searchParams.get('workspaceId') || '').trim();
@@ -272,7 +272,7 @@ export function handleAssetList(req, res, { sendJson }) {
 }
 
 /**
- * DELETE /api/assets/:id — drop the row and the file. The uploader or any
+ * DELETE /api/assets/:id: drop the row and the file. The uploader or any
  * admin may delete; this mirrors how the rest of the app treats workspace
  * data as shared between everyone on the engagement.
  */

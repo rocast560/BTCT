@@ -4,7 +4,7 @@ import { DEFAULT_CODE_LANGUAGE, displayLanguageName, fenceLanguage } from '@/lib
 describe('displayLanguageName', () => {
   it('canonicalises a name to the picker\'s own casing', () => {
     // The regression: a new code block stored 'shell' and its button read
-    // "shell", while the picker listed — and, once clicked, stored — "Shell".
+    // "shell", while the picker listed (and, once clicked, stored) "Shell".
     expect(displayLanguageName('shell')).toBe('Shell');
     expect(displayLanguageName('Shell')).toBe('Shell');
     expect(displayLanguageName('SHELL')).toBe('Shell');

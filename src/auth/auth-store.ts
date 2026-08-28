@@ -167,7 +167,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
 }
-/** Chat session metadata (list rows — no message bodies). */
+/** Chat session metadata (list rows: no message bodies). */
 export interface ChatSessionMeta {
   id: string;
   title: string;
@@ -188,7 +188,7 @@ function loadStoredUser(): AuthUser | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.id === 'number' && typeof parsed.username === 'string') {
-      // Older builds may have a stale `avatar` field — strip it.
+      // Older builds may have a stale `avatar` field: strip it.
       if ('avatar' in parsed) delete parsed.avatar;
       return parsed as AuthUser;
     }

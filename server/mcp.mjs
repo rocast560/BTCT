@@ -8,7 +8,7 @@
 // tools appear only when an admin sets MCP mode to "edit".
 //
 // Auth is a static bearer token stored in the SQLite `settings` KV (admin-
-// generated), checked here at the HTTP layer — the MCP transport does no auth.
+// generated), checked here at the HTTP layer: the MCP transport does no auth.
 // ─────────────────────────────────────────────────────────────────────────
 import crypto from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -26,7 +26,7 @@ const VERSION = '1.0.0';
 const genToken = () => crypto.randomBytes(32).toString('hex');
 
 // ── Admin config (stored in settings; token IS returned to admins so it can be
-//    pasted into the client — it grants access, so treat it like a password) ──
+//    pasted into the client: it grants access, so treat it like a password) ──
 export function getMcpConfig() {
   return {
     enabled: getSetting(T_ENABLED) === '1',
@@ -163,7 +163,7 @@ export async function handleMcp(req, res) {
     }
     const raw = Buffer.concat(chunks).toString('utf8');
     const parsedBody = raw.length ? JSON.parse(raw) : undefined;
-    // The transport owns `res` from here (writes status/headers/SSE) — do not
+    // The transport owns `res` from here (writes status/headers/SSE): do not
     // send any headers before this point.
     await transport.handleRequest(req, res, parsedBody);
     res.on('close', () => {

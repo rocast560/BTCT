@@ -1,10 +1,10 @@
-# Start-BTCT.ps1 — one-click launcher for Been There, Conquered That.
+# Start-BTCT.ps1: one-click launcher for Been There, Conquered That.
 #
 # What it does, in order:
 #   1. cd to the repo this script lives in.
 #   2. Make sure Docker Desktop is running (start it and wait if not).
 #   3. Make sure .env exists with an AUTH_SECRET (generate one on first run).
-#   4. `docker compose up -d` (idempotent — no-op if already running).
+#   4. `docker compose up -d` (idempotent: no-op if already running).
 #       Pass -Update to pull, rebuild the image, and restart.
 #   5. Poll http://localhost:8080/healthz until the server answers.
 #   6. Open the default browser to the app.
@@ -59,7 +59,7 @@ try {
     }
 
     # ── 1b. Already running? Notify and exit. ──────────────────────────
-    # If the btct container is already up there's nothing to do — show a
+    # If the btct container is already up there's nothing to do: show a
     # desktop popup and stop, rather than churning `docker compose up`.
     # (-Update still falls through so an explicit rebuild can proceed.)
     function Test-BtctRunning {
@@ -79,7 +79,7 @@ try {
                 [System.Windows.Forms.MessageBoxButtons]::OK,
                 [System.Windows.Forms.MessageBoxIcon]::Information)
         } catch {
-            # No GUI available (headless / remoting) — the console message above suffices.
+            # No GUI available (headless / remoting): the console message above suffices.
             Write-Host "[Start-BTCT] (popup unavailable: $($_.Exception.Message))" -ForegroundColor DarkGray
         }
         return

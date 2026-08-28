@@ -1,4 +1,4 @@
-# btct-cmdlog — BTCT command-log capture agent
+# btct-cmdlog: BTCT command-log capture agent
 
 A tiny, **stdlib-only** Python 3 agent that captures whitelisted pentest commands
 from an operator's shell and ships them to a BTCT server's **Command Log** tab,
@@ -10,7 +10,7 @@ BTCT runs on one box on the same LAN.
 
 - **No dependencies.** Python 3.8+ standard library only (`urllib`, `threading`,
   `shlex`). Nothing to `pip install`.
-- **Transparent.** A shell hook captures commands as you type them normally — no
+- **Transparent.** A shell hook captures commands as you type them normally: no
   wrapper, no prefix.
 - **Never freezes your terminal.** The hook appends to a regular file; a dead or
   slow daemon is invisible to you.
@@ -26,7 +26,7 @@ BTCT runs on one box on the same LAN.
    python3 -m btct_agent install --server http://<btct-host>:8080 --token <token> --operator <you>
    ```
 
-   Open a **new shell** (or `source ~/.bashrc`), then run the daemon — ideally in
+   Open a **new shell** (or `source ~/.bashrc`), then run the daemon: ideally in
    a tmux pane so you can see its status line:
 
    ```bash
@@ -45,7 +45,7 @@ operator, hostname, local user, working directory, shell PID, start time, exit
 code, and duration. A command shows up **live when it starts** (so long scans are
 visible while running) and its exit code + duration fill in when it finishes.
 
-**Only whitelisted tools are logged** — everything else you type is ignored and
+**Only whitelisted tools are logged**: everything else you type is ignored and
 never leaves the box. The whitelist lives on the server (Admin → Command Log) and
 the agent refreshes it every ~60s, so it can be changed for everyone mid-engagement.
 
@@ -60,7 +60,7 @@ Command lines routinely contain credentials. Before shipping, the agent scrubs:
 
 The unredacted line is still written to your **local log** (`~/.local/state/btct-cmdlog/commands.log`).
 
-**Honest limitations** — read these:
+**Honest limitations** (read these):
 
 - **`-p` is tool-aware on purpose.** `nmap -p 1-65535` is a *port* and is kept;
   `mysql -p…` is a *password* and is redacted. A tool not in the table whose secret
@@ -82,7 +82,7 @@ status     # print the running daemon's status (sent / outbox / online)
 test-redact "<command line>"   # preview redaction, no network
 ```
 
-`install` saves config to `~/.config/btct/agent.conf` (mode 0600 — it holds the
+`install` saves config to `~/.config/btct/agent.conf` (mode 0600: it holds the
 token), so `run` needs no arguments afterward. Config precedence:
 CLI > env (`BTCT_SERVER`/`BTCT_TOKEN`/`BTCT_OPERATOR`/`BTCT_WORKSPACE`) > config file.
 
@@ -112,9 +112,9 @@ from your rc; a one-time `~/.bashrc.btct.bak` backup is kept).
 
 ## Security notes
 
-- The ingest token grants ingest — treat it like a password. It's shared across
+- The ingest token grants ingest: treat it like a password. It's shared across
   the team for the engagement.
-- The operator name is **self-asserted** (`--operator`) — appropriate for a
+- The operator name is **self-asserted** (`--operator`): appropriate for a
   trusted team, not for adversarial auditing.
 - The spool dir is 0700, but raw commands and the local log are **plaintext on
   your box**. Clean them up after the engagement if needed.

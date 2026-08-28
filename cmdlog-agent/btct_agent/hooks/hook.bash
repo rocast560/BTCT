@@ -1,4 +1,4 @@
-# btct-cmdlog — bash capture hook (sourced from ~/.bashrc by `btct_agent install`).
+# btct-cmdlog: bash capture hook (sourced from ~/.bashrc by `btct_agent install`).
 #
 # Appends a `pre` record before each typed command and a `post` record (exit +
 # time) after it, to a per-PID spool file the daemon tails. Writing to a regular
@@ -6,13 +6,13 @@
 #
 # This is a hand-rolled DEBUG-trap hook. It defeats the classic pitfalls by
 # ARMING in a PROMPT_COMMAND function that runs LAST, so the trap only fires for
-# the first real command after a prompt — not for pipeline sub-commands, not for
+# the first real command after a prompt: not for pipeline sub-commands, not for
 # PROMPT_COMMAND's own internals, not during completion. If you prefer, drop in
 # the upstream bash-preexec.sh and register __btct_preexec/__btct_precmd instead.
 #
 # Known limitation: a multi-line command is captured as its first line only
-# (bash `history 1` + regex). Single-line commands — i.e. essentially all pentest
-# tooling — are captured whole.
+# (bash `history 1` + regex). Single-line commands (i.e. essentially all pentest
+# tooling) are captured whole.
 
 [ -n "${__BTCT_HOOK_LOADED:-}" ] && return 0
 __BTCT_HOOK_LOADED=1
@@ -58,7 +58,7 @@ __btct_precmd() {
     fi
     return "$ec"
 }
-# Arm as the very LAST step before the prompt — this is what confines the trap
+# Arm as the very LAST step before the prompt: this is what confines the trap
 # to the user's next real command.
 __btct_arm() { __btct_armed=1; }
 

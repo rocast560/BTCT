@@ -12,12 +12,12 @@
  *     in Y.Map<id, JSON-record> per table. These rows are coarse-grained
  *     last-writer-wins, which is correct for non-textual fields.
  *
- *   • Every collaboratively-edited text field — page title, page slug,
- *     graph node label, graph edge label, nmap hostname, etc. — lives as
+ *   • Every collaboratively-edited text field (page title, page slug,
+ *     graph node label, graph edge label, nmap hostname, etc.) lives as
  *     a Y.Text inside the `texts` Y.Map keyed `<entity>:<id>:<field>`.
  *     The UI binds inputs to these Y.Texts using diff-based deltas
  *     (insert / delete) so two users can type into the same field at
- *     the same time without losing characters — exactly how Google Docs,
+ *     the same time without losing characters, exactly how Google Docs,
  *     Notion, Linear, etc. handle text. A central observer (see
  *     `mirrorTextsToRecords`) writes the resulting string back into the
  *     JSON record snapshot so read-only consumers (sidebar, tab title,
@@ -65,7 +65,7 @@ export interface SharedDocContext {
   persistence: IndexeddbPersistence;
   provider: WebsocketProvider;
   tables: Record<TableName, Y.Map<unknown>>;
-  /** Y.Map<key, Y.Text> — collaborative text fields. Key is `<entity>:<id>:<field>`. */
+  /** Y.Map<key, Y.Text>: collaborative text fields. Key is `<entity>:<id>:<field>`. */
   texts: Y.Map<Y.Text>;
   whenReady: Promise<void>;
 }
@@ -140,7 +140,7 @@ export function getSharedDoc(): SharedDocContext {
  * `icon` field if it contains a unicode glyph outside the basic ASCII +
  * Latin-1 range. Pages created by legacy seed data shipped with emoji
  * icons (clipboard, magnifier, bug, etc.); the current theme has no
- * place for them. Runs each time the doc loads — idempotent: once every
+ * place for them. Runs each time the doc loads and is idempotent: once every
  * record has icon === '' nothing further happens.
  *
  * Safe across clients: writes go through the shared Yjs map, so every
@@ -215,7 +215,7 @@ export function getOrInitYText(key: string, initial: string): Y.Text {
       c.texts.set(key, t);
     }
   });
-  // After the transaction, re-fetch — another peer may have set a
+  // After the transaction, re-fetch: another peer may have set a
   // different Y.Text into the slot.
   return c.texts.get(key) ?? t!;
 }
@@ -226,7 +226,7 @@ export function getOrInitYText(key: string, initial: string): Y.Text {
  * Repos MUST call this (not just `db.table.update`) whenever they change a
  * field that is registered as a Y.Text in `TEXT_FIELDS_BY_ENTITY`. The mirror
  * observer treats the Y.Text as the source of truth and copies it back into the
- * JSON record — so a record-only write is silently reverted on the next sync
+ * JSON record, so a record-only write is silently reverted on the next sync
  * (e.g. a hard reload). This keeps the two in agreement.
  *
  * The write is a **minimal common-prefix/suffix splice**, never a

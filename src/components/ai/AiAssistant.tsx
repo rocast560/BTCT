@@ -121,7 +121,7 @@ export function AiAssistant() {
           if (!line) continue;
           let ev: { type: string; text?: string; name?: string; error?: string };
           try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
-          // Text arriving means the answer is visibly streaming — the
+          // Text arriving means the answer is visibly streaming: the
           // indicator would just duplicate what the user can already see.
           // Keep the same phase object when already idle so a token stream
           // doesn't re-render on a no-op state change.

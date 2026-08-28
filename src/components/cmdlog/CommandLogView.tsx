@@ -125,7 +125,7 @@ export function CommandLogView() {
       setArchive(rows);
       setArchiveWindow(mode);
     } catch {
-      setArchive([]);   // ingest disabled or offline — fall back to the live window only
+      setArchive([]);   // ingest disabled or offline: fall back to the live window only
     } finally {
       setLoading(false);
     }
@@ -368,7 +368,7 @@ export function CommandLogView() {
             <Terminal size={48} className="mb-4 opacity-30" />
             <p className="text-sm">No commands logged yet.</p>
             <p className="mt-1 max-w-md text-xs">
-              Launch the capture agent on a Kali box, then work normally — whitelisted commands appear here live:
+              Launch the capture agent on a Kali box, then work normally. Whitelisted commands appear here live:
             </p>
             <code className="mt-3 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/40 px-3 py-1.5 text-[11px]">
               python3 -m btct_agent install --server {origin} --token &lt;token&gt; --operator &lt;you&gt;

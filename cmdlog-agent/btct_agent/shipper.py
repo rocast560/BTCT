@@ -9,7 +9,7 @@ insert.
 
 Outbox is a bounded ring: on overflow the OLDEST events are dropped (so the live
 tail stays current during a long outage) and a counter is bumped, surfaced via
-status. urllib only — no third-party deps.
+status. urllib only: no third-party deps.
 """
 from __future__ import annotations
 

@@ -105,7 +105,7 @@ function publicThemeSettings() {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// y-websocket ships its server helpers as CJS — load via createRequire.
+// y-websocket ships its server helpers as CJS: load via createRequire.
 const require = createRequire(import.meta.url);
 const { setupWSConnection } = require('y-websocket/bin/utils');
 
@@ -153,7 +153,7 @@ async function ensureBootstrapAdmin() {
   if (adminCount() > 0) return;
   const existing = getUserByUsername(DEFAULT_ADMIN_USERNAME);
   if (existing) {
-    // Account exists but isn't admin — promote it rather than failing.
+    // Account exists but isn't admin: promote it rather than failing.
     setUserAdmin(existing.id, true);
     console.warn(
       `[btct-server] promoted existing user '${DEFAULT_ADMIN_USERNAME}' to admin`,
@@ -169,7 +169,7 @@ async function ensureBootstrapAdmin() {
     isAdmin: true,
   });
   console.warn(
-    `[btct-server] created bootstrap admin '${DEFAULT_ADMIN_USERNAME}' / '${DEFAULT_ADMIN_PASSWORD}' — change this password immediately`,
+    `[btct-server] created bootstrap admin '${DEFAULT_ADMIN_USERNAME}' / '${DEFAULT_ADMIN_PASSWORD}': change this password immediately`,
   );
 }
 await ensureBootstrapAdmin();
@@ -427,7 +427,7 @@ const httpServer = http.createServer(async (req, res) => {
       return sendJson(res, 200, { user: publicUser(fresh) });
     }
 
-    // Public settings (no auth) — needed on the login screen so the
+    // Public settings (no auth): needed on the login screen so the
     // primary theme color matches the rest of the app from first paint.
     // Also carries the admin heading-colour policy (defaults + hard-lock).
     if (req.method === 'GET' && req.url === '/api/settings') {
@@ -501,7 +501,7 @@ const httpServer = http.createServer(async (req, res) => {
       return handleAiChat(req, res, { user, body, setCors });
     }
 
-    // Chat history — durable per-account Claude conversations. Every query is
+    // Chat history: durable per-account Claude conversations. Every query is
     // scoped to the authenticated user's id, so users can't see each other's.
     if (req.method === 'GET' && req.url === '/api/ai/sessions') {
       const claims = authFromHeader(req);
@@ -683,7 +683,7 @@ const httpServer = http.createServer(async (req, res) => {
       if (gate.error) return sendJson(res, gate.status, { error: gate.error });
       return sendJson(res, 200, { token: regenerateMcpToken() });
     }
-    // The Streamable-HTTP MCP endpoint — handles its own bearer auth + methods.
+    // The Streamable-HTTP MCP endpoint: handles its own bearer auth + methods.
     if (req.url?.split('?')[0] === '/mcp') {
       return handleMcp(req, res);
     }

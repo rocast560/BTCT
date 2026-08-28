@@ -1,4 +1,4 @@
-# btct-cmdlog — zsh capture hook (sourced from ~/.zshrc by `btct_agent install`).
+# btct-cmdlog: zsh capture hook (sourced from ~/.zshrc by `btct_agent install`).
 #
 # zsh gives preexec the typed command as $1 (full, multi-line preserved) and
 # never fires on shell internals, so no arming gymnastics are needed. Records go

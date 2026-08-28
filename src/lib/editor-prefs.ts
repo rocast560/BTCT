@@ -2,9 +2,9 @@
 // Per-account editor preferences.
 //
 // Customizable on a per-account basis:
-//   1. `codeAccent` — the base color that tints code-block syntax highlighting
+//   1. `codeAccent`: the base color that tints code-block syntax highlighting
 //      (see src/lib/code-theme.ts `applyCodeAccent`).
-//   2. `keybinds` — shortcuts for the floating-format-panel actions plus the
+//   2. `keybinds`: shortcuts for the floating-format-panel actions plus the
 //      "focus the code-block language picker" action (see editor-keybinds.ts).
 //   3. `follow`: live-follow precision and pane placement.
 //   4. `theme`: note heading colours (see src/lib/theme.ts
@@ -35,9 +35,9 @@ export type FollowPrecision = 'precise' | 'view';
 
 /**
  * How a followed view is laid out when you already have split panes:
- *   • 'split'    — drop the followed view into your active pane, keeping panes.
- *   • 'takeover' — collapse to a single pane showing the followed view.
- *   • null       — not yet chosen; prompt the first time you follow while split.
+ *   • 'split'   : drop the followed view into your active pane, keeping panes.
+ *   • 'takeover': collapse to a single pane showing the followed view.
+ *   • null      : not yet chosen; prompt the first time you follow while split.
  */
 export type FollowPanePlacement = 'split' | 'takeover' | null;
 

@@ -1,4 +1,4 @@
-"""Whitelist matching — decide which whitelisted tool(s) a command line runs.
+"""Whitelist matching: decide which whitelisted tool(s) a command line runs.
 
 Pure functions (no I/O), unit-tested in tests/test_matcher.py. Tolerant of the
 ways a pentester actually types commands: `sudo`/`doas`, env-var prefixes

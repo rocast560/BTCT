@@ -22,25 +22,25 @@
 // Selection lives in this plugin's own state (not ProseMirror's) and is drawn
 // with node decorations, so it can span several top-level blocks at once. The
 // caret position the user started from is remembered (state `saved`) so a plain
-// Escape puts the cursor back exactly where it was — while Enter instead drops
+// Escape puts the cursor back exactly where it was, while Enter instead drops
 // into the block you highlighted, and Delete leaves the caret at the deletion.
 //
 // A single Escape enters the mode (matching Notion's "Esc selects the current
 // block" and the single-Esc behavior inside code blocks). An open Crepe popup
-// (slash menu, link / latex / table tooltip) always wins the Escape — there
+// (slash menu, link / latex / table tooltip) always wins the Escape: there
 // the key should dismiss the popup, so we bail without entering.
 //
 // Keyboard handling runs in a *capture-phase* listener on `document`
 // (`view()` below) rather than ProseMirror's `handleKeyDown`. Capture phase
 // guarantees the Escape and the in-mode navigation keys are seen BEFORE any
 // other ProseMirror plugin or Crepe feature (slash menu, tooltips, base keymap)
-// can swallow them — which is what made the feature silently fail when those ran
+// can swallow them, which is what made the feature silently fail when those ran
 // first.
 //
 // Listening on `document` (not the editor's own `.ProseMirror`) makes the
 // feature *focus-independent*: a `.ProseMirror` listener only fires while the
 // prose has DOM focus, but the editor is NOT auto-focused when a page opens,
-// and focus is often on the title field or a button instead — so Esc did
+// and focus is often on the title field or a button instead, so Esc did
 // nothing until you first clicked into the text. The document listener lets the
 // active, on-screen page editor enter block mode even when the caret isn't in
 // the prose yet, while still refusing to hijack typing in another field/editor
@@ -79,8 +79,8 @@ const INACTIVE: BlockSelState = { active: false, anchor: 0, head: 0, saved: null
 
 // The editor that should answer a *focus-independent* Escape (one fired while
 // the caret isn't in any prose). Set when an editor mounts and whenever it's
-// focused, so the most-recently-touched / only on-screen page editor wins —
-// without this, split-pane editors would all react to one stray Esc.
+// focused, so the most-recently-touched / only on-screen page editor wins.
+// Without this, split-pane editors would all react to one stray Esc.
 let primaryView: EditorView | null = null;
 
 /** Test-only: reset cross-keydown state so it can't leak across cases. */
@@ -90,7 +90,7 @@ export function __resetBlockSelectForTests(): void {
 
 // Crepe renders its popups (slash menu, link / latex / table tooltips) with a
 // `data-show="true"` attribute while they're open. When one is open an Escape
-// should dismiss IT, not grab a block — so block selection bails and lets the
+// should dismiss IT, not grab a block, so block selection bails and lets the
 // key propagate to the popup's own handler. Nothing else in the app uses
 // `data-show`, so this is an unambiguous "a Crepe popup is open" signal.
 function crepePopupOpen(): boolean {
@@ -175,7 +175,7 @@ export function moveBlocksTr(
  * contains `pos` selected. Used to bridge an Escape from *inside* a code
  * block (whose CodeMirror swallows keys) into ProseMirror block selection.
  *
- * The caret is parked in an adjacent block — never inside the target — because
+ * The caret is parked in an adjacent block (never inside the target) because
  * a code-block node-view pulls focus back into CodeMirror whenever the
  * selection lands inside it, which would stop arrow/Delete keys from ever
  * reaching this plugin.
@@ -256,7 +256,7 @@ export function createBlockSelectProsePlugin(): Plugin<BlockSelState> {
       },
     },
 
-    // Capture-phase keyboard handling — beats every bubble-phase handler.
+    // Capture-phase keyboard handling: beats every bubble-phase handler.
     view(view) {
       // Claim "primary" on mount and on focus so a focus-independent Esc-Esc is
       // routed to the editor the user last touched / the only one on screen.
@@ -372,7 +372,7 @@ export function createBlockSelectProsePlugin(): Plugin<BlockSelState> {
           }
 
           // A single Escape enters block selection (Notion: "Esc selects the
-          // current block"), unless a Crepe popup owns the key — there it
+          // current block"), unless a Crepe popup owns the key: there it
           // should dismiss the popup instead.
           if (crepePopupOpen()) return;
           consume();

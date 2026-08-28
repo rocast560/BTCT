@@ -98,7 +98,7 @@ describe('filename and mime mapping', () => {
 describe('reencodeTargetFor', () => {
   // The regression this whole module exists for: cropping re-encoded to PNG
   // but mounted the result at the original `.jpg` path, and Typst picks its
-  // decoder from the extension — producing "Illegal start bytes: 8950"
+  // decoder from the extension, producing "Illegal start bytes: 8950"
   // (0x8950 being the PNG magic number) at compile time.
   it('demands a jpeg re-encode for PNG bytes at a .jpg path', () => {
     expect(reencodeTargetFor('screenshot.jpg', 'png')).toBe('jpeg');

@@ -2,7 +2,7 @@
  * Tiny, dependency-free markdown renderer for the assistant chat. Renders a
  * useful GFM subset (headings, bold/italic/strikethrough, inline code, code
  * fences, links, ordered/unordered lists, blockquotes, horizontal rules, and
- * pipe tables) directly to React elements — no dangerouslySetInnerHTML, no
+ * pipe tables) directly to React elements: no dangerouslySetInnerHTML, no
  * extra bundle weight. Memoized on the source string so, while streaming, only
  * the message currently being written re-parses.
  */

@@ -4,7 +4,7 @@
  * Holds the *active* conversation in memory (so it survives closing/reopening
  * the Claude pane with no round-trip) plus the list of the account's saved
  * sessions. Durable storage is server-side (`/api/ai/sessions*`, per user), so
- * a browser refresh — or logging in elsewhere — restores everything. The only
+ * a browser refresh (or logging in elsewhere) restores everything. The only
  * thing kept in localStorage is a tiny pointer to the last-active session id so
  * a refresh lands you back in the chat you were in.
  */

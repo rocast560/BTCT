@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Screenshot slots in a Typst document.
 //
-// Images are not dropped at an arbitrary cursor position — they go into a
+// Images are not dropped at an arbitrary cursor position: they go into a
 // declared figure slot, so a report keeps its captions, numbering and layout
 // discipline no matter who is filling it in. A slot is a call to the
 // `image-placeholder` helper:
@@ -58,13 +58,13 @@ export const PLACEHOLDER_HELPER = `#let ${PLACEHOLDER_FN}(caption, path: none, h
  *
  * `ensureHelper` upgrades a definition only when it byte-matches (modulo
  * whitespace) one we wrote ourselves. A definition the author has since
- * customized — different colours, a different placeholder message — is left
+ * customized (different colours, a different placeholder message) is left
  * alone even if it's an older shape, because silently reverting someone's
  * styling is worse than running on an old helper.
  */
 const SUPERSEDED_HELPERS: readonly string[] = [
   // v3: `fit: "contain"`, which letterboxed the box whenever the image's
-  // aspect ratio didn't match it exactly — leaving blank strips against the
+  // aspect ratio didn't match it exactly, leaving blank strips against the
   // rounded corners. `cover` + `clip` always fills.
   `#let ${PLACEHOLDER_FN}(caption, path: none, height: 2.2in) = figure(
   block(
@@ -279,7 +279,7 @@ export function findScreenshotSlots(source: string): ScreenshotSlot[] {
 
     const openParen = at + needle.length - 1;
     const closeParen = matchDelimiter(source, openParen);
-    if (closeParen === -1) continue; // unbalanced mid-edit — ignore this one
+    if (closeParen === -1) continue; // unbalanced mid-edit: ignore this one
 
     const argsText = source.slice(openParen + 1, closeParen);
     const args = splitArgs(argsText);
@@ -346,7 +346,7 @@ function isInComment(source: string, offset: number): boolean {
  * source.
  *
  * Rewrites only the slot's own argument list, so any other arguments the
- * author added — a custom `height`, say — survive untouched. Clearing removes
+ * author added (a custom `height`, say) survive untouched. Clearing removes
  * the `path` argument entirely rather than writing `path: none`, keeping the
  * source as clean as the author left it.
  */
@@ -364,7 +364,7 @@ export function setSlotHeight(source: string, slot: ScreenshotSlot, heightPt: nu
 
 /**
  * Add, replace, or remove one named argument on a slot call, leaving every
- * other argument — and the author's spacing — as it was.
+ * other argument (and the author's spacing) as it was.
  */
 function setSlotArg(
   source: string,
@@ -443,7 +443,7 @@ export function inspectHelper(source: string): HelperState {
   const supportsPath = splitArgs(params).some((p) => argName(p) === 'path');
 
   // The body runs from the `=` to the point where all delimiters close and
-  // the line ends — which covers the multi-line `figure(...)` form.
+  // the line ends, which covers the multi-line `figure(...)` form.
   let i = paramsClose + 1;
   while (i < source.length && /\s/.test(source[i]!)) i++;
   if (source[i] !== '=') {
@@ -492,7 +492,7 @@ export function inspectHelper(source: string): HelperState {
 export function ensureHelper(source: string): { source: string; changed: boolean } {
   const state = inspectHelper(source);
 
-  // Already current, or customized by the author and still functional —
+  // Already current, or customized by the author and still functional:
   // either way, don't touch it.
   if (state.defined && state.supportsPath && !state.superseded) {
     return { source, changed: false };
@@ -536,13 +536,13 @@ export function newSlotSnippet(caption: string): string {
 }
 
 /**
- * Repoint every reference to `oldPath` at `newPath` — used when an asset is
+ * Repoint every reference to `oldPath` at `newPath`: used when an asset is
  * renamed, so the document doesn't end up pointing at a file that no longer
  * exists in the virtual filesystem.
  *
  * Rewrites the *quoted string literal* rather than walking slots, so it also
  * catches hand-written `#image("/assets/x.png")` calls outside a figure slot.
- * Matching a full quoted path makes a false positive essentially impossible —
+ * Matching a full quoted path makes a false positive essentially impossible:
  * a bare occurrence of the same text in prose isn't quoted-and-absolute.
  */
 export function retargetAssetPath(source: string, oldPath: string, newPath: string): string {

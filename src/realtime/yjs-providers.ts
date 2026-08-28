@@ -31,7 +31,7 @@ export interface PageYContext {
    *  settled (or after a short offline-fallback timeout if the server is
    *  unreachable). Awaiting this before applying an initial template
    *  prevents duplicate content when joining a page that already has
-   *  remote state — the remote state would otherwise arrive after the
+   *  remote state: the remote state would otherwise arrive after the
    *  template seed and merge with it via CRDT, doubling the text. */
   whenFullySynced: Promise<void>;
 }

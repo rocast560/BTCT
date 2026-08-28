@@ -1,6 +1,6 @@
 """Paths and persisted agent config.
 
-The shell hook and the daemon share NO config file — both derive the spool path
+The shell hook and the daemon share NO config file: both derive the spool path
 from the current UID, so the hook can be dead-simple. Only the daemon needs the
 server URL / token / operator, which live in ~/.config/btct/agent.conf (an
 INI-less flat `key = value` file, stdlib only).
@@ -69,7 +69,7 @@ def load_config() -> dict:
 
 
 def save_config(values: dict) -> None:
-    """Write agent.conf (0600 — it holds the ingest token)."""
+    """Write agent.conf (0600: it holds the ingest token)."""
     config_dir().mkdir(parents=True, exist_ok=True)
     lines = ["# btct-cmdlog agent config (managed by `btct_agent install`)"]
     for key in ("server", "token", "operator", "workspace", "log_file"):

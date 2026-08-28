@@ -75,7 +75,7 @@ def cmd_test_redact(args: argparse.Namespace) -> int:
     red, degraded = redact_line(args.command)
     print(red)
     if degraded:
-        print("(note: redaction degraded — line could not be fully tokenized)", file=sys.stderr)
+        print("(note: redaction degraded: line could not be fully tokenized)", file=sys.stderr)
     return 0
 
 

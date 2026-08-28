@@ -71,7 +71,7 @@ describe('block-select plugin (integration)', () => {
   beforeAll(() => {
     // jsdom has no layout engine, so prosemirror-view's coordinate lookups
     // (triggered by scrollIntoView after a block delete) throw. Give it fake
-    // coords — irrelevant to what these tests assert.
+    // coords: irrelevant to what these tests assert.
     EditorView.prototype.coordsAtPos = () => ({ left: 0, right: 0, top: 0, bottom: 0 });
   });
   beforeEach(() => __resetBlockSelectForTests());
@@ -98,7 +98,7 @@ describe('block-select plugin (integration)', () => {
     expect(view.dom.classList.contains('block-select-mode')).toBe(false);
 
     popup.remove();
-    key(view, 'Escape'); // popup gone — Escape selects the block
+    key(view, 'Escape'); // popup gone: Escape selects the block
     expect(view.dom.classList.contains('block-select-mode')).toBe(true);
 
     view.destroy();
@@ -113,7 +113,7 @@ describe('block-select plugin (integration)', () => {
     expect(view.dom.classList.contains('block-select-mode')).toBe(true);
 
     key(view, 'ArrowDown'); // move the highlight to a different block
-    key(view, 'Escape'); // exit — caret should return to where it started
+    key(view, 'Escape'); // exit: caret should return to where it started
 
     expect(view.dom.classList.contains('block-select-mode')).toBe(false);
     expect(view.state.selection.from).toBe(pos);

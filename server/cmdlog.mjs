@@ -1,21 +1,21 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Team command log — ingest + config for the btct-cmdlog agent.
+// Team command log: ingest + config for the btct-cmdlog agent.
 //
 // Each operator runs a small Python agent (see ../cmdlog-agent) on their Kali
 // box that captures whitelisted pentest commands from their shell and POSTs
 // them here. Events land in two places:
-//   • SQLite `command_logs` (db.mjs) — the durable, unbounded archive.
-//   • the shared Yjs doc `commandLogs` map (yjs-data.mjs) — a bounded live
+//   • SQLite `command_logs` (db.mjs): the durable, unbounded archive.
+//   • the shared Yjs doc `commandLogs` map (yjs-data.mjs): a bounded live
 //     window so every open browser sees new commands push in with no polling.
 //
 // This is the THIRD deliberate exception to "the server is dumb about domain
 // data" (alongside the AI assistant and assets.mjs): the ingest endpoint writes
-// workspace content. It stays as dumb as possible — it validates/clamps and
+// workspace content. It stays as dumb as possible: it validates/clamps and
 // stores, and knows nothing about what a command means.
 //
 // Auth mirrors mcp.mjs: a static bearer ingest token in the settings KV,
 // admin-generated, checked with a timing-safe compare, gated behind an enabled
-// flag. Operator identity is self-asserted (the --operator arg) — appropriate
+// flag. Operator identity is self-asserted (the --operator arg): appropriate
 // for a trusted competition team, not for adversarial auditing.
 // ─────────────────────────────────────────────────────────────────────────
 import crypto from 'node:crypto';
@@ -48,7 +48,7 @@ export const DEFAULT_WHITELIST = [
 
 // ── Admin config ──
 // The token IS returned to admins (like MCP) so it can be copied into the agent
-// invocation. It grants ingest — treat it like a password.
+// invocation. It grants ingest: treat it like a password.
 export function getCmdlogConfig() {
   return {
     enabled: getSetting(T_ENABLED) === '1',
@@ -171,10 +171,10 @@ function deriveTool(command) {
 
 // ── Route handlers (called from index.mjs) ──
 
-// POST /api/cmdlog/manual — a BTCT user hand-enters one command-log record
+// POST /api/cmdlog/manual: a BTCT user hand-enters one command-log record
 // (JWT-gated in index.mjs). Goes through the same durable path as agent ingest
 // (SQLite archive + CRDT live window) so manual entries survive and show up in
-// archive queries. Not gated by the ingest token / enabled flag — this is a
+// archive queries. Not gated by the ingest token / enabled flag: this is a
 // first-class in-app action for any authenticated user. Never redacted: the
 // user typed it here deliberately.
 export async function handleCmdlogManual(req, res, { sendJson, readJsonBody }) {
@@ -216,7 +216,7 @@ export async function handleCmdlogManual(req, res, { sendJson, readJsonBody }) {
   return sendJson(res, 201, { log: merged });
 }
 
-// POST /api/cmdlog/events — batch ingest. Body: { workspace?, events: [...] }.
+// POST /api/cmdlog/events: batch ingest. Body: { workspace?, events: [...] }.
 export async function handleCmdlogEvents(req, res, { sendJson, readJsonBody }) {
   if (!requireIngest(req, res, sendJson)) return;
   let body;
@@ -243,7 +243,7 @@ export async function handleCmdlogEvents(req, res, { sendJson, readJsonBody }) {
     records.push(rec);
   }
 
-  // SQLite is the source of truth — write it first (merged row reflects prior
+  // SQLite is the source of truth: write it first (merged row reflects prior
   // start/completion halves), then push the merged records into the live CRDT
   // window. If the CRDT write fails (e.g. cold doc), the archive still has them.
   const merged = upsertCommandLogBatch(records);
@@ -252,7 +252,7 @@ export async function handleCmdlogEvents(req, res, { sendJson, readJsonBody }) {
   return sendJson(res, 200, { accepted: records.length, skipped });
 }
 
-// GET /api/cmdlog/whitelist — the agent fetches the tool list on start + refresh.
+// GET /api/cmdlog/whitelist: the agent fetches the tool list on start + refresh.
 export function handleCmdlogWhitelist(req, res, { sendJson }) {
   if (!requireIngest(req, res, sendJson)) return;
   return sendJson(res, 200, { tools: getWhitelist() });
@@ -279,7 +279,7 @@ export function handleCmdlogQuery(req, res, { sendJson }) {
   return sendJson(res, 200, { logs: rows });
 }
 
-// DELETE /api/cmdlog/logs?workspaceId — admin purge of a workspace's archive.
+// DELETE /api/cmdlog/logs?workspaceId: admin purge of a workspace's archive.
 // (The CRDT live window ages out on its own as new events arrive.)
 export function handleCmdlogClear(req, res, { sendJson }) {
   const url = new URL(req.url, 'http://x');

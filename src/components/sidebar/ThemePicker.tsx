@@ -113,7 +113,7 @@ export function ThemePicker({ onClose }: { onClose: () => void }) {
             />
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
               <div className="font-mono text-[11px] uppercase text-[hsl(var(--muted-foreground))]">
-                {HEX_RE.test(color) ? color.toUpperCase() : '—'}
+                {HEX_RE.test(color) ? color.toUpperCase() : 'none'}
               </div>
               <button
                 type="button"

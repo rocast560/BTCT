@@ -40,7 +40,7 @@ export const attackChainRepo = {
 
   async update(id: ID, data: Partial<Pick<AttackChain, 'name' | 'nodeIds' | 'linkedPageId'>>): Promise<void> {
     await db.attackChains.update(id, { ...data, updatedAt: Date.now() });
-    // `name` is a collaborative Y.Text — keep it in sync (invariant #2).
+    // `name` is a collaborative Y.Text: keep it in sync (invariant #2).
     if (data.name !== undefined) setYTextValue('attackChain', id, 'name', data.name);
   },
 

@@ -4,7 +4,7 @@
 // CodeMirror's built-in Ctrl+F only decorates matches inside the rendered
 // viewport, so in a long report it *looks* like search sees only what's on
 // screen. This module scans the entire source string once and returns every
-// match with the line/column context needed to list them all — the editor
+// match with the line/column context needed to list them all: the editor
 // then jumps to whichever the user picks. Pure and DOM-free; the panel that
 // drives it lives in components/typst/TypstSearchPanel.
 // ─────────────────────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ export function compileMatcher(query: string, opts: SearchOptions): RegExp | nul
   try {
     return new RegExp(body, flags);
   } catch {
-    return null; // invalid regex mid-edit — surface as zero matches
+    return null; // invalid regex mid-edit: surface as zero matches
   }
 }
 

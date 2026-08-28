@@ -11,7 +11,7 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 # Copy the client source and build. No VITE_API_URL / VITE_WS_URL is set
-# here — the client falls back to same-origin at runtime, which is what
+# here: the client falls back to same-origin at runtime, which is what
 # the single-container deployment uses.
 COPY tsconfig.json vite.config.ts vite-env.d.ts index.html ./
 COPY public ./public

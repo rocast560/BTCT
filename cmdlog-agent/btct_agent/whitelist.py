@@ -12,7 +12,7 @@ import threading
 import urllib.request
 from typing import Optional, Set
 
-# Mirrors server/cmdlog.mjs DEFAULT_WHITELIST — used only when the server has
+# Mirrors server/cmdlog.mjs DEFAULT_WHITELIST: used only when the server has
 # never been reachable.
 DEFAULT_WHITELIST = {
     "nmap", "masscan", "rustscan", "gobuster", "feroxbuster", "ffuf", "dirb", "dirbuster",

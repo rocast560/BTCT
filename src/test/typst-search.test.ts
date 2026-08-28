@@ -50,7 +50,7 @@ describe('compileMatcher', () => {
 describe('searchAll', () => {
   it('finds every occurrence across the whole document, in order', () => {
     const hits = searchAll(SRC, 'admin', OPTS());
-    // admin panel, Admin, admin@, ADMIN — case-insensitive.
+    // admin panel, Admin, admin@, ADMIN: case-insensitive.
     expect(hits.map((h) => SRC.slice(h.from, h.to))).toEqual([
       'admin', 'Admin', 'admin', 'ADMIN',
     ]);
@@ -66,7 +66,7 @@ describe('searchAll', () => {
 
   it('supports whole-word to exclude substrings', () => {
     const hits = searchAll(SRC, 'admin', OPTS({ wholeWord: true }));
-    // Excludes admin@example.com's "admin" (followed by @, still a boundary) —
+    // Excludes admin@example.com's "admin" (followed by @, still a boundary):
     // actually @ is a boundary, so it is included; assert the count is stable.
     expect(hits.length).toBeGreaterThanOrEqual(3);
   });

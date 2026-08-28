@@ -1,4 +1,4 @@
-"""Secret redaction — scrub credentials from a command line before shipping.
+"""Secret redaction: scrub credentials from a command line before shipping.
 
 Pure functions (no I/O), unit-tested in tests/test_redactor.py. Operates on the
 argv token list (via shlex), NOT a naive regex over the string, so a flag and
@@ -6,16 +6,16 @@ its value are handled as a pair.
 
 The landmine this module exists to avoid: `-p` means a *port* for nmap/masscan/
 smbclient but a *password* for mysql/hydra/sshpass. Blanket-redacting `-p` would
-gut the log. So redaction is TOOL-AWARE — a per-program table of secret flags
+gut the log. So redaction is TOOL-AWARE: a per-program table of secret flags
 plus a set of globally-secret token patterns. Each pipeline segment is redacted
 using its OWN program's table (`cat x | mysql -pPW` must use mysql's rules).
 
 Honest limits (documented in the README):
-  * positional secrets have no marker (`mysql db theP@ss`) — not redacted.
+  * positional secrets have no marker (`mysql db theP@ss`): not redacted.
   * shlex.join re-quotes, so the shipped line's cosmetics may differ from what
     was typed (the local log keeps the exact original).
   * on a shlex failure (unbalanced quotes) we fall back to global-pattern regex
-    and flag the result as `degraded` — we never ship the raw line on failure.
+    and flag the result as `degraded`: we never ship the raw line on failure.
   * the table is a denylist; a novel tool's novel secret flag leaks until added.
 """
 from __future__ import annotations
@@ -136,7 +136,7 @@ def redact_line(line: str) -> Tuple[str, bool]:
     """Return (redacted_line, degraded).
 
     degraded=True means the line couldn't be fully tokenized and only the
-    global regex fallback was applied — the caller may want to flag it.
+    global regex fallback was applied: the caller may want to flag it.
     """
     try:
         tokens = shlex.split(line)

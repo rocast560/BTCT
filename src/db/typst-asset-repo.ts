@@ -1,5 +1,5 @@
 /**
- * Repo for Typst asset *metadata*. The bytes are never touched here — they
+ * Repo for Typst asset *metadata*. The bytes are never touched here: they
  * live on the server and are fetched/cached by `lib/typst-assets.ts`.
  *
  * Unlike most repos in this directory there are no Y.Text fields to pre-seed.
@@ -23,7 +23,7 @@ export const typstAssetRepo = {
 
   /**
    * Record an asset that the server has already accepted. `id` comes from
-   * the upload response so the record and the blob always agree — we never
+   * the upload response so the record and the blob always agree: we never
    * mint an id client-side for something the server is storing.
    */
   async create(data: {

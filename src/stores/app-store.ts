@@ -40,7 +40,7 @@ function savePersistedUi(snapshot: PersistedUi): void {
   try {
     localStorage.setItem(UI_PERSIST_KEY, JSON.stringify(snapshot));
   } catch {
-    /* quota / serialization errors — non-fatal */
+    /* quota / serialization errors: non-fatal */
   }
 }
 
@@ -104,7 +104,7 @@ interface AppState {
    */
   mergePanesIntoOne: (activeTabId?: string | null) => void;
 
-  // Live presence / follow (ephemeral — not persisted)
+  // Live presence / follow (ephemeral: not persisted)
   followPanelOpen: boolean;
   setFollowPanelOpen: (open: boolean) => void;
   /** User id of the teammate currently being followed, or null. */
@@ -190,7 +190,7 @@ interface AppState {
   renameTypstAsset: (id: ID, stem: string) => Promise<string>;
   deleteTypstAsset: (id: ID) => Promise<void>;
 
-  // Command log (team pentest command activity — ingested server-side, read-only here)
+  // Command log (team pentest command activity: ingested server-side, read-only here)
   commandLogs: CommandLogEntry[];
   loadCommandLogs: () => Promise<void>;
 
@@ -237,7 +237,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const current = get().activeWorkspaceId;
     const stillValid = current ? workspaces.some((w) => w.id === current) : false;
     if (!stillValid) {
-      // Persisted workspace is gone — clear stale tabs/pane layout that
+      // Persisted workspace is gone: clear stale tabs/pane layout that
       // referenced it so we don't render dead tabs from a deleted workspace.
       const first = workspaces[0];
       set({
@@ -975,7 +975,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const nodeId = machine.linkedNodeId;
     const node = get().graphNodes.find((n) => n.id === nodeId);
     if (!node) {
-      // Node not in store — update DB directly
+      // Node not in store: update DB directly
       void graphNodeRepo.getById(nodeId).then((dbNode) => {
         if (!dbNode) return;
         const hostData = dbNode.data as import('@/types').HostData;
@@ -1064,7 +1064,7 @@ export const useAppStore = create<AppState>((set, get) => {
   pendingHighlightChainId: null,
   setPendingHighlightChainId: (id) => set({ pendingHighlightChainId: id }),
 
-  // Typst assets. Only metadata lives in the shared doc — the bytes are on
+  // Typst assets. Only metadata lives in the shared doc: the bytes are on
   // the server (see lib/typst-assets.ts + server/assets.mjs).
   typstAssets: [],
   loadTypstAssets: async () => {
@@ -1073,7 +1073,7 @@ export const useAppStore = create<AppState>((set, get) => {
     set({ typstAssets: await typstAssetRepo.getByWorkspace(wsId) });
   },
 
-  // Command log — the shared-doc live window. The full archive is fetched over
+  // Command log: the shared-doc live window. The full archive is fetched over
   // REST by the view; this loader keeps the store in sync as agents ship
   // commands (wired in shared-bindings.ts). Read-only: clients never write.
   commandLogs: [],
@@ -1154,7 +1154,7 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!wsId || !asset) throw new Error('asset not found');
 
     // The extension is deliberately not editable. It's what tells Typst which
-    // decoder to use, and the bytes are normalized to match it — letting
+    // decoder to use, and the bytes are normalized to match it, letting
     // someone rename shot.png to shot.jpg would reintroduce exactly the
     // decode failure that normalization exists to prevent.
     const dot = asset.filename.lastIndexOf('.');

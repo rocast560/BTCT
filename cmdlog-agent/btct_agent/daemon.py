@@ -1,11 +1,11 @@
 """The capture daemon: reads the spool, correlates, filters, redacts, ships.
 
 Threads (stdlib threading):
-  * reader   — polls the spool every ~150ms, correlates pre/post, whitelist-
+  * reader  : polls the spool every ~150ms, correlates pre/post, whitelist-
                matches, writes the unredacted local log, redacts, and hands
                shippable events to the shipper.
-  * whitelist — refreshes the server tool list every ~60s.
-  * shipper  — batches + delivers (see shipper.py).
+  * whitelist: refreshes the server tool list every ~60s.
+  * shipper : batches + delivers (see shipper.py).
 
 Foreground by default (a tmux pane showing a live counter is more useful to a
 CPTC operator than a hidden service); `--daemonize` double-forks.
@@ -75,7 +75,7 @@ class Daemon:
     def _process(self, ev: dict) -> None:
         command = ev.get("command")
         if not command:
-            return  # orphan/partial post — nothing to store
+            return  # orphan/partial post: nothing to store
         matched, progs = is_whitelisted(command, self.whitelist.tools())
         if not matched:
             return
@@ -141,7 +141,7 @@ class Daemon:
         threading.Thread(target=self._whitelist_loop, name="cmdlog-whitelist", daemon=True).start()
         print(f"[btct-cmdlog] operator={self.operator} host={self.host} server={self.server}")
         print(f"[btct-cmdlog] local log: {self.log_path}")
-        print("[btct-cmdlog] watching shell activity — Ctrl-C to stop.")
+        print("[btct-cmdlog] watching shell activity: Ctrl-C to stop.")
         try:
             while not self._stop.is_set():
                 time.sleep(1.0)

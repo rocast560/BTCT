@@ -1,7 +1,7 @@
 /**
  * Page-body snapshots. The live body of each page lives in its own Y.Doc
  * (see `yjs-providers.ts`), so we can't roll back a page from the regular
- * `changeLogs` table — which only sees high-level metadata events.
+ * `changeLogs` table, which only sees high-level metadata events.
  *
  * Instead we periodically encode the entire page Y.Doc as an update blob
  * via `Y.encodeStateAsUpdate(doc)` and store the bytes (base64) in the
@@ -76,7 +76,7 @@ export function restoreSnapshot(pageId: string, updateBase64: string): void {
 
   // Snapshot the children first; we'll iterate after deleting the live
   // ones (deleting first would invalidate the array if we reused refs
-  // across docs, but in practice these are separate docs — safe either
+  // across docs, but in practice these are separate docs, safe either
   // way; collecting up-front is clearer).
   const replacementChildren = snapFragment.toArray().map((child) => {
     // Both Y.XmlElement and Y.XmlText expose .clone(); we can't share

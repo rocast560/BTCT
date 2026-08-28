@@ -2,14 +2,14 @@
 // Local (in-browser) Typst compiler.
 //
 // Wraps @myriaddreamin/typst.ts so the Typst tab can render documents fully
-// offline — no calls to typst.app or any remote service. The compiler +
+// offline: no calls to typst.app or any remote service. The compiler +
 // renderer WebAssembly modules are bundled with the app (imported via Vite's
 // `?url` so they ship as static assets in the Docker image).
 //
 // The heavy typst.ts JS is loaded with a dynamic import the first time the
 // Typst tab compiles, keeping it out of the initial app bundle. Compilation
 // runs on a serialized queue because the compiler carries per-compilation
-// state — interleaving two compiles would corrupt output.
+// state: interleaving two compiles would corrupt output.
 //
 // Why we build the compiler/renderer ourselves instead of using typst.ts's
 // `$typst` singleton:
@@ -17,7 +17,7 @@
 //  1. Custom fonts. Fonts can only be supplied at *init* time, through
 //     `loadFonts`, which merges the operator's uploads with the default
 //     asset set. Owning the instance lets us tear it down and rebuild it
-//     when the workspace's font list changes — see `setTypstFonts`.
+//     when the workspace's font list changes: see `setTypstFonts`.
 //  2. One filesystem root for both outputs. `$typst.pdf({mainContent})`
 //     writes the source to `/tmp/<random>.typ`, while the preview compiled
 //     at `/main.typ`. With no assets that difference was invisible; the
@@ -93,7 +93,7 @@ let instancePromise: Promise<TypstInstance> | null = null;
 
 // Monotonic id for preview compiles, used to drop superseded ones before they
 // do any work. Export compiles (PDF/SVG download) deliberately don't
-// participate — an explicit export must always run.
+// participate: an explicit export must always run.
 let svgRequestSeq = 0;
 
 /**
@@ -101,7 +101,7 @@ let svgRequestSeq = 0;
  *
  * `loadFonts(userFonts, { assets: ['text'] })` reproduces exactly what
  * typst.ts's driver installs by default (the `text` asset family) and adds
- * the operator's uploads on top — so adding a custom font never costs you
+ * the operator's uploads on top, so adding a custom font never costs you
  * New Computer Modern and friends.
  */
 async function buildInstance(): Promise<TypstInstance> {
@@ -135,12 +135,12 @@ async function getInstance(): Promise<TypstInstance> {
   if (instancePromise) {
     const inst = await instancePromise;
     if (inst.fontGeneration === fontGeneration) return inst;
-    // Fonts changed — drop the stale instance and build a new one.
+    // Fonts changed: drop the stale instance and build a new one.
     instancePromise = null;
   }
   if (!instancePromise) {
     instancePromise = buildInstance();
-    // If init throws (e.g. wasm failed to load), don't cache the rejection —
+    // If init throws (e.g. wasm failed to load), don't cache the rejection:
     // let the next attempt retry from scratch.
     instancePromise.catch(() => { instancePromise = null; });
   }
@@ -165,7 +165,7 @@ function toMessage(err: unknown): string {
 /**
  * Replace the set of files mounted into the compiler's virtual filesystem.
  *
- * Callers pass the *final* bytes — an image with a crop rect has already
+ * Callers pass the *final* bytes: an image with a crop rect has already
  * been cropped by `lib/typst-assets.ts`, so from Typst's point of view the
  * file simply is the cropped image.
  *
@@ -194,8 +194,8 @@ export function setTypstShadowFiles(files: TypstShadowFile[]): boolean {
  * Fonts can only be installed at init, so changing this discards the cached
  * compiler and the next compile rebuilds it (~1s; the wasm module itself is
  * already in the browser's module cache, so nothing is re-downloaded). Font
- * changes are rare — an operator drops in their client's brand font once per
- * engagement — so paying that on change rather than on every render is the
+ * changes are rare: an operator drops in their client's brand font once per
+ * engagement, so paying that on change rather than on every render is the
  * right trade.
  *
  * Returns true if the set actually changed.
@@ -222,7 +222,7 @@ function syncShadowFiles(compiler: AnyCompiler): void {
 
 /**
  * Read a font file's metadata (family name, style, …) using typst.ts's own
- * parser — so the family name we show the operator is the one the compiler
+ * parser, so the family name we show the operator is the one the compiler
  * will actually match in `#set text(font: "…")`.
  */
 export async function getFontInfo(bytes: Uint8Array): Promise<{ family: string } | null> {
@@ -287,8 +287,8 @@ export function compileTypstSvg(
  * Compile Typst source to PDF bytes, fully locally. Throws (rejects) with a
  * readable message if the document has compile errors.
  *
- * Compiles the same `/main.typ` as the preview so relative paths — notably
- * `#image("/assets/…")` — resolve identically in both.
+ * Compiles the same `/main.typ` as the preview so relative paths (notably
+ * `#image("/assets/…")`) resolve identically in both.
  */
 export function compileTypstPdf(source: string): Promise<Uint8Array> {
   return enqueue(async () => {
@@ -308,7 +308,7 @@ export function compileTypstPdf(source: string): Promise<Uint8Array> {
       throw new Error(
         first
           ? `Typst error: ${first.message}`
-          : 'Typst document has errors — fix them before exporting a PDF.',
+          : 'Typst document has errors: fix them before exporting a PDF.',
       );
     }
     return res.result as Uint8Array;

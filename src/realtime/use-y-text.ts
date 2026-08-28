@@ -12,7 +12,7 @@
  * Y.Texts are only created by the entity's creator (in the repo's
  * `create()` call) or by the post-sync migration in shared-doc.ts.
  * A reader that opens a page before the Y.Text has arrived simply
- * waits for the parent `texts` Y.Map to deliver it via sync — it does
+ * waits for the parent `texts` Y.Map to deliver it via sync; it does
  * NOT race-seed, because two clients both seeding the same slot would
  * each end up bound to their own local Y.Text and miss each other's
  * deltas.
@@ -52,7 +52,7 @@ function diff(oldStr: string, newStr: string): { index: number; remove: number; 
  * would delete every character and re-add it, which blows away collaborators'
  * cursors, floods the CRDT with garbage, and makes the change unmergeable
  * with a concurrent edit. Splicing only the changed span leaves untouched
- * regions — and anyone typing in them — alone.
+ * regions (and anyone typing in them) alone.
  */
 export function replaceYTextContent(ytext: Y.Text, next: string): void {
   const d = diff(ytext.toString(), next);
@@ -157,7 +157,7 @@ export function useYTextInput(
     (next: string) => {
       const t = ytextRef.current;
       if (!t) {
-        // No Y.Text bound yet — the slot hasn't synced from the server.
+        // No Y.Text bound yet: the slot hasn't synced from the server.
         // Reflect the keystroke optimistically so the user isn't blocked.
         // Once the Y.Text arrives, our observer will overwrite this with
         // the canonical content (the user's local typing during this

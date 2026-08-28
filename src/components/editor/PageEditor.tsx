@@ -97,8 +97,8 @@ export function PageEditor({ pageId }: { pageId: string }) {
     };
     refetch();
     // Re-fetch only when the pages table identity actually changes. A bare
-    // subscribe(refetch) fired on EVERY store write — including this
-    // editor's own 400ms content save — doing a repo read + setState each
+    // subscribe(refetch) fired on EVERY store write, including this
+    // editor's own 400ms content save, doing a repo read + setState each
     // time while a graph-node page is open.
     const unsub = useAppStore.subscribe((state, prev) => {
       if (state.pages !== prev.pages) refetch();
@@ -174,7 +174,7 @@ function PageEditorInner({ page, linkedNode }: {
     // Mirror the new title onto the linked graph node's label Y.Text so
     // both stay in sync collaboratively.
     if (linkedNode) {
-      // We do NOT have a Y.Text handle here — fall back to a straight
+      // We do NOT have a Y.Text handle here: fall back to a straight
       // record patch for the linked node's label; users almost never
       // type into the page-title and the node-label simultaneously, and
       // the linked node also has its own Y.Text in NodeProperties.
@@ -336,7 +336,7 @@ function PageEditorInner({ page, linkedNode }: {
           <ConnectedNodes node={linkedNode} />
         )}
 
-        {/* Milkdown (Crepe) editor — Obsidian-style live-preview markdown. */}
+        {/* Milkdown (Crepe) editor: Obsidian-style live-preview markdown. */}
         <MilkdownProvider>
           <MarkdownEditor
             key={page.id}
@@ -353,7 +353,7 @@ function PageEditorInner({ page, linkedNode }: {
           />
         </MilkdownProvider>
       </div>
-      {/* Floating format popup — only shown while text is selected. */}
+      {/* Floating format popup: only shown while text is selected. */}
       <FloatingFormatPanel editorRef={editorRef} />
     </div>
   );
@@ -387,7 +387,7 @@ function MarkdownEditor({
   // BroadcastChannel sync. Cached so re-mounts don't lose in-memory state.
   const yctx = useMemo(() => getPageYContext(pageId), [pageId]);
 
-  // The Crepe factory is intentionally synchronous — NO collab binding work
+  // The Crepe factory is intentionally synchronous: NO collab binding work
   // happens in here. The factory function runs every mount, but `crepe.create()`
   // (the call that actually builds the ProseMirror view) is async and Milkdown
   // does not give us its promise. If we tried to bind the Y.Doc inside the
@@ -397,7 +397,7 @@ function MarkdownEditor({
   // ''`. That's the source of "notes vanish and cursor stops syncing on revisit".
   //
   // Instead, we attach to the collab service from a useEffect that runs
-  // strictly after `useEditor` reports `loading === false` — i.e. after the
+  // strictly after `useEditor` reports `loading === false`, i.e. after the
   // editor is fully created.
   const { get, loading } = useEditor((root) => {
     const crepe = new Crepe({
@@ -513,7 +513,7 @@ function MarkdownEditor({
           service.bindDoc(yctx.doc).setAwareness(yctx.awareness);
 
           // Custom remote-cursor renderer: matches the default y-prosemirror
-          // structure (caret span + name tag div) — just the user's name in
+          // structure (caret span + name tag div): just the user's name in
           // their color, no avatar.
           service.setOptions({
             yCursorOpts: {
@@ -567,7 +567,7 @@ function MarkdownEditor({
       }
       if (editorRef.current === editor) editorRef.current = null;
       // Only clear the global reference if it's still pointing to *this*
-      // editor — otherwise we'd stomp on a newer editor that registered
+      // editor, otherwise we'd stomp on a newer editor that registered
       // itself between this effect cleanup and a remount.
       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       setActiveMilkdownEditor(null);
@@ -592,7 +592,7 @@ function MarkdownEditor({
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Floating format toolbar — a Notion-style horizontal bar that appears just
+// Floating format toolbar: a Notion-style horizontal bar that appears just
 // above the selection (below it when there's no headroom), centered on it.
 // Layout mirrors Notion's edit bar: a "Turn into" dropdown showing the
 // current block type, the inline marks with live active states, link, a
@@ -924,7 +924,7 @@ const NODE_TYPE_LABELS: Record<string, string> = {
   pivot: 'Pivot',
 };
 
-// Per-severity pill styling for the finding-properties header — kept in
+// Per-severity pill styling for the finding-properties header: kept in
 // sync with FindingNode's severityConfig so the same medium/high/etc.
 // badge appears on the graph card AND in the editor header.
 const SEVERITY_BADGE: Record<string, string> = {

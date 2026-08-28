@@ -28,7 +28,7 @@ export const graphRepo = {
 
   async update(id: string, data: Partial<Pick<Graph, 'name'>>): Promise<void> {
     await db.graphs.update(id, { ...data, updatedAt: Date.now() });
-    // `name` is a collaborative Y.Text — update it too or the mirror reverts
+    // `name` is a collaborative Y.Text: update it too or the mirror reverts
     // the record on reload (invariant #2).
     if (data.name !== undefined) setYTextValue('graph', id, 'name', data.name);
   },

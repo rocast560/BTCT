@@ -29,7 +29,7 @@ export interface Page {
   updatedAt: number;
 }
 
-// Legacy alias — any code path still passing BlockNote arrays is accepted
+// Legacy alias: any code path still passing BlockNote arrays is accepted
 // by pageRepo.create/update and converted to markdown before persistence.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type PartialBlockContent = string | readonly Record<string, any>[];
@@ -153,7 +153,7 @@ export type BlurStyle = 'gaussian' | 'pixelate';
 
 /**
  * One blurred (redacted) rectangle, in normalized coordinates relative to
- * the *original* image — the same space as `CropRect`, but always inside the
+ * the *original* image: the same space as `CropRect`, but always inside the
  * unit square: blurring pixels that don't exist is meaningless. Regions are
  * anchored to the upload rather than the crop so re-framing a figure never
  * moves a redaction off its secret.
@@ -176,7 +176,7 @@ export interface BlurRegion {
  * Metadata for one uploaded asset. The bytes live on the server (see
  * server/assets.mjs); this record is what syncs through the shared Yjs doc.
  *
- * `filename` doubles as the path inside the Typst virtual filesystem — an
+ * `filename` doubles as the path inside the Typst virtual filesystem: an
  * image called `login-bypass.png` is referenced as
  * `#image("/assets/login-bypass.png")`.
  *
@@ -201,7 +201,7 @@ export interface TypstAsset {
    * time like `crop`; anchored to the original image, not the crop.
    */
   blurs?: BlurRegion[] | null;
-  /** Family name parsed from the font file — what you pass to `#set text(font:)`. */
+  /** Family name parsed from the font file: what you pass to `#set text(font:)`. */
   fontFamily?: string | null;
   createdAt: number;
   updatedAt: number;
@@ -272,7 +272,7 @@ export interface ChangeLogEntry {
 // One whitelisted pentest command captured by a btct-cmdlog agent on an
 // operator's box. Written ONLY by the server ingest endpoint (never by a
 // client repo) into both SQLite (durable archive) and the shared doc's
-// `commandLogs` map (bounded live window). No Y.Text fields — every field is
+// `commandLogs` map (bounded live window). No Y.Text fields: every field is
 // plain LWW JSON, so invariant #1 does not apply. Optional fields are declared
 // `?: T | null` because a record may predate a field or the agent may omit it.
 export interface CommandLogEntry {
@@ -292,7 +292,7 @@ export interface CommandLogEntry {
   redacted?: boolean;
 }
 
-// Page-body snapshot — Yjs encodeStateAsUpdate bytes of a per-page Y.Doc
+// Page-body snapshot: Yjs encodeStateAsUpdate bytes of a per-page Y.Doc
 // captured at a point in time. Stored in the shared doc so every client
 // can browse + restore. Bytes are base64 to fit cleanly in JSON.
 export interface PageSnapshot {

@@ -44,7 +44,7 @@
   --sidebar-width:     280px;
   --properties-width:  320px;
 
-  /* Code-block syntax colors — the GitHub Dark palette. `applyCodeAccent`
+  /* Code-block syntax colors: the GitHub Dark palette. `applyCodeAccent`
      (src/lib/code-theme.ts) only retints --code-keyword/--code-accent per
      account; the rest stay fixed GitHub Dark. */
   --code-fg:       #c9d1d9; /* default text / identifiers / operators */
@@ -62,8 +62,8 @@
 .dark {
   /* Elevation by luminance, not shadow (drop shadows are invisible on dark
      surfaces): base → card → popover get progressively lighter. Neutral grey
-     (zero saturation) — kept off pure black at the base for eye comfort. */
-  --background:        0 0% 8%;              /* base canvas — dark grey */
+     (zero saturation), kept off pure black at the base for eye comfort. */
+  --background:        0 0% 8%;              /* base canvas: dark grey */
   --foreground:        0 0% 96%;
   --card:              0 0% 12%;             /* 1st elevation: cards, sidebars */
   --card-foreground:   0 0% 96%;
@@ -111,7 +111,7 @@ body {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
-   General UI polish — snappy interaction transitions, accent text selection,
+   General UI polish: snappy interaction transitions, accent text selection,
    and thin surface-matched scrollbars. Applied app-wide via the shared
    tokens; no per-component changes.
    ────────────────────────────────────────────────────────────────────── */
@@ -176,7 +176,7 @@ button:focus-visible {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
-   Status pill utility — used for "Active / Driving / Resting / Off Duty"
+   Status pill utility: used for "Active / Driving / Resting / Off Duty"
    chips and any other tagged state. Compose with one of the colour
    classes below. Shape is fully rounded; backgrounds are tinted from
    the matching status HSL with low alpha so they read on dark surfaces.
@@ -208,7 +208,7 @@ button:focus-visible {
 .status-pill--red    { color: hsl(var(--status-red));    background: hsl(var(--status-red)    / 0.14); }
 .status-pill--muted  { color: hsl(var(--muted-foreground)); background: hsl(var(--muted-foreground) / 0.10); }
 
-/* Thin pill — bare label inside a low-contrast rounded chip (e.g. counts). */
+/* Thin pill: bare label inside a low-contrast rounded chip (e.g. counts). */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -239,7 +239,7 @@ button:focus-visible {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
-   React Flow overrides — match the dashboard's rounded, low-contrast feel.
+   React Flow overrides: match the dashboard's rounded, low-contrast feel.
    ────────────────────────────────────────────────────────────────────── */
 
 .react-flow__edge-path {
@@ -320,7 +320,7 @@ button:focus-visible {
   50%      { filter: drop-shadow(0 0 10px hsl(var(--status-red) / 0.95)) drop-shadow(0 0 22px hsl(var(--status-red) / 0.55)); }
 }
 
-/* ── Highlight Path (Dijkstra) — same treatment in lime so it stays
+/* ── Highlight Path (Dijkstra): same treatment in lime so it stays
    visually distinct from a saved attack chain. */
 .react-flow__edge.path-edge .react-flow__edge-path,
 .react-flow__edge.animated.path-edge .react-flow__edge-path {
@@ -350,7 +350,7 @@ button:focus-visible {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
-   Milkdown (Crepe) editor — Obsidian-style live-preview markdown.
+   Milkdown (Crepe) editor: Obsidian-style live-preview markdown.
    ────────────────────────────────────────────────────────────────────── */
 
 .milkdown-host { width: 100%; }
@@ -411,7 +411,7 @@ button:focus-visible {
 .milkdown-host .ProseMirror mark[data-hl-color="purple"] { --hl-bg: rgba(192, 132, 252, 0.45); }
 .milkdown-host .ProseMirror mark[data-hl-color="red"]    { --hl-bg: rgba(248, 113, 113, 0.45); }
 
-/* Floating highlight toolbar — shown above the current text selection. */
+/* Floating highlight toolbar: shown above the current text selection. */
 .hl-toolbar {
   position: fixed;
   z-index: 60;
@@ -567,7 +567,7 @@ button:focus-visible {
 
 /* Shell / bash blocks use the same neutral grey GitHub-Dark palette as every
    other language (driven by the --code-* vars above) rather than a green
-   terminal look — keeps code boxes consistent with the rest of the app. No
+   terminal look, which keeps code boxes consistent with the rest of the app. No
    `data-language="shell"` overrides are needed; the general token rules apply. */
 
 /* Shiki-highlighted code blocks in the Claude assistant chat. Keep the github-
@@ -622,7 +622,7 @@ button:focus-visible {
   text-align: left;
   /* Pin the caret and the text to the foreground. Cells inherit `color` from
      whatever they're nested in, and the shaded header sets its own
-     background — without this the caret is drawn in an inherited colour that
+     background: without this the caret is drawn in an inherited colour that
      can land close enough to `--muted` to be invisible while you're typing
      in the header row. */
   color: hsl(var(--foreground));
@@ -635,19 +635,19 @@ button:focus-visible {
   margin: 0;
   min-height: 1.4em;
 }
-/* Shaded header — the "Table" variant. */
+/* Shaded header: the "Table" variant. */
 .milkdown-host .ProseMirror th {
   background-color: hsl(var(--muted));
   font-weight: 600;
 }
 /* "Plain table": GFM always emits a header row, so a table with no header is
    one whose header row is blank. tableHeaderStatePlugin marks those (from the
-   DOM — Crepe's table NodeView swallows node decorations), and the blank row
+   DOM: Crepe's table NodeView swallows node decorations), and the blank row
    is collapsed away so the table reads as ordinary rows with no shaded strip
    on top. The row still exists in the document, so the markdown round-trips
    and nothing shifts; it just takes up no space.
 
-   Type into it and the marker drops — it becomes a real header again. */
+   Type into it and the marker drops: it becomes a real header again. */
 .milkdown-host .ProseMirror table[data-blank-header='true'] th {
   background-color: transparent;
   font-weight: 400;
@@ -676,7 +676,7 @@ button:focus-visible {
 .milkdown-host .ProseMirror li[data-task-list-item] { list-style: none; }
 
 /* ──────────────────────────────────────────────────────────────────────
-   Remote collaborator cursors (y-prosemirror) — Google-Docs style.
+   Remote collaborator cursors (y-prosemirror): Google-Docs style.
    ────────────────────────────────────────────────────────────────────── */
 
 .milkdown-host .ProseMirror-yjs-cursor {

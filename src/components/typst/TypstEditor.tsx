@@ -3,7 +3,7 @@
 //
 // A CodeMirror 6 instance bound to a shared-doc Y.Text via y-codemirror.next,
 // so the Typst source is collaboratively edited character-by-character (with
-// remote carets) exactly like the rest of BTCT — no last-writer-wins clobber.
+// remote carets) exactly like the rest of BTCT: no last-writer-wins clobber.
 // Undo/redo is handled by the Yjs UndoManager that yCollab installs.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -127,7 +127,7 @@ const editorTheme = EditorView.theme(
 let activeView: EditorView | null = null;
 
 /**
- * Select `[from, to)` and scroll it into view — the landing action for
+ * Select `[from, to)` and scroll it into view: the landing action for
  * click-to-source from the rendered preview.
  *
  * Centers the target rather than scrolling it to the top edge, so the
@@ -244,7 +244,7 @@ export const TypstEditor = memo(function TypstEditor({ ytext }: { ytext: Y.Text 
     activeView = view;
 
     return () => {
-      // Only clear if we're still the active view — guards against a
+      // Only clear if we're still the active view: guards against a
       // remount ordering where the new instance registers before this
       // cleanup runs, which would otherwise null out the live editor.
       if (activeView === view) activeView = null;

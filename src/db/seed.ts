@@ -42,14 +42,14 @@ void _wipeDemoWorkspace;
  * In multi-user mode the shared doc is the source of truth: only seed when
  * it is completely empty. Otherwise we'd overwrite real engagement data
  * the moment a fresh client connects. The old per-browser version-bump
- * re-seed is intentionally disabled here — it'd be destructive when other
+ * re-seed is intentionally disabled here: it'd be destructive when other
  * users are already collaborating.
  */
 export async function seedDemoWorkspace(): Promise<void> {
   const existing = await db.workspaces.count();
   if (existing > 0) return;
 
-  const now = t(4, 17, 0); // Friday end-of-day — treated as "now" for the demo
+  const now = t(4, 17, 0); // Friday end-of-day: treated as "now" for the demo
   const createdAt = now;
 
   // ── Workspace ──────────────────────────────────────────────

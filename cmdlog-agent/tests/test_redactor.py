@@ -11,7 +11,7 @@ PH = PLACEHOLDER
 
 class TestRedactor(unittest.TestCase):
     def test_nmap_port_is_not_redacted(self):
-        # The whole reason this module is tool-aware — a regression guard.
+        # The whole reason this module is tool-aware: a regression guard.
         red, degraded = redact_line("nmap -p 1-65535 10.0.0.5")
         self.assertFalse(degraded)
         self.assertIn("1-65535", red)
@@ -28,7 +28,7 @@ class TestRedactor(unittest.TestCase):
         self.assertIn(PH, red)
 
     def test_hydra_wordlist_flag_kept(self):
-        # -P is a wordlist path, not a secret — must survive.
+        # -P is a wordlist path, not a secret: must survive.
         red, _ = redact_line("hydra -l admin -P /usr/share/rockyou.txt 10.0.0.5 ssh")
         self.assertIn("rockyou.txt", red)
 

@@ -41,7 +41,7 @@ import { nmapMachineRepo } from '@/db/nmap-repo';
 // ── Per-graph viewport cache (survives tab switches, not full page reloads) ──
 const viewportCache = new Map<string, { x: number; y: number; zoom: number }>();
 
-// ── Static objects outside component — never recreated ──
+// ── Static objects outside component: never recreated ──
 
 const nodeTypes: NodeTypes = {
   host: HostNode,
@@ -245,7 +245,7 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
   const dragStartPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
 
   // After we persist a drag we don't need to re-apply the freshly built
-  // memo arrays — React Flow's local state already has the new positions
+  // memo arrays: React Flow's local state already has the new positions
   // and replacing the whole nodes array causes a visible flicker (and
   // resets per-node React Flow internal state).
   const skipNextNodesSync = useRef(false);
@@ -367,7 +367,7 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
       void updateGraphNodePositions(all.map((n) => ({ id: n.id, position: n.position })));
       dragStartPositions.current.clear();
       // The store update will produce a new graphNodes array and rebuild
-      // memoNodes — but React Flow's local state already has the correct
+      // memoNodes: but React Flow's local state already has the correct
       // positions, so swallow that one round-trip to avoid a visible
       // flicker / view jump on drop.
       if (movedAny) skipNextNodesSync.current = true;

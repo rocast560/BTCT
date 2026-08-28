@@ -3,7 +3,7 @@
 //
 // Typst picks its decoder from a file's *extension*, not its contents. So
 // every byte we mount into the compiler's virtual filesystem has to actually
-// be in the format its path claims — hand it PNG bytes at a `.jpg` path and
+// be in the format its path claims: hand it PNG bytes at a `.jpg` path and
 // you get "failed to decode image (Format error decoding Jpeg: Illegal start
 // bytes: 8950)", where 0x8950 is the PNG magic number.
 //
@@ -42,7 +42,7 @@ const FORMAT_BY_EXT: Record<string, ImageFormat> = {
   svg: 'svg',
 };
 
-/** Canonical extension for a format — used when correcting a mislabelled name. */
+/** Canonical extension for a format: used when correcting a mislabelled name. */
 const EXT_BY_FORMAT: Record<ImageFormat, string> = {
   png: '.png',
   jpeg: '.jpg',
@@ -85,7 +85,7 @@ function startsWith(bytes: Uint8Array, sig: readonly number[], offset = 0): bool
 }
 
 /**
- * Identify an image by its magic number — the ground truth, independent of
+ * Identify an image by its magic number: the ground truth, independent of
  * whatever the filename claims.
  *
  * SVG has no magic number, so it's detected by sniffing for an `<svg` or
@@ -119,7 +119,7 @@ export function sniffImageFormat(bytes: Uint8Array): ImageFormat | null {
  * Decide whether bytes need re-encoding to match the path they'll be mounted
  * at, and to which format.
  *
- * Returns null when the bytes can be mounted as-is — either they already
+ * Returns null when the bytes can be mounted as-is: either they already
  * agree with the extension, or the target format is one a canvas can't
  * produce (`gif`, `svg`), where re-encoding would do more harm than the
  * mismatch. Callers pass the bytes through unchanged in that case.

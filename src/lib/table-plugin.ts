@@ -4,7 +4,7 @@
 // GFM has no such thing as a table without a header: the delimiter row is
 // part of the syntax, so every markdown table has a header row whether or not
 // you want one. A "plain" table is therefore a table whose header row is
-// *blank* — and this plugin marks those so CSS can render them flat instead
+// *blank*, and this plugin marks those so CSS can render them flat instead
 // of shaded.
 //
 // That's also why the check can't live in CSS alone: ProseMirror wraps every
@@ -38,7 +38,7 @@ import { createTable } from '@milkdown/preset-gfm';
  * tables through `tableBlock`, a custom NodeView from
  * `@milkdown/kit/component/table-block`, and a custom NodeView doesn't apply
  * node-decoration attributes to its own DOM unless it explicitly handles
- * them — so the obvious `Decoration.node(...)` approach silently does
+ * them, so the obvious `Decoration.node(...)` approach silently does
  * nothing here. Reading the rendered table directly sidesteps the NodeView
  * entirely.
  *
@@ -50,7 +50,7 @@ function syncTableHeaderState(root: HTMLElement): void {
     const firstRow = table.querySelector('tr');
     if (!firstRow) return;
     const headers = Array.from(firstRow.children).filter((c) => c.tagName === 'TH');
-    // A first row of ordinary cells isn't a header row at all — leave it be.
+    // A first row of ordinary cells isn't a header row at all: leave it be.
     const blank =
       headers.length > 0 && headers.every((h) => (h.textContent ?? '').trim() === '');
     if (blank) table.setAttribute('data-blank-header', 'true');
@@ -132,8 +132,8 @@ export const TABLE_ICON = `<svg viewBox="0 0 24 24" width="24" height="24" fill=
  * Insert a 3×3 table at the cursor.
  *
  * `labels` seeds the header row (shaded variant); `null` leaves it blank
- * (plain variant). Mirrors Crepe's own table command — clear the current
- * block, insert, then drop the caret back where it was — so the two entries
+ * (plain variant). Mirrors Crepe's own table command: clear the current
+ * block, insert, then drop the caret back where it was, so the two entries
  * behave identically apart from the header content.
  */
 export function insertTable(ctx: Ctx, labels: readonly string[] | null): void {

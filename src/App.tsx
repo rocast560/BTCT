@@ -108,7 +108,7 @@ function AuthedApp() {
   }, []);
 
   // On initial mount, auto-collapse the right Properties sidebar when the
-  // viewport is narrow so the main editor stays readable. Runs once —
+  // viewport is narrow so the main editor stays readable. Runs once:
   // after the user opens it manually we leave their preference alone.
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -117,7 +117,7 @@ function AuthedApp() {
       const st = useAppStore.getState();
       if (st.rightSidebarOpen) st.toggleRightSidebar();
     }
-    // Intentionally empty deps — only run once on mount.
+    // Intentionally empty deps: only run once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

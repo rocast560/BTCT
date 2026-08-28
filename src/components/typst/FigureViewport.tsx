@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────
 // The framing surface of the crop window.
 //
-// A fixed frame drawn to the figure box's real proportions — same rounded
-// corners, same border, same placeholder grey — with the image floating
+// A fixed frame drawn to the figure box's real proportions: same rounded
+// corners, same border, same placeholder grey, with the image floating
 // behind it. Drag to pan, wheel or the zoom control to scale. Whatever falls
 // inside the frame is exactly what the figure renders; the rest is dimmed to
 // show it will be clipped at the border.
@@ -43,7 +43,7 @@ export function FigureViewport({
   imageUrl: string;
   /** Visible region of the image, in normalized image coordinates. */
   crop: CropRect;
-  /** width / height of the figure box — the frame's shape. */
+  /** width / height of the figure box: the frame's shape. */
   boxAspect: number;
   onCropChange: (next: CropRect) => void;
   /** When true, dragging draws a blur region instead of panning. */

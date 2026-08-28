@@ -4,7 +4,7 @@
 // The left half is a **viewport**, not a free crop: the frame is drawn to the
 // figure box's real proportions (derived from the document's page setup and
 // the slot's height), and the image is panned and scaled behind it. What sits
-// inside the frame is exactly what the figure renders — the crop rect carries
+// inside the frame is exactly what the figure renders: the crop rect carries
 // the box's aspect ratio, so the bytes drop into the PDF with no letterboxing
 // and no distortion. Scale the image past the border and it's clipped there;
 // scale it smaller and the placeholder grey shows through.
@@ -64,7 +64,7 @@ const HEIGHT_PRESETS: { label: string; inches: number }[] = [
 /**
  * Editable file name.
  *
- * Only the stem is editable — the extension is shown but fixed. Typst picks
+ * Only the stem is editable: the extension is shown but fixed. Typst picks
  * its image decoder from the extension and the stored bytes are normalized to
  * match it, so letting someone rename `shot.png` to `shot.jpg` would
  * reintroduce a decode failure at compile time.
@@ -96,7 +96,7 @@ function AssetNameField({
     return (
       <button
         onClick={() => setEditing(true)}
-        title="Click to rename — references in the document are updated automatically"
+        title="Click to rename: references in the document are updated automatically"
         className="group flex min-w-0 items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] hover:bg-[hsl(var(--accent))]"
       >
         <span className="truncate">{asset.filename}</span>
@@ -136,7 +136,7 @@ export function PlaceScreenshotDialog({
   onClose,
 }: {
   asset: TypstAsset;
-  /** Current Typst source — the figure slots and page geometry come from it. */
+  /** Current Typst source: the figure slots and page geometry come from it. */
   source: string;
   /**
    * Commit. `slot` is null when only the framing changed. `heightPt` is set
@@ -449,7 +449,7 @@ export function PlaceScreenshotDialog({
             <span className="shrink-0 text-[11px] font-bold uppercase tracking-widest">
               Place screenshot
             </span>
-            <span className="shrink-0 text-[hsl(var(--muted-foreground))]">—</span>
+            <span className="shrink-0 text-[hsl(var(--muted-foreground))]">·</span>
             <AssetNameField asset={asset} onRename={onRename} />
           </div>
           <button onClick={onClose} title="Close" className="rounded p-1 hover:bg-[hsl(var(--accent))]">
@@ -583,7 +583,7 @@ export function PlaceScreenshotDialog({
                 <ZoomOut size={13} />
               </button>
               <span className="min-w-[46px] text-center font-mono text-[10px] text-[hsl(var(--muted-foreground))]">
-                {crop ? `${zoomPercent(crop)}%` : '—'}
+                {crop ? `${zoomPercent(crop)}%` : 'none'}
               </span>
               <button onClick={() => nudgeZoom(1 / 1.15)} title="Zoom in" className="rounded p-1 hover:bg-[hsl(var(--accent))]">
                 <ZoomIn size={13} />
@@ -606,7 +606,7 @@ export function PlaceScreenshotDialog({
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
               {slots.length === 0 ? (
                 <p className="px-1 py-2 text-[10px] leading-relaxed text-[hsl(var(--muted-foreground))]">
-                  This document has no figure slots yet. Add one below — it
+                  This document has no figure slots yet. Add one below: it
                   renders as a labelled placeholder box until an image is
                   assigned, so an unfilled figure is obvious in the PDF.
                 </p>
@@ -638,8 +638,8 @@ export function PlaceScreenshotDialog({
                         </span>
                         <span className="text-[9px] text-[hsl(var(--muted-foreground))]">
                           line {slot.line}
-                          {occupied && ' — will replace current image'}
-                          {slot.path === null && ' — empty'}
+                          {occupied && ': will replace current image'}
+                          {slot.path === null && ': empty'}
                         </span>
                       </button>
                     );
@@ -700,7 +700,7 @@ export function PlaceScreenshotDialog({
                       <button
                         key={p.label}
                         onClick={() => applyHeight(p.inches * 72)}
-                        title={`${p.inches}in tall — ${(box.widthPt / (p.inches * 72)).toFixed(2)}:1`}
+                        title={`${p.inches}in tall, ${(box.widthPt / (p.inches * 72)).toFixed(2)}:1`}
                         className={`rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-wide transition-colors ${
                           active
                             ? 'border-[hsl(var(--primary))] bg-[hsl(var(--primary))]/10 text-[hsl(var(--foreground))]'

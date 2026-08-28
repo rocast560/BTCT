@@ -36,7 +36,7 @@ describe('normalizeForMatch', () => {
   it('is length-preserving for every rule', () => {
     // Offsets are reported into the original string, so any rule that changed
     // the length would silently skew every result.
-    for (const s of ['“hello”', 'a b', 'x–y', 'it’s', 'plain', '—‑']) {
+    for (const s of ['“hello”', 'a b', 'x–y', 'it’s', 'plain', '\u2014‑']) {
       expect(normalizeForMatch(s)).toHaveLength(s.length);
     }
   });
@@ -99,7 +99,7 @@ describe('findSourceRange', () => {
   });
 
   it('falls back to the longest word when the phrase was transformed', () => {
-    const r = findSourceRange(SRC, 'credentials — entirely absent', 0);
+    const r = findSourceRange(SRC, 'credentials \u2014 entirely absent', 0);
     expect(textAt(r)).toBe('credentials');
   });
 });
@@ -134,7 +134,7 @@ describe('designRegions', () => {
   });
 });
 
-describe('findSourceRange — prefers editable text over design', () => {
+describe('findSourceRange: prefers editable text over design', () => {
   const SRC_WITH_HEADER = `#set page(header: [Acme Confidential])
 
 = Overview
@@ -150,7 +150,7 @@ This Acme Confidential report covers the engagement.
   });
 
   it('falls back to a design match when there is no body occurrence', () => {
-    // The header string exists nowhere else — we should still land on it
+    // The header string exists nowhere else: we should still land on it
     // rather than dead-ending.
     const r = findSourceRange('#set page(header: [Draft Watermark])\n\n= Body\n', 'Draft Watermark', 0)!;
     expect(r).not.toBeNull();

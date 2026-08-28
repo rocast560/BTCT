@@ -16,11 +16,11 @@ import {
 
 /** The real figure box: 459.21pt wide × 2.2in tall. */
 const BOX = 459.21 / 158.4;
-/** A 16:9 screenshot — narrower than the box. */
+/** A 16:9 screenshot: narrower than the box. */
 const W = 1920;
 const H = 1080;
 
-describe('fitCropToBox — cover', () => {
+describe('fitCropToBox: cover', () => {
   const crop = fitCropToBox(W, H, BOX, 'cover');
 
   it('produces exactly the box aspect ratio', () => {
@@ -49,7 +49,7 @@ describe('fitCropToBox — cover', () => {
   });
 });
 
-describe('fitCropToBox — contain', () => {
+describe('fitCropToBox: contain', () => {
   const crop = fitCropToBox(W, H, BOX, 'contain');
 
   it('produces exactly the box aspect ratio', () => {

@@ -4,7 +4,7 @@
 // There's no first-party Typst grammar in our CodeMirror deps, so this is a
 // small hand-rolled StreamLanguage covering the common surface: comments,
 // strings, headings, function/`#` calls, `@`refs/labels, math `$…$`, and
-// numbers (incl. Typst length units). It's deliberately approximate — enough
+// numbers (incl. Typst length units). It's deliberately approximate: enough
 // to make the raw code readable, not a full parser.
 //
 // Colors come from the same global `--code-*` CSS variables the Milkdown code
@@ -44,7 +44,7 @@ const typstStreamParser = StreamLanguage.define<TypstState>({
       return 'typstComment';
     }
 
-    // Leading whitespace — consume so we never spin without advancing.
+    // Leading whitespace: consume so we never spin without advancing.
     if (stream.eatSpace()) return null;
 
     // Comments.
@@ -82,7 +82,7 @@ const typstStreamParser = StreamLanguage.define<TypstState>({
     // Numbers, optionally with a Typst unit.
     if (stream.match(/^\d+(?:\.\d+)?(?:pt|mm|cm|in|em|fr|deg|rad|%)?/)) return 'typstNumber';
 
-    // Identifiers — unstyled, but consumed in one go for efficiency.
+    // Identifiers: unstyled, but consumed in one go for efficiency.
     if (stream.match(/^[A-Za-z_][\w-]*/)) return null;
 
     // Fallback: always advance by one character.

@@ -171,7 +171,7 @@ class SpoolReader:
         except OSError:
             return []
         offset = self.offsets.get(name, 0)
-        if offset > size:  # truncated/rotated — restart
+        if offset > size:  # truncated/rotated: restart
             offset = 0
         if offset == size:
             return []

@@ -3,7 +3,7 @@ import { useAuthStore } from './auth-store';
 
 /**
  * Sign-in screen shown when no user is authenticated. Self-service signup
- * is disabled — only an administrator can create accounts via the in-app
+ * is disabled: only an administrator can create accounts via the in-app
  * admin panel. A bootstrap admin is provisioned by the server on first
  * launch (see server/index.mjs ensureBootstrapAdmin).
  */

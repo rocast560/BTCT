@@ -7,7 +7,7 @@
 // anything outside is clipped at the border.
 //
 // The stored `CropRect` is still "which part of the image is visible", in
-// normalized image coordinates — but with two rules that the old free-crop
+// normalized image coordinates, but with two rules that the old free-crop
 // model didn't have:
 //
 //   • its aspect ratio always matches the figure box, so the rendered bytes
@@ -16,7 +16,7 @@
 //     has been scaled down inside the frame; the overhang renders as the
 //     placeholder grey, baked into the output.
 //
-// That second rule is why nothing here clamps to the unit square — doing so
+// That second rule is why nothing here clamps to the unit square: doing so
 // would make it impossible to show a whole screenshot inside a box of a
 // different shape.
 //
@@ -25,7 +25,7 @@
 
 import type { CropRect } from '@/types';
 
-/** The whole image — the identity crop. */
+/** The whole image: the identity crop. */
 export const FULL_FRAME: CropRect = { x: 0, y: 0, w: 1, h: 1 };
 
 /**
@@ -53,7 +53,7 @@ export function cropAspect(crop: CropRect, imageW: number, imageH: number): numb
  *
  * The rect is expressed in normalized image coordinates but the aspect
  * constraint is about *pixels*, so the image's own dimensions have to come
- * into it — a rect of w=h=0.5 on a 1600×900 image is not square.
+ * into it: a rect of w=h=0.5 on a 1600×900 image is not square.
  */
 export function constrainToAspect(
   crop: CropRect,
@@ -80,7 +80,7 @@ export function constrainToAspect(
 /**
  * Initial placement of an image in the box.
  *
- * `cover` scales until the frame is completely filled, cropping the overflow —
+ * `cover` scales until the frame is completely filled, cropping the overflow:
  * the default, because a full-bleed figure is what you want most of the time.
  * `contain` scales until the whole image is inside the frame, leaving grey
  * gaps on two sides.
@@ -97,7 +97,7 @@ export function fitCropToBox(
   let w: number;
   let h: number;
   // Whether the image is wider or narrower than the box decides which axis is
-  // the limiting one — and `cover`/`contain` swap that choice.
+  // the limiting one, and `cover`/`contain` swap that choice.
   const imageIsWider = imageAspect > boxAspect;
   const takeFullWidth = mode === 'cover' ? !imageIsWider : imageIsWider;
 
@@ -139,7 +139,7 @@ export function zoomCrop(
   const limited = clamp(factor, 0.01, 100);
   const w = clamp(crop.w * limited, MIN_VISIBLE_FRACTION, MAX_VISIBLE_FRACTION);
   // Derive the height from the *applied* width factor rather than clamping it
-  // independently — clamping each axis separately would silently distort the
+  // independently: clamping each axis separately would silently distort the
   // aspect ratio at the limits, which is exactly what must not happen here.
   const applied = crop.w > 0 ? w / crop.w : 1;
   const hKept = crop.h * applied;
@@ -162,7 +162,7 @@ export function zoomPercent(crop: CropRect): number {
 }
 
 /**
- * True when the crop shows the whole image and nothing else — meaning the
+ * True when the crop shows the whole image and nothing else: meaning the
  * image happened to match the box exactly, so there's nothing to store.
  */
 export function isFullFrame(crop: CropRect | null | undefined): boolean {
@@ -180,7 +180,7 @@ export function isFullFrame(crop: CropRect | null | undefined): boolean {
  * Sanity bounds for a stored rect.
  *
  * Unlike the old free-crop clamp this does NOT force the rect inside the
- * image — it only stops a degenerate or absurd rect (zero width, a rect
+ * image: it only stops a degenerate or absurd rect (zero width, a rect
  * thousands of times the image) from reaching the renderer.
  */
 export function normalizeCrop(crop: CropRect): CropRect {

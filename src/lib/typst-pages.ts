@@ -10,7 +10,7 @@
 // This pure transform reflows that SVG so the preview shows distinct pages,
 // typst.app-style: each page is pushed down by a cumulative gap, gets its own
 // white backing rect with a drop shadow, and the root height is grown to fit.
-// It only rewrites geometry/adds rects — the page content is untouched — and
+// It only rewrites geometry/adds rects (the page content is untouched) and
 // is applied for the on-screen preview only (SVG/PDF export keep the real,
 // gap-free document).
 // ─────────────────────────────────────────────────────────────────────────

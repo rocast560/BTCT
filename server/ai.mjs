@@ -96,7 +96,7 @@ export const READ_TOOLS = [
   { name: 'list_attack_chains', description: 'List saved attack chains (ordered node sequences) in the workspace.', input_schema: obj({}) },
   { name: 'get_attack_chain', description: 'Read one attack chain: its ordered steps (nodes).', input_schema: obj({ chainId: str('Attack chain id') }, ['chainId']) },
   { name: 'attack_timeline', description: 'The attack timeline: all graph nodes across the workspace sorted by discovery time.', input_schema: obj({}) },
-  { name: 'list_users', description: 'List app users (username, color, admin role) — no secrets.', input_schema: obj({}) },
+  { name: 'list_users', description: 'List app users (username, color, admin role): no secrets.', input_schema: obj({}) },
 ];
 
 export const WRITE_TOOLS = [
@@ -154,8 +154,8 @@ function systemPrompt(mode, workspaceId) {
     mode === 'edit'
       ? 'You are in EDIT mode: you may also create attack-narrative graphs and document findings by creating/updating pages, graph nodes, edges, and findings, and by turning nmap hosts into linked graph nodes. To build a new narrative, call create_graph first, then add nodes/edges to the returned graph id. Prefer small, targeted edits; confirm before large graph rewrites. After scanning, offer to document what was found.'
       : 'You are in VIEW-ONLY mode: you can read and analyze everything but cannot make changes. If asked to edit, explain that an admin must enable edit mode.',
-    `The active workspace id is ${workspaceId || '(none selected)'} — scope your tool calls to it.`,
-    'When exploring, read the latest nmap scan and the current graph before advising. Ground every recommendation in real data — cite host IPs, node labels, and finding titles. Propose concrete next steps (which ports/services to target, which hosts are undocumented, likely credential-reuse or pivot paths).',
+    `The active workspace id is ${workspaceId || '(none selected)'}: scope your tool calls to it.`,
+    'When exploring, read the latest nmap scan and the current graph before advising. Ground every recommendation in real data: cite host IPs, node labels, and finding titles. Propose concrete next steps (which ports/services to target, which hosts are undocumented, likely credential-reuse or pivot paths).',
     'Be concise and practical.',
   ].join('\n');
 }
@@ -242,7 +242,7 @@ export async function handleAiChat(req, res, { user, body, setCors }) {
           isErr = true;
         }
         // Tell the client the call finished so its activity indicator can move
-        // off "running <tool>" — otherwise a slow round looks stuck on the
+        // off "running <tool>", otherwise a slow round looks stuck on the
         // last tool right through the model's next thinking pass.
         send(res, { type: 'tool_done', name: block.name, ok: !isErr });
         results.push({ type: 'tool_result', tool_use_id: block.id, content: encodeToolResult(out), is_error: isErr });

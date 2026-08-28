@@ -67,7 +67,7 @@ export const LabeledEdge = memo(function LabeledEdge(props: EdgeProps) {
               className="w-24 bg-transparent text-center text-[10px] outline-none"
             />
           ) : (
-            <span className="cursor-text select-none">{d?.label || '—'}</span>
+            <span className="cursor-text select-none">{d?.label || '…'}</span>
           )}
         </div>
       </EdgeLabelRenderer>

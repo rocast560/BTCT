@@ -9,7 +9,7 @@
 // Why not the "proper" route: the renderer exposes `session.getSourceLoc()`,
 // which resolves an element path to a Typst span. But spans are only embedded
 // when the compiler has debug info attached, and typst.ts only exposes that
-// switch on its incremental-server API — a rendered document from the normal
+// switch on its incremental-server API: a rendered document from the normal
 // compile path contains a single `data-span` for the whole page, which is
 // useless for this. Text search needs no compiler cooperation and degrades
 // gracefully.
@@ -34,14 +34,14 @@ export interface SourceRange {
  * Every rule here is strictly **one character in, one character out**. The
  * search runs on the normalized string but reports offsets into the original,
  * so any rule that changed the length would silently skew every result.
- * (That's why `--` → en dash isn't handled here — it's 2:1. The fallbacks
+ * (That's why `--` → en dash isn't handled here: it's 2:1. The fallbacks
  * below cover it instead.)
  */
 export function normalizeForMatch(text: string): string {
   let out = '';
   for (const ch of text) {
     switch (ch) {
-      // Smart quotes — Typst applies these automatically.
+      // Smart quotes: Typst applies these automatically.
       case '‘': case '’': case '‚': case '‛':
         out += "'"; break;
       case '“': case '”': case '„': case '‟':
@@ -52,7 +52,7 @@ export function normalizeForMatch(text: string): string {
       case ' ': case ' ': case '　':
         out += ' '; break;
       // Dashes and the non-breaking hyphen.
-      case '‐': case '‑': case '‒': case '–': case '—':
+      case '‐': case '‑': case '‒': case '–': case '\u2014':
       case '−':
         out += '-'; break;
       default:
@@ -74,18 +74,18 @@ function allIndicesOf(haystack: string, needle: string): number[] {
   return out;
 }
 
-/** A line that opens a "design" statement — layout/config, not prose. */
+/** A line that opens a "design" statement: layout/config, not prose. */
 const DESIGN_DIRECTIVE = /^#(set|show|let|import|include)\b/;
 
 /**
  * Character ranges occupied by **design** statements: page setup, `#set`/`#show`
  * rules, imports, and helper `#let` definitions (e.g. the `image-placeholder`
  * helper). Text that lives *only* inside one of these controls how the document
- * looks, not what it says — so a click on rendered prose should never land
+ * looks, not what it says, so a click on rendered prose should never land
  * there when the same words also exist as editable body content.
  *
  * A region starts at a line that, at bracket depth 0, begins with a design
- * directive, and runs until the statement's brackets/braces have all closed —
+ * directive, and runs until the statement's brackets/braces have all closed:
  * the first line end at which depth has returned to 0. That one rule covers
  * every shape uniformly, because depth simply stays > 0 until the whole thing
  * is closed:
@@ -144,7 +144,7 @@ function inDesignRegion(offset: number, regions: ReadonlyArray<readonly [number,
  * Body prose the user can edit is preferred over identical text buried in a
  * design region: clicking "Confidential" in the page body must not land in the
  * `#set page(header: [Confidential])` that also renders it. Filtering the
- * design occurrences out first *also* realigns the occurrence index — the
+ * design occurrences out first *also* realigns the occurrence index: the
  * rendered runs we count against are (mostly) body content, so counting only
  * body matches makes the Nth click select the Nth body instance.
  *
@@ -167,7 +167,7 @@ function chooseMatch(
  * Pick the `occurrence`-th hit, clamping rather than failing.
  *
  * Render order and source order can diverge (a floating figure, a footnote),
- * so an out-of-range index means our count was off — not that there's no
+ * so an out-of-range index means our count was off, not that there's no
  * match. Landing on the last plausible hit is far more useful than doing
  * nothing.
  */
@@ -193,7 +193,7 @@ function longestWord(text: string): string | null {
  *   1. the whole string,
  *   2. whitespace-collapsed (markup can introduce line breaks mid-sentence),
  *   3. the first clause, cut at a dash or punctuation Typst may have rewritten,
- *   4. the longest single word — which survives almost any transformation.
+ *   4. the longest single word, which survives almost any transformation.
  *
  * Every strategy prefers an editable body match over one inside a design
  * region (see `chooseMatch`), so a click lands on the prose to edit rather
@@ -220,7 +220,7 @@ export function findSourceRange(
   // 2. Collapse runs of whitespace in the needle and retry against a source
   //    whose whitespace has been collapsed the same way. Both transforms are
   //    length-preserving per character, so offsets stay meaningful only if we
-  //    search the *original* haystack — so instead, split on whitespace and
+  //    search the *original* haystack, so instead, split on whitespace and
   //    anchor on the longest contiguous fragment.
   const fragments = needle.split(/\s+/).filter((f) => f.length >= 3);
   if (fragments.length > 1) {
@@ -230,7 +230,7 @@ export function findSourceRange(
   }
 
   // 3. First clause, before any character Typst commonly rewrites.
-  const clause = needle.split(/[–—\-—–,;:]/)[0]?.trim() ?? '';
+  const clause = needle.split(/[–\u2014\-,;:]/)[0]?.trim() ?? '';
   if (clause.length >= 4) {
     at = chooseMatch(haystack, clause, occurrence, regions);
     if (at !== null) return { from: at, to: at + clause.length };

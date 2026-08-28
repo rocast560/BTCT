@@ -9,7 +9,7 @@ import {
   toStringLiteral,
 } from '@/lib/typst-placeholders';
 
-/** The original, path-unaware helper — what existing documents contain. */
+/** The original, path-unaware helper: what existing documents contain. */
 const LEGACY_HELPER = `#let image-placeholder(caption, height: 2.2in) = figure(
   block(
     width: 90%,

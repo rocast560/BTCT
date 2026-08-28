@@ -5,14 +5,14 @@
 // nmap scans/hosts, attack chains, change log) lives in ONE Yjs doc that every
 // browser client edits collaboratively. y-websocket keeps that doc resident in
 // this process (utils' `docs` map / `getYDoc`), so the AI assistant's tools can
-// read and write it in-process — writes broadcast to every connected client and
+// read and write it in-process: writes broadcast to every connected client and
 // show up live on their canvas.
 //
 // Two invariants when writing (mirroring the client repos in src/db/*-repo.ts):
 //   1. Collaborative string fields (page title/slug, node/edge label, nmap
 //      hostname, …) are authoritative as a Y.Text in the `texts` map keyed
 //      `<entity>:<id>:<field>`. A client observer mirrors that Y.Text back into
-//      the JSON record — so a record-only write is clobbered. We update BOTH.
+//      the JSON record, so a record-only write is clobbered. We update BOTH.
 //   2. Records are plain JSON keyed by id in a per-table Y.Map (last-writer-
 //      wins). Wrap writes in `doc.transact` so observers fire once.
 // ─────────────────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ import { createRequire } from 'node:module';
 // Load BOTH y-websocket's helpers AND Yjs itself through the SAME CJS module
 // instance y-websocket uses internally. If we imported Yjs via ESM instead we'd
 // get a second Yjs instance ("Yjs was already imported" warning) whose `Y.Text`
-// class the shared doc wouldn't recognize — breaking collaborative-text writes.
+// class the shared doc wouldn't recognize, breaking collaborative-text writes.
 const require = createRequire(import.meta.url);
 const { getYDoc } = require('y-websocket/bin/utils');
 const Y = require('yjs');
@@ -46,7 +46,7 @@ function uuid() {
 }
 
 // Resolve the live shared doc + its table maps. If no client is connected and
-// the doc was just created, its LevelDB state loads asynchronously — poll
+// the doc was just created, its LevelDB state loads asynchronously: poll
 // briefly until it's populated (or give up so a genuinely empty app doesn't
 // stall). In practice the operator's browser is connected, so this returns
 // immediately with a fully-synced doc.
@@ -277,7 +277,7 @@ export async function recentChangelog(workspaceId, limit = 30) {
 
 // ── Command log (team pentest command activity) ──
 // Batch-upsert records into the live window. Unlike the AI write helpers this
-// has NO Y.Text fields (like typstAssets) — every field is plain LWW JSON, so
+// has NO Y.Text fields (like typstAssets): every field is plain LWW JSON, so
 // invariant #1 doesn't apply. A completion event (exitCode/durationMs) is
 // merged over the existing start record by id. After each batch we prune the
 // oldest entries per workspace beyond CMDLOG_LIVE_CAP so the doc stays bounded.
@@ -324,7 +324,7 @@ function pruneCommandLogs(map) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// WRITE helpers (edit mode only — the caller gates on ai_mode)
+// WRITE helpers (edit mode only: the caller gates on ai_mode)
 // ─────────────────────────────────────────────────────────────────────────
 
 export async function createPage({ workspaceId, parentId = null, title, tags = [], content = '', icon = '' }, actor) {

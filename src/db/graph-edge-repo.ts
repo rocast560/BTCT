@@ -38,7 +38,7 @@ export const graphEdgeRepo = {
 
   async update(id: string, data: Partial<Omit<GraphEdge, 'id' | 'graphId' | 'createdAt'>>): Promise<void> {
     await db.graphEdges.update(id, { ...data, updatedAt: Date.now() });
-    // `label` is a collaborative Y.Text — keep it in sync (invariant #2).
+    // `label` is a collaborative Y.Text: keep it in sync (invariant #2).
     if (typeof data.label === 'string') setYTextValue('edge', id, 'label', data.label);
   },
 

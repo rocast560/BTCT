@@ -44,7 +44,7 @@ db.exec(`
   -- Binary assets (Typst report screenshots + custom fonts). Only the
   -- metadata lives here; the bytes are files under ASSETS_DIR keyed by id.
   -- The workspace-facing record (display name, crop rect) is in the shared
-  -- Yjs doc — this table is the server's own inventory of what it stores,
+  -- Yjs doc: this table is the server's own inventory of what it stores,
   -- so it can serve the right Content-Type and clean up orphaned files.
   CREATE TABLE IF NOT EXISTS assets (
     id          TEXT PRIMARY KEY,
@@ -74,7 +74,7 @@ db.exec(`
     local_user   TEXT,
     shell_pid    INTEGER,
     started_at   INTEGER NOT NULL,       -- agent clock (epoch ms)
-    received_at  INTEGER NOT NULL,       -- server clock — keeps skew debuggable
+    received_at  INTEGER NOT NULL,       -- server clock: keeps skew debuggable
     exit_code    INTEGER,                -- NULL until the completion event lands
     duration_ms  INTEGER,
     redacted     INTEGER NOT NULL DEFAULT 1

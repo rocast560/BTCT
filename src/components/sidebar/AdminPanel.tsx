@@ -16,7 +16,7 @@ import { useAppStore } from '@/stores';
 /**
  * Admin-only modal panel for managing user accounts. Lists every user, lets
  * an admin create new accounts, reset passwords, and delete users (except
- * themselves and the last remaining admin — those are blocked server-side).
+ * themselves and the last remaining admin: those are blocked server-side).
  */
 export function AdminPanel({ onClose }: { onClose: () => void }) {
   const me = useAuthStore((s) => s.user);
@@ -112,7 +112,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div className="flex items-center gap-2">
             <Shield size={16} className="text-[hsl(var(--status-amber))]" />
-            <h2 className="text-sm font-semibold">Admin Panel — Users</h2>
+            <h2 className="text-sm font-semibold">Admin Panel: Users</h2>
           </div>
           <button onClick={onClose} className="rounded-md p-1 hover:bg-white/10" aria-label="Close">
             <X size={16} />
@@ -292,7 +292,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
 
 /**
  * Where the admin pastes the Anthropic API key and picks the assistant mode.
- * The key is write-only — the server never returns it, so the field renders
+ * The key is write-only: the server never returns it, so the field renders
  * empty and we only surface a "Connected ✓ / Not configured" status.
  */
 function AiConfigSection() {
@@ -505,7 +505,7 @@ function McpConfigSection() {
       <div className="mt-1 text-[11px]">
         {cfg?.configured
           ? <span style={{ color: '#4ade80' }}>Connected ✓</span>
-          : <span className="text-white/50">Not configured — enable to generate a token</span>}
+          : <span className="text-white/50">Not configured: enable to generate a token</span>}
       </div>
 
       {cfg?.configured && (
@@ -612,7 +612,7 @@ function CmdlogConfigSection() {
       <div className="mt-1 text-[11px]">
         {cfg?.configured
           ? <span style={{ color: '#4ade80' }}>Ready ✓</span>
-          : <span className="text-white/50">Not configured — enable to generate a token</span>}
+          : <span className="text-white/50">Not configured: enable to generate a token</span>}
       </div>
 
       {cfg?.configured && (
@@ -639,7 +639,7 @@ function CmdlogConfigSection() {
               onChange={(e) => void save({ workspaceId: e.target.value || null }, 'Default workspace set')}
               className="w-full rounded-md border border-white/10 bg-black/40 px-2 py-1.5 text-xs outline-none"
             >
-              <option value="">— none (uses first workspace) —</option>
+              <option value="">none (uses first workspace)</option>
               {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </div>

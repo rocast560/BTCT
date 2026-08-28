@@ -19,8 +19,8 @@ export function PageHistoryPanel({ pageId }: { pageId: string }) {
 
   useEffect(() => { refresh(); }, [refresh]);
   // Refresh when the shared pageSnapshots table actually changes (another
-  // client saved a version), instead of a 5s poll that rebuilt the list —
-  // and re-rendered the panel — on every tick regardless of change.
+  // client saved a version), instead of a 5s poll that rebuilt the list (and
+  // re-rendered the panel) on every tick regardless of change.
   useEffect(() => subscribeTable('pageSnapshots', refresh), [refresh]);
 
   const handleSaveNamed = async () => {
@@ -40,7 +40,7 @@ export function PageHistoryPanel({ pageId }: { pageId: string }) {
   };
 
   const handleRestore = async (snap: PageSnapshot) => {
-    if (!window.confirm(`Replace the current page body with this version from ${new Date(snap.timestamp).toLocaleString()}?\n\nThis change is collaborative — every connected user will see the rollback.`)) return;
+    if (!window.confirm(`Replace the current page body with this version from ${new Date(snap.timestamp).toLocaleString()}?\n\nThis change is collaborative: every connected user will see the rollback.`)) return;
     setBusy(true);
     try {
       restoreSnapshot(pageId, snap.updateBase64);

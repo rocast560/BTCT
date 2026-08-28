@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Assets rail for the Typst tab — drop screenshots and fonts here.
+// Assets rail for the Typst tab: drop screenshots and fonts here.
 //
 // Images become files in the compiler's virtual filesystem under /assets,
 // referenced as `#image("/assets/<name>")`. Clicking a thumbnail opens the
 // crop editor; the crop is applied when the document renders, so the panel's
-// thumbnails deliberately show the *cropped* result — what you see here is
+// thumbnails deliberately show the *cropped* result: what you see here is
 // what lands in the PDF.
 //
 // Fonts are installed into the compiler at init and used by name, e.g.
@@ -41,7 +41,7 @@ const SLOT_SCAN_DEBOUNCE_MS = 300;
  * Trailing-edge debounce.
  *
  * The Typst source changes on every keystroke, but the slot scan it feeds is
- * only used to label thumbnails — it does not need to be frame-accurate.
+ * only used to label thumbnails: it does not need to be frame-accurate.
  * Debouncing keeps a fast typist from re-parsing the whole document (and
  * re-rendering the thumbnail grid) ten times a second.
  */
@@ -123,7 +123,7 @@ const ImageCard = memo(function ImageCard({
   placedIn: string | null;
   // Take the asset as an argument rather than closing over it, so the parent
   // can pass one stable callback instead of minting a new closure per card on
-  // every render — which would defeat the memo above entirely.
+  // every render, which would defeat the memo above entirely.
   onOpen: (asset: TypstAsset) => void;
   onDelete: (asset: TypstAsset) => void;
 }) {
@@ -135,7 +135,7 @@ const ImageCard = memo(function ImageCard({
     <div className="group relative overflow-hidden rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)]">
       <button
         onClick={() => onOpen(asset)}
-        title={placedIn ? `Placed in "${placedIn}" — click to re-crop or move` : `Crop and place ${asset.filename}`}
+        title={placedIn ? `Placed in "${placedIn}": click to re-crop or move` : `Crop and place ${asset.filename}`}
         className="block h-20 w-full"
       >
         {error ? (
@@ -182,7 +182,7 @@ const ImageCard = memo(function ImageCard({
 
       <div
         className="truncate border-t border-[hsl(var(--border))] px-1.5 py-1 font-mono text-[9px] text-[hsl(var(--muted-foreground))]"
-        title={placedIn ? `${assetPath(asset)} — in "${placedIn}"` : assetPath(asset)}
+        title={placedIn ? `${assetPath(asset)}: in "${placedIn}"` : assetPath(asset)}
       >
         {placedIn ?? asset.filename}
       </div>
@@ -237,7 +237,7 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
   source,
   onSourceChange,
 }: {
-  /** Live Typst source — the figure slots are read out of it. */
+  /** Live Typst source: the figure slots are read out of it. */
   source: string;
   /** Apply a rewritten source through the collaborative Y.Text. */
   onSourceChange: (next: string) => void;
@@ -323,10 +323,10 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
 
   const insertSnippet = useCallback((text: string) => {
     if (!insertAtTypstCursor(text)) {
-      // Code pane hidden — put it on the clipboard so the action isn't a
+      // Code pane hidden: put it on the clipboard so the action isn't a
       // dead end.
       void navigator.clipboard?.writeText(text);
-      setError('Code editor is hidden — snippet copied to the clipboard instead.');
+      setError('Code editor is hidden: snippet copied to the clipboard instead.');
     }
   }, []);
 
@@ -406,7 +406,7 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
     (caption: string) => {
       const ensured = ensureHelper(source);
       const snippet = newSlotSnippet(caption);
-      // Append at the end of the document — a predictable spot the picker
+      // Append at the end of the document: a predictable spot the picker
       // then scrolls to, rather than wherever a stale caret happens to be.
       const base = ensured.source.endsWith('\n') ? ensured.source : `${ensured.source}\n`;
       onSourceChange(`${base}\n${snippet}`);

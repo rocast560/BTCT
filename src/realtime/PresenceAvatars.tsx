@@ -1,5 +1,5 @@
 /**
- * Floating "active users" window — the entry point for live-following a
+ * Floating "active users" window: the entry point for live-following a
  * teammate. Toggled by the `openFollowPanel` keybind (default Ctrl/⌘+Shift+U)
  * or the command palette, via the `followPanelOpen` store flag.
  *

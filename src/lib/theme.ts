@@ -1,5 +1,5 @@
 /**
- * Theme color helpers. The whole app is built around HSL CSS variables —
+ * Theme color helpers. The whole app is built around HSL CSS variables:
  * `--primary` and `--ring` drive every accent surface, focus ring, link
  * color, attack-chain glow, etc. (see src/index.css). To recolor the app
  * we just rewrite those two variables on `:root`. Hex is what users

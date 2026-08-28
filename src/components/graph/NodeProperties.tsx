@@ -15,7 +15,7 @@ export const NodeProperties = memo(function NodeProperties({ nodeId }: { nodeId:
   const nmapScans = useAppStore((s) => s.nmapScans);
   const openTab = useAppStore((s) => s.openTab);
 
-  // Bind label to a Y.Text CRDT — concurrent typers merge cleanly.
+  // Bind label to a Y.Text CRDT: concurrent typers merge cleanly.
   // Hooks must be called unconditionally so we always invoke this even
   // when `node` hasn't loaded yet; the hook will lazily seed the Y.Text
   // with `''` and pick up the real initial value on the first remote

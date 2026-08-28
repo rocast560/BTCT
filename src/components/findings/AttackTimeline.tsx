@@ -103,7 +103,7 @@ function buildNarrativeMarkdown(groups: { dayTs: number; events: TimelineEvent[]
     lines.push('');
     for (const ev of g.events) {
       const typeLabel = typeStyles[ev.node.type as TypeKey].label;
-      lines.push(`- **${formatTime(ev.node.discoveredAt)}** — *${typeLabel}* — **${ev.node.label}** (${ev.graphName})`);
+      lines.push(`- **${formatTime(ev.node.discoveredAt)}** (*${typeLabel}*) **${ev.node.label}** (${ev.graphName})`);
       const det = nodeDetails(ev.node);
       if (det) lines.push(`    - ${det}`);
       // incoming edges (what led to this)
@@ -266,7 +266,7 @@ export function AttackTimeline() {
               Attack Timeline
             </h1>
             <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">
-              Chronological, indented view of all graph nodes across every attack narrative — use this to write the narrative section of your report.
+              Chronological, indented view of all graph nodes across every attack narrative: use this to write the narrative section of your report.
               {' · '}{filtered.length} event{filtered.length !== 1 ? 's' : ''}{totalDays > 0 ? ` · ${totalDays} day${totalDays !== 1 ? 's' : ''} (${span}d span)` : ''}
             </p>
           </div>

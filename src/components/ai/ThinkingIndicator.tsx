@@ -2,7 +2,7 @@
 // Activity indicator for the Claude assistant.
 //
 // The agent loop can run for a while without producing any text: the model
-// thinks, calls a workspace tool, reads the result, thinks again — up to a
+// thinks, calls a workspace tool, reads the result, thinks again: up to a
 // dozen rounds. Without a signal, all of that looks like the app has hung.
 //
 // The indicator names what's actually happening (thinking / running a
@@ -17,7 +17,7 @@ import { Brain, Wrench } from 'lucide-react';
 /** What the agent is doing right now, derived from the SSE stream. */
 export type AgentPhase =
   | { kind: 'idle' }
-  /** Waiting on the model — before any text, or between tool rounds. */
+  /** Waiting on the model: before any text, or between tool rounds. */
   | { kind: 'thinking' }
   /** A workspace tool is executing. */
   | { kind: 'tool'; name: string }
@@ -36,7 +36,7 @@ function useElapsed(startedAt: number | null): number | null {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (startedAt == null) return;
-    // A second is fine — this is a reassurance signal, not a stopwatch.
+    // A second is fine: this is a reassurance signal, not a stopwatch.
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [startedAt]);
@@ -51,7 +51,7 @@ export function ThinkingIndicator({
   startedAt,
 }: {
   phase: AgentPhase;
-  /** How many tool calls this turn has made — 0 for a plain answer. */
+  /** How many tool calls this turn has made: 0 for a plain answer. */
   steps: number;
   /** When the turn started, for the elapsed readout. */
   startedAt: number | null;
@@ -64,7 +64,7 @@ export function ThinkingIndicator({
     phase.kind === 'tool' ? `Running ${toolLabel(phase.name)}`
       : phase.kind === 'reading' ? 'Reading results'
         // Past the first tool call this is no longer a single answer being
-        // composed — say so, so a long run reads as deliberate.
+        // composed: say so, so a long run reads as deliberate.
         : steps > 0 ? 'Researching' : 'Thinking';
 
   return (
@@ -81,7 +81,7 @@ export function ThinkingIndicator({
 
       <span className="font-medium text-[hsl(var(--foreground))]">{label}</span>
 
-      {/* Three staggered dots — the "still working" tell that a static label
+      {/* Three staggered dots: the "still working" tell that a static label
           can't give you. */}
       <span className="flex items-end gap-0.5 pb-px" aria-hidden>
         {[0, 1, 2].map((i) => (

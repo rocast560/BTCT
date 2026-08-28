@@ -3,17 +3,17 @@
 //
 // Three pieces wired into the Crepe editor in PageEditor.tsx:
 //
-//   • `codeBlockShellDefault` — overrides the commonmark code-block schema so
+//   • `codeBlockShellDefault`: overrides the commonmark code-block schema so
 //     the `/code` slash command defaults to the `shell` language.
 //
 //   • `codeFenceInputRule`: replaces commonmark's ``` input rule so a bare
 //     fence + Enter lands on `shell` too, instead of an empty language.
 //
-//   • `userKeybindsPlugin` — a ProseMirror plugin whose `handleKeyDown` runs
+//   • `userKeybindsPlugin`: a ProseMirror plugin whose `handleKeyDown` runs
 //     *before* commonmark's own keymap, so per-account shortcut overrides win.
 //     It also implements backtick-wraps-selection → inline code.
 //
-//   • `focusLanguageKeymap` — a CodeMirror keymap. Keys typed inside a code
+//   • `focusLanguageKeymap`: a CodeMirror keymap. Keys typed inside a code
 //     block never reach ProseMirror (the node view sets `stopEvent`), so the
 //     "focus the language picker" shortcut has to live in the CM layer.
 //
@@ -61,8 +61,8 @@ export function getEditorKeybinds(): Record<KeybindAction, string> {
 // button prints the stored attribute verbatim while the picker lists
 // `@codemirror/language-data` names, so a lowercase default made a new block
 // read `shell` until you touched the dropdown, at which point the same block
-// read `Shell`. Matching everywhere else — highlighting, the `data-language`
-// decoration, markdown fences — is case-insensitive, so this only affects
+// read `Shell`. Matching everywhere else (highlighting, the `data-language`
+// decoration, markdown fences) is case-insensitive, so this only affects
 // what's displayed.
 
 export const codeBlockShellDefault = codeBlockSchema.extendSchema((prev) => (ctx) => {
@@ -99,7 +99,7 @@ export const codeFenceInputRule = $inputRule((ctx) =>
 // defaults to ProseMirror's `inclusive: true`. That means the caret parked at
 // the end of a `` `code` `` span is treated as *inside* the mark: the padded
 // code background visually swallows the caret (it looks like it disappears),
-// and the next character you type inherits the code styling — the highlight
+// and the next character you type inherits the code styling: the highlight
 // "bleeds" past the closing backtick. Flipping `inclusive` to false parks the
 // caret just outside the closing boundary instead, so it stays visible and
 // plain text resumes when you keep typing.
@@ -196,7 +196,7 @@ function openLanguagePicker(cmView: CodeMirrorView): boolean {
   installLanguagePickerNav();
   // Clicking the button toggles the picker open and auto-focuses its search
   // input (see @milkdown/components language-picker). Avoid toggling it closed
-  // if it's already open — focus the search box instead.
+  // if it's already open: focus the search box instead.
   if (btn.dataset.expanded === 'true') {
     root.querySelector<HTMLInputElement>('.search-input')?.focus();
   } else {
@@ -284,7 +284,7 @@ function installLanguagePickerNav(): void {
 // block-select.ts). Keys typed in a code block never reach ProseMirror's
 // block-select plugin, so we activate block selection on the enclosing block
 // here. The one case where Escape must NOT grab the block is when CodeMirror has
-// its own overlay open (autocomplete popup or search panel) — there the key
+// its own overlay open (autocomplete popup or search panel): there the key
 // should close that, so we let it fall through.
 function codeMirrorOverlayOpen(cmView: CodeMirrorView): boolean {
   return !!cmView.dom.querySelector('.cm-tooltip-autocomplete, .cm-panel');

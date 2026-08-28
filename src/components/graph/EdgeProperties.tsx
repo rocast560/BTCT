@@ -9,7 +9,7 @@ export const EdgeProperties = memo(function EdgeProperties({ edgeId }: { edgeId:
   const edge = useAppStore(useShallow((s) => s.graphEdges.find((e) => e.id === edgeId)));
   const updateGraphEdge = useAppStore((s) => s.updateGraphEdge);
 
-  // Bind edge label to a Y.Text — concurrent edits merge with insert/delete deltas.
+  // Bind edge label to a Y.Text: concurrent edits merge with insert/delete deltas.
   const [labelValue, setLabelValue, labelRef] = useYTextInput(
     textKey('edge', edgeId, 'label'),
     edge?.label ?? '',

@@ -28,7 +28,7 @@ export const workspaceRepo = {
 
   async update(id: string, data: Partial<Pick<Workspace, 'name' | 'description'>>): Promise<void> {
     await db.workspaces.update(id, { ...data, updatedAt: Date.now() });
-    // `name` is a collaborative Y.Text — keep it in sync (invariant #2).
+    // `name` is a collaborative Y.Text: keep it in sync (invariant #2).
     if (data.name !== undefined) setYTextValue('workspace', id, 'name', data.name);
   },
 

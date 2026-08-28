@@ -34,7 +34,7 @@ export function TabBar() {
 
   // When the layout is split, each PaneLeaf renders its own tab strip and
   // the global TabBar's tab area is empty. Rendering the full h-10 bar in
-  // that state leaves the clock floating in an orphaned row — looks like
+  // that state leaves the clock floating in an orphaned row, which looks like
   // dead space. Instead, when split:
   //   - if both sidebars are open, render nothing (per-pane strips own
   //     the chrome entirely)

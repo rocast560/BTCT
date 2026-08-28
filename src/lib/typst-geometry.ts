@@ -10,7 +10,7 @@
 // Everything is resolved to points (72 per inch), Typst's own absolute unit.
 //
 // This reads the document's `#set page(…)` rather than asking the compiler,
-// because the frame has to reshape live as you drag the height control —
+// because the frame has to reshape live as you drag the height control:
 // round-tripping through a compile per keystroke would be far too slow. The
 // parse covers the forms a report preamble realistically uses and falls back
 // to Typst's own defaults (A4, 2.5/21 margins) when it can't tell.
@@ -159,7 +159,7 @@ export interface FigureBox {
   widthPt: number;
   /** Height of the figure block, in points. */
   heightPt: number;
-  /** widthPt / heightPt — what the crop is locked to. */
+  /** widthPt / heightPt: what the crop is locked to. */
   aspect: number;
 }
 

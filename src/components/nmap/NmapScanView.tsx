@@ -878,8 +878,8 @@ function PortRow({ port, muted, linked, enabled, onToggle }: { port: NmapPort; m
         </div>
         <span className={cn('w-20 shrink-0 font-mono', !muted && 'text-[hsl(var(--primary))]')}>{port.port}</span>
         <span className="w-14 shrink-0 uppercase">{port.protocol}</span>
-        <span className="w-32 shrink-0">{port.service || '—'}</span>
-        <span className="flex-1 text-[hsl(var(--muted-foreground))]">{port.version || '—'}</span>
+        <span className="w-32 shrink-0">{port.service || 'none'}</span>
+        <span className="flex-1 text-[hsl(var(--muted-foreground))]">{port.version || 'none'}</span>
       </div>
       {expanded && hasScripts && (
         <div className="mb-2 ml-5 border-l-2 border-[hsl(var(--border))] pl-4">

@@ -3,7 +3,7 @@
  *
  * `useFollowEngine()` (mounted once, app-wide) watches the `followingUserId`
  * in the app store. While set, it subscribes to that teammate's awareness
- * `focus` and mirrors it into the local view — opening the right tab and,
+ * `focus` and mirrors it into the local view: opening the right tab and,
  * when precision allows, jumping to their exact node / caret / host. It also
  * auto-detaches the moment the local user manually switches tabs.
  *
@@ -43,7 +43,7 @@ function openAndPlace(tab: TabItem): void {
  * Scroll a teammate's live remote caret into view. The caret element is
  * rendered by y-prosemirror and tagged with `data-user-id` in PageEditor's
  * cursorBuilder. Retries briefly because the editor + caret mount async after
- * the tab opens. Best-effort — silently gives up if it never appears.
+ * the tab opens. Best-effort: silently gives up if it never appears.
  */
 function revealRemoteCaret(userId: number): void {
   let attempts = 0;
@@ -89,7 +89,7 @@ function applyFocus(focus: FocusPayload, userId: number): void {
       break;
     }
     default: {
-      // findings / timeline / typst — singleton or entity-backed tabs.
+      // findings / timeline / typst: singleton or entity-backed tabs.
       openAndPlace({ id: uuidv4(), kind: focus.kind, entityId: focus.entityId, title: focus.title || focus.kind });
     }
   }

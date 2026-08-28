@@ -10,7 +10,7 @@
 //
 // Because the crop rect carries the figure box's aspect ratio (see
 // crop-math.ts), the bytes drop into the box with no letterboxing and no
-// distortion — the crop editor's viewport and the rendered figure show the
+// distortion: the crop editor's viewport and the rendered figure show the
 // same thing. A rect extending past the image edge is legal and renders as
 // the placeholder grey, baked in here so the two stay identical.
 //
@@ -38,7 +38,7 @@ export { isFullFrame, normalizeCrop } from './crop-math';
 /** Directory the assets are mounted under inside the Typst virtual FS. */
 export const ASSET_DIR = '/assets';
 
-/** The Typst path for an asset — what goes inside `#image("…")`. */
+/** The Typst path for an asset: what goes inside `#image("…")`. */
 export function assetPath(asset: Pick<TypstAsset, 'filename'>): string {
   return `${ASSET_DIR}/${asset.filename}`;
 }
@@ -125,7 +125,7 @@ export function fetchAssetBytes(id: string): Promise<Uint8Array> {
     }
     return new Uint8Array(await res.arrayBuffer());
   })();
-  // Don't cache a rejection — a transient network blip shouldn't poison the
+  // Don't cache a rejection: a transient network blip shouldn't poison the
   // asset for the rest of the session.
   p.catch(() => { rawBytesCache.delete(id); });
   rawBytesCache.set(id, p);
@@ -169,7 +169,7 @@ async function decodeImage(bytes: Uint8Array, mime: string): Promise<ImageBitmap
       img.src = url;
     });
   } finally {
-    // Revoke on the next tick — Safari needs the URL alive through decode.
+    // Revoke on the next tick: Safari needs the URL alive through decode.
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 }
@@ -203,7 +203,7 @@ async function canvasToBytes(canvas: HTMLCanvasElement, mime: string): Promise<U
 }
 
 /**
- * `luma(245)` — the placeholder grey. Gaps are baked into the image rather
+ * `luma(245)`: the placeholder grey. Gaps are baked into the image rather
  * than left to Typst so the crop editor and the PDF agree exactly: what the
  * viewport shows is literally the bytes that get written.
  */
@@ -212,7 +212,7 @@ export const GAP_FILL = '#f5f5f5';
 /**
  * Draw a region of `img` onto a fresh canvas and encode it as `targetFormat`.
  *
- * The source region may sit partly (or wholly) outside the image — that's how
+ * The source region may sit partly (or wholly) outside the image: that's how
  * the viewport model expresses an image scaled smaller than the figure box.
  * The canvas spec clips the source rectangle and scales the destination in
  * the same proportion, so the pre-filled background shows through wherever
@@ -321,7 +321,7 @@ function bakeBlurs(
  * Apply a normalized crop rect (and any blur regions) to image bytes.
  *
  * `targetFormat` must match the extension of the path these bytes will be
- * mounted at — Typst selects its decoder from the extension, so re-encoding a
+ * mounted at: Typst selects its decoder from the extension, so re-encoding a
  * cropped `.jpg` as PNG produces "Illegal start bytes: 8950" at compile time.
  */
 export async function cropImageBytes(
@@ -382,8 +382,8 @@ export function blurredPreviewBytes(
  *
  * Enforces the invariant that makes Typst's extension-based decoding safe:
  * **the bytes mounted at a path are always in the format that path's
- * extension claims.** Two things can violate it — cropping (which re-encodes)
- * and a mislabelled upload (a PNG saved as `shot.jpg`) — and both are fixed
+ * extension claims.** Two things can violate it: cropping (which re-encodes)
+ * and a mislabelled upload (a PNG saved as `shot.jpg`), and both are fixed
  * here, so the document's `#image("/assets/shot.jpg")` keeps working either
  * way and the path never changes with crop state.
  *
@@ -436,7 +436,7 @@ export function resolveAssetBytes(asset: TypstAsset): Promise<Uint8Array> {
 
 /**
  * Find the bounding box of the "interesting" part of an image by trimming
- * uniform borders — the letterboxing you get from a full-screen capture of
+ * uniform borders: the letterboxing you get from a full-screen capture of
  * a window, or the flat background around a dialog.
  *
  * Works by sampling the four corners for a background color, then walking
@@ -473,7 +473,7 @@ export async function detectContentBounds(
   try {
     data = ctx.getImageData(0, 0, sw, sh).data;
   } catch {
-    // Tainted canvas (shouldn't happen for same-origin bytes) — bail safely.
+    // Tainted canvas (shouldn't happen for same-origin bytes): bail safely.
     return null;
   }
 
@@ -543,7 +543,7 @@ export async function detectContentBounds(
  * exactly what to put in `#set text(font: "…")`.
  *
  * Uses typst.ts's own font parser rather than a separate OpenType library:
- * it's already loaded, and — more importantly — it reports the name the
+ * it's already loaded, and (more importantly) it reports the name the
  * *compiler* will match on. A name from a different parser could disagree
  * for fonts with several name-table entries, which would send the operator
  * chasing a font Typst can't find.

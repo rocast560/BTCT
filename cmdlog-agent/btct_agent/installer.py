@@ -2,7 +2,7 @@
 
 Hook logic lives in ~/.config/btct/hook.{bash,zsh}; the rc file gets only a tiny
 guarded block that sources it, so updating hook logic never re-edits the rc. The
-block is idempotent — re-running `install` produces a no-op diff.
+block is idempotent: re-running `install` produces a no-op diff.
 """
 from __future__ import annotations
 

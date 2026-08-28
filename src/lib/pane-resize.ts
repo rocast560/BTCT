@@ -3,12 +3,12 @@
 // assets).
 //
 // The two side panes are sized in pixels and the preview takes the slack.
-// Pixels rather than percentages because a side rail is a *content* width —
+// Pixels rather than percentages because a side rail is a *content* width:
 // you size it so the thumbnails or the code fit, and it should stay put when
 // the window resizes, the way an IDE sidebar does.
 //
-// Pure and DOM-free so the clamping rules — the part that's easy to get
-// subtly wrong when two panes fight over the same space — can be tested
+// Pure and DOM-free so the clamping rules (the part that's easy to get
+// subtly wrong when two panes fight over the same space) can be tested
 // directly. The drag handling that calls into this lives in TypstView.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ function clamp(n: number, lo: number, hi: number): number {
 /**
  * Clamp a proposed side-pane width so every *visible* pane keeps its minimum.
  *
- * `otherWidth` is the width of the opposite side pane, or 0 when it's hidden —
+ * `otherWidth` is the width of the opposite side pane, or 0 when it's hidden:
  * so hiding the code editor immediately lets the assets rail expand into the
  * space it freed, rather than staying bound by a pane that isn't on screen.
  *
@@ -132,6 +132,6 @@ export function saveTypstLayout(layout: TypstLayout): void {
   try {
     localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
   } catch {
-    /* private mode / quota — layout just won't persist */
+    /* private mode / quota: layout just won't persist */
   }
 }

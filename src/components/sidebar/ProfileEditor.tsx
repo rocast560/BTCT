@@ -226,7 +226,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          {/* Code accent — tints syntax highlighting in code blocks. Previews
+          {/* Code accent: tints syntax highlighting in code blocks. Previews
               live against any open code blocks while this dialog is open. */}
           <div>
             <label className="mb-1 block text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
@@ -308,7 +308,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          {/* Following — how precisely to mirror a teammate when you follow
+          {/* Following: how precisely to mirror a teammate when you follow
               them. Applies to graphs (their node), pages (their cursor), and
               nmap (their host). */}
           <div>

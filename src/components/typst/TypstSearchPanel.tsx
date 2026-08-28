@@ -2,7 +2,7 @@
 // Whole-document search & replace panel for the Typst editor.
 //
 // Overlays the top of the code pane (absolute, so it never remounts the
-// CodeMirror host — see invariant #3). Unlike CodeMirror's built-in Ctrl+F,
+// CodeMirror host: see invariant #3). Unlike CodeMirror's built-in Ctrl+F,
 // which only decorates matches inside the rendered viewport, this scans the
 // *entire* source (lib/typst-search) and lists every hit with its line and a
 // context snippet, so nothing off-screen is missed. Filters: case-sensitive,
@@ -81,7 +81,7 @@ export function TypstSearchPanel({ source, caret, onReveal, onReplaceSource, onC
 
   const matches = useMemo(() => searchAll(debouncedSource, query, opts), [debouncedSource, query, opts]);
   const total = matches.length;
-  // Regex that failed to compile (mid-typing `(`) yields zero matches — flag
+  // Regex that failed to compile (mid-typing `(`) yields zero matches: flag
   // it so we can tint the box red instead of silently showing "no results".
   const invalidRegex = opts.regex && query.length > 0 && total === 0 && !isValidRegex(query);
 
@@ -89,8 +89,8 @@ export function TypstSearchPanel({ source, caret, onReveal, onReplaceSource, onC
   useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
 
   // When the match set changes (new query, edited source, toggled filter),
-  // anchor the active match to the first one at/after the caret — "search from
-  // where I am" — rather than snapping to the top of the document. Manual
+  // anchor the active match to the first one at/after the caret: "search from
+  // where I am", rather than snapping to the top of the document. Manual
   // navigation (below) sets the index directly and doesn't touch the match set,
   // so a chosen match stays put until the next query/source change. `caret` is
   // the open-time position and intentionally excluded from the deps.
@@ -224,7 +224,7 @@ export function TypstSearchPanel({ source, caret, onReveal, onReplaceSource, onC
         </div>
       )}
 
-      {/* Results list — every match, document-wide, with context. */}
+      {/* Results list: every match, document-wide, with context. */}
       {total > 0 && query.length > 0 && (
         <div ref={listRef} className="max-h-52 overflow-y-auto border-t border-[hsl(var(--border))]">
           {matches.slice(0, MAX_ROWS).map((m, i) => (
@@ -232,7 +232,7 @@ export function TypstSearchPanel({ source, caret, onReveal, onReplaceSource, onC
           ))}
           {total > MAX_ROWS && (
             <div className="px-3 py-1.5 text-center font-mono text-[10px] text-[hsl(var(--muted-foreground))]">
-              +{total - MAX_ROWS} more — narrow the search to see them
+              +{total - MAX_ROWS} more: narrow the search to see them
             </div>
           )}
         </div>

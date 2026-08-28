@@ -1,9 +1,9 @@
-# Install-BTCTShortcut.ps1 — drops a "Been There, Conquered That" shortcut
+# Install-BTCTShortcut.ps1: drops a "Been There, Conquered That" shortcut
 # on the user's Desktop that runs Start-BTCT.ps1.
 #
 # Re-run any time the script location or arguments change; the shortcut
 # is recreated in place. Pass -Update to make the shortcut launch with
-# the -Update flag (pulls + rebuilds every click — slower).
+# the -Update flag (pulls + rebuilds every click, slower).
 
 [CmdletBinding()]
 param(

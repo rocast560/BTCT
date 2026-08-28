@@ -9,7 +9,7 @@ import { pageToMarkdown } from './markdown';
 import { getPageYContext } from '@/realtime/yjs-providers';
 
 /**
- * Lossless workspace export — every entity table tied to the workspace
+ * Lossless workspace export: every entity table tied to the workspace
  * plus the raw Yjs binary update of every page body (for roundtrip
  * fidelity of collab history, formatting marks, embedded blocks).
  *
@@ -29,7 +29,7 @@ export interface WorkspaceExportData {
   nmapScans: NmapScan[];
   nmapMachines: NmapMachine[];
   pageSnapshots: PageSnapshot[];
-  /** Map<pageId, base64 of Y.encodeStateAsUpdate(pageDoc)>. Optional —
+  /** Map<pageId, base64 of Y.encodeStateAsUpdate(pageDoc)>. Optional:
    *  set only when the page's Y.Doc was reachable at export time. */
   pageYjsUpdates: Record<ID, string>;
 }
@@ -85,7 +85,7 @@ export async function exportWorkspaceZip(data: WorkspaceExportData): Promise<Blo
     graphsFolder.file(`${safe}.graphml`, toGraphML(nodes, edges, graph.name));
   }
 
-  // Raw Yjs binary updates per page — base64 inside JSON so the zip
+  // Raw Yjs binary updates per page: base64 inside JSON so the zip
   // remains text-friendly. Skipped when no doc was reachable.
   zip.file('pageYjsUpdates.json', JSON.stringify(data.pageYjsUpdates, null, 2));
 
@@ -93,7 +93,7 @@ export async function exportWorkspaceZip(data: WorkspaceExportData): Promise<Blo
 }
 
 /**
- * Capture the live Y.Doc state for a list of pages. Best-effort — returns
+ * Capture the live Y.Doc state for a list of pages. Best-effort: returns
  * an empty record if the page docs aren't reachable in this session.
  */
 export function collectPageYjsUpdates(pageIds: ID[]): Record<ID, string> {

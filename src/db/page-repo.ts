@@ -92,7 +92,7 @@ export const pageRepo = {
       patch.content = normalizePageContent(data.content);
     }
     await db.pages.update(id, patch);
-    // title/slug are collaborative Y.Texts — keep them in sync (invariant #2).
+    // title/slug are collaborative Y.Texts: keep them in sync (invariant #2).
     if (typeof data.title === 'string') setYTextValue('page', id, 'title', data.title);
     if (typeof data.slug === 'string') setYTextValue('page', id, 'slug', data.slug);
   },

@@ -5,12 +5,12 @@
  *
  * Why it looks like Dexie: the original implementation persisted everything
  * to IndexedDB through Dexie. Switching to a single shared Y.Doc makes the
- * whole workspace a real-time collaborative document — but we want every
+ * whole workspace a real-time collaborative document, but we want every
  * existing repo and seed file to keep working with zero changes. So this
  * file exposes the same surface, backed by a Y.Map per table.
  *
  * Records are stored as plain JSON objects keyed by `id`. Updates replace
- * the whole record (last-writer-wins) — fine for sidebar/list metadata.
+ * the whole record (last-writer-wins): fine for sidebar/list metadata.
  * Per-page note *contents* live in their own per-page Y.Doc and merge
  * with proper CRDT semantics; see realtime/yjs-providers.ts.
  */
@@ -194,7 +194,7 @@ class AppDatabase {
   /**
    * Yjs has no transactional rollback, but it does batch updates: every
    * write inside `fn` is wrapped in a single Yjs transaction so observers
-   * fire only once. The `mode` and `tables` arguments are ignored —
+   * fire only once. The `mode` and `tables` arguments are ignored:
    * accepted for Dexie API parity.
    */
   async transaction<T>(_mode: string, _tables: unknown, fn: () => Promise<T> | T): Promise<T> {
@@ -206,7 +206,7 @@ class AppDatabase {
 
   /**
    * Wipe every shared table. Used by the "Reset workspace data" action.
-   * Note: this propagates to *every connected user* — it's a shared doc.
+   * Note: this propagates to *every connected user*: it's a shared doc.
    */
   async delete(): Promise<void> {
     const c = getSharedDoc();

@@ -5,7 +5,7 @@
 // the full `@codemirror/language-data` language list (so the language picker
 // has options and blocks actually get highlighted) plus a custom highlight
 // style whose token colors are driven entirely by CSS variables. That lets a
-// user recolor every code block *live* — `applyCodeAccent(hex)` just rewrites
+// user recolor every code block *live*: `applyCodeAccent(hex)` just rewrites
 // the `--code-*` variables on :root; nothing in the editor is rebuilt (which
 // matters because a rebuild would tear down the Yjs collab binding).
 // ─────────────────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ export const codeSyntaxThemeExtension: Extension = Prec.highest(
 /**
  * Apply the per-account code accent. The base palette is the fixed GitHub Dark
  * scheme defined in index.css (`--code-*`); the account accent only retints the
- * most prominent token — keywords — so each user gets a personal touch without
+ * most prominent token (keywords) so each user gets a personal touch without
  * losing the familiar GitHub colors. No-op when the hex is malformed.
  */
 export function applyCodeAccent(hex: string): void {
@@ -73,7 +73,7 @@ function canonicalLanguage(raw: unknown): string {
 
 /**
  * The display name `@codemirror/language-data` uses for a language, matched
- * case-insensitively against both names and aliases — `shell`, `sh` and
+ * case-insensitively against both names and aliases: `shell`, `sh` and
  * `bash` all resolve to `Shell`.
  *
  * The code block's language button prints the stored attribute verbatim while
@@ -106,7 +106,7 @@ export function fenceLanguage(captured: string | undefined): string {
 }
 
 // Stamps each code block's DOM node with `data-language` (via a node
-// decoration) so index.css can give specific languages their own look — e.g.
+// decoration) so index.css can give specific languages their own look: e.g.
 // the Linux-terminal palette for shell. Recomputed when a block's language
 // changes (slash default, ``` fence, or the picker).
 const codeLanguageAttrKey = new PluginKey('code-language-attr');

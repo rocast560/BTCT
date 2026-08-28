@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Typst tab — a typst.app-style split view rendered entirely locally.
+// Typst tab: a typst.app-style split view rendered entirely locally.
 //
 // Left: the raw Typst source in a collaborative CodeMirror editor.
 // Right: the live, in-browser-compiled preview.
@@ -61,7 +61,7 @@ ${PLACEHOLDER_HELPER}
 = Executive Summary
 
 Write a high-level summary of the engagement here. Typst renders this
-preview locally — no internet required.
+preview locally: no internet required.
 
 = Findings
 
@@ -137,7 +137,7 @@ export function TypstView() {
 
 /**
  * Push the workspace's assets into the compiler's virtual filesystem and
- * font set, and report a revision that changes whenever they do — so the
+ * font set, and report a revision that changes whenever they do, so the
  * preview recompiles after a drop or a crop, not just on a source edit.
  *
  * Images are resolved through `resolveAssetBytes`, which applies the crop
@@ -251,7 +251,7 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
   /**
    * Click-to-source: jump the caret to whatever was clicked in the preview.
    *
-   * Opens the code pane first if it's hidden — the whole point of the gesture
+   * Opens the code pane first if it's hidden: the whole point of the gesture
    * is to land on the source, so silently doing nothing because the editor is
    * collapsed would be the wrong call. The reveal is deferred a frame so the
    * newly-mounted CodeMirror instance exists before we drive it.
@@ -321,7 +321,7 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
    * committed to React state only on release, so a resize costs one style
    * mutation per frame instead of a full re-render of the tab. That matters
    * here more than in most layouts: a re-render mid-drag would reconcile the
-   * assets rail and — worse — risk remounting the CodeMirror host, which would
+   * assets rail and (worse) risk remounting the CodeMirror host, which would
    * drop the Yjs collab binding and every remote cursor with it.
    *
    * The container geometry is read once at drag start; reading it per-move
@@ -514,7 +514,7 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
 
       {/* Editor | Preview | Assets.
           `contain: layout paint` on each pane keeps a width change from
-          relayouting or repainting the other two — the preview's SVG in
+          relayouting or repainting the other two: the preview's SVG in
           particular can be a very large subtree. */}
       <div ref={containerRef} className="flex min-h-0 flex-1">
         {showEditor && (
@@ -568,7 +568,7 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
  * Drag handle between two panes.
  *
  * The visible rule is 1px but the grab area is padded out to 9px via a
- * transparent overlay — a 1px hit target is genuinely hard to grab, and
+ * transparent overlay: a 1px hit target is genuinely hard to grab, and
  * widening the rule itself would put a chunky line through the layout.
  */
 function PaneDivider({
