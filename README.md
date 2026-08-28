@@ -842,6 +842,14 @@ a theme exists: the sidebar toggle, the Profile section, `resolvePrefs`
   with `position: fixed` and would be trapped behind later siblings. The
   blurred material lives on a `::before` with `z-index: -1` instead, and the
   rails' mount animation ends at `transform: none` and full opacity.
+- A skin never resets `transform` on `*`, not even under Reduce Motion. The
+  Typst preview is an SVG positioned entirely by `transform` attributes, and
+  a CSS transform overrides the attribute: every glyph collapses onto the
+  page origin at font-unit scale and the page renders as a black blob. React
+  Flow places its viewport and nodes with inline transforms the same way.
+  Reduce Motion turns off transitions and animations and resets only the
+  transforms the skin itself sets (the press scale);
+  `src/test/glass-theme.test.ts` guards the rule.
 - `main.tsx` applies the cached theme (`localStorage` `btct.ui-theme`) before
   the first paint; after login the account pref wins. The server only checks
   `prefs.uiTheme` is a short slug; an unknown id falls back to the default on

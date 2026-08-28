@@ -734,6 +734,15 @@ html[data-ui-theme="glass"] :is(button, a, summary, [role="button"], [role="tab"
   html[data-ui-theme="glass"] *::after {
     transition: none !important;
     animation: none !important;
+  }
+  /* The press scale is the only transform this sheet sets, so it is the only
+     one reset here. Never reset `transform` on `*`: the Typst preview is an
+     SVG positioned entirely by transform attributes, which a CSS transform
+     overrides (every glyph then collapses onto the page origin at font-unit
+     scale and renders as a black blob), and the graph canvas pans, zooms and
+     places its nodes with inline transforms. Guarded by
+     src/test/glass-theme.test.ts. */
+  html[data-ui-theme="glass"] button:active {
     transform: none !important;
   }
 }
