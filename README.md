@@ -562,7 +562,9 @@ below for the full mechanics:
   panels where `backdrop-filter` is missing). The choice is saved on the
   account and cached locally so the login screen paints in the right look.
   Both themes come from one registry; see [Interface themes](#interface-themes)
-  for how they are layered and how to remove one.
+  for how they are layered and how to remove one. **Decision (2026-08-28):
+  Glass is the look BTCT keeps. The Classic theme and the theme switcher are
+  removed in the commit that follows this one.**
 
 ---
 
