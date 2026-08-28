@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw, Terminal, HardDrive, Play } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   useAuthStore,
   type AdminUserRow,
@@ -37,6 +38,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   // Reset-password inline state per user id
   const [resettingId, setResettingId] = useState<number | null>(null);
   const [resetPwd, setResetPwd] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<{ id: number; username: string } | null>(null);
 
   const refresh = async () => {
     try {
@@ -86,8 +88,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const submitDelete = async (id: number, username: string) => {
-    if (!window.confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+  const submitDelete = async (id: number) => {
     setError(null);
     setBusy(true);
     try {
@@ -101,6 +102,17 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
+    <>
+    {pendingDelete && (
+      <ConfirmDialog
+        title="Delete user"
+        message={`Delete user "${pendingDelete.username}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => { const p = pendingDelete; setPendingDelete(null); void submitDelete(p.id); }}
+      />
+    )}
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
       onClick={onClose}
@@ -261,7 +273,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                               <KeyRound size={13} />
                             </button>
                             <button
-                              onClick={() => void submitDelete(u.id, u.username)}
+                              onClick={() => setPendingDelete({ id: u.id, username: u.username })}
                               disabled={isSelf}
                               className="rounded-md p-1 text-[hsl(var(--status-red))] hover:bg-[hsl(var(--status-red))]/10 disabled:opacity-30"
                               title={isSelf ? 'Cannot delete your own account' : 'Delete user'}
@@ -287,6 +299,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
+    </>
   );
 }
 
@@ -724,6 +737,7 @@ function BackupConfigSection() {
   const [status, setStatus] = useState<BackupStatus | null>(null);
   const [list, setList] = useState<BackupEntry[]>([]);
   const [intervalMin, setIntervalMin] = useState('60');
+  const [pendingRemove, setPendingRemove] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -774,7 +788,6 @@ function BackupConfigSection() {
     finally { setRunning(false); await refresh(); }
   };
   const remove = async (name: string) => {
-    if (!window.confirm(`Delete backup ${name}? This cannot be undone.`)) return;
     setBusy(true); setErr(null); setMsg(null);
     try { await backupDelete(name); setMsg(`Deleted ${name}`); await refresh(); }
     catch (e) { setErr(e instanceof Error ? e.message : 'delete failed'); }
@@ -900,13 +913,23 @@ function BackupConfigSection() {
                   <td className="px-1 py-1 text-right">
                     <button
                       type="button"
-                      onClick={() => remove(b.name)}
+                      onClick={() => setPendingRemove(b.name)}
                       disabled={busy}
                       title="Delete this backup"
                       className="rounded p-1 text-white/40 hover:bg-[hsl(var(--status-red))]/15 hover:text-[hsl(var(--status-red))] disabled:opacity-40"
                     >
                       <Trash2 size={11} />
                     </button>
+                    {pendingRemove === b.name && (
+                      <ConfirmDialog
+                        title="Delete backup"
+                        message={`Delete ${b.name}? This cannot be undone.`}
+                        confirmLabel="Delete"
+                        destructive
+                        onCancel={() => setPendingRemove(null)}
+                        onConfirm={() => { setPendingRemove(null); void remove(b.name); }}
+                      />
+                    )}
                   </td>
                 </tr>
               ))}

@@ -193,6 +193,7 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
   const [layout, setLayout] = useState<TypstLayout>(loadTypstLayout);
   const { showEditor, showAssets } = layout;
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const editorPaneRef = useRef<HTMLDivElement>(null);
   const assetsPaneRef = useRef<HTMLDivElement>(null);
@@ -431,11 +432,12 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
 
   const exportPdf = useCallback(async () => {
     setExporting(true);
+    setExportError(null);
     try {
       const bytes = await compileTypstPdf(source);
       triggerDownload('document.pdf', bytes as BlobPart, 'application/pdf');
     } catch (err) {
-      window.alert(`PDF export failed:\n${typstErrorMessage(err)}`);
+      setExportError(`PDF export failed: ${typstErrorMessage(err)}`);
     } finally {
       setExporting(false);
     }
@@ -443,16 +445,17 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
 
   const exportSvg = useCallback(async () => {
     setExporting(true);
+    setExportError(null);
     try {
       const res = await compileTypstSvg(source);
       if (!res.svg) {
         const msg = res.diagnostics.find((d) => d.severity === 'error')?.message ?? 'document has errors';
-        window.alert(`SVG export failed:\n${msg}`);
+        setExportError(`SVG export failed: ${msg}`);
         return;
       }
       triggerDownload('document.svg', res.svg, 'image/svg+xml');
     } catch (err) {
-      window.alert(`SVG export failed:\n${typstErrorMessage(err)}`);
+      setExportError(`SVG export failed: ${typstErrorMessage(err)}`);
     } finally {
       setExporting(false);
     }
@@ -511,6 +514,12 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
           </button>
         </div>
       </div>
+      {exportError && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-[hsl(var(--status-red))]/30 bg-[hsl(var(--status-red))]/10 px-3 py-1.5 text-xs text-[hsl(var(--status-red))]">
+          <span className="min-w-0 flex-1 truncate" title={exportError}>{exportError}</span>
+          <button type="button" onClick={() => setExportError(null)} className="shrink-0 rounded-md px-2 py-0.5 hover:bg-[hsl(var(--status-red))]/15">Dismiss</button>
+        </div>
+      )}
 
       {/* Editor | Preview | Assets.
           `contain: layout paint` on each pane keeps a width change from

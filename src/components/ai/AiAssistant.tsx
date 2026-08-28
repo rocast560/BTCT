@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Sparkles, Send, Loader2, Plus, History, ChevronDown, Pencil, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAppStore } from '@/stores';
 import { useAuthStore, type AiConfig } from '@/auth/auth-store';
 import { useChatStore } from '@/stores/chat-store';
@@ -48,6 +49,7 @@ export function AiAssistant() {
   const [steps, setSteps] = useState(0);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sessionAction, setSessionAction] = useState<{ kind: 'rename' | 'delete'; id: string; title: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -151,6 +153,25 @@ export function AiAssistant() {
 
   return (
     <div className="flex h-full flex-col bg-[hsl(var(--background))]">
+      {sessionAction?.kind === 'rename' && (
+        <ConfirmDialog
+          title="Rename chat"
+          confirmLabel="Rename"
+          input={{ initial: sessionAction.title, placeholder: 'Chat title' }}
+          onCancel={() => setSessionAction(null)}
+          onConfirm={(t) => { const a = sessionAction; setSessionAction(null); void useChatStore.getState().renameSession(a.id, t); }}
+        />
+      )}
+      {sessionAction?.kind === 'delete' && (
+        <ConfirmDialog
+          title="Delete chat"
+          message={`Delete "${sessionAction.title}"? This cannot be undone.`}
+          confirmLabel="Delete"
+          destructive
+          onCancel={() => setSessionAction(null)}
+          onConfirm={() => { const a = sessionAction; setSessionAction(null); void useChatStore.getState().deleteSession(a.id); }}
+        />
+      )}
       <div className="flex items-center justify-between gap-2 border-b border-[hsl(var(--border))] px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <Sparkles size={14} className="text-[hsl(var(--primary))]" />
@@ -195,14 +216,14 @@ export function AiAssistant() {
                           <div className="text-[9px] text-[hsl(var(--muted-foreground))]">{relTime(s.updatedAt)}</div>
                         </div>
                         <button
-                          onClick={(e) => { e.stopPropagation(); const t = window.prompt('Rename chat', s.title); if (t != null) void useChatStore.getState().renameSession(s.id, t); }}
+                          onClick={(e) => { e.stopPropagation(); setSessionAction({ kind: 'rename', id: s.id, title: s.title }); }}
                           className="hidden rounded p-0.5 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] group-hover:block"
                           title="Rename"
                         >
                           <Pencil size={11} />
                         </button>
                         <button
-                          onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete "${s.title}"?`)) void useChatStore.getState().deleteSession(s.id); }}
+                          onClick={(e) => { e.stopPropagation(); setSessionAction({ kind: 'delete', id: s.id, title: s.title }); }}
                           className="hidden rounded p-0.5 text-[hsl(var(--status-red))] hover:bg-[hsl(var(--status-red))]/10 group-hover:block"
                           title="Delete"
                         >

@@ -188,6 +188,8 @@ These are non-obvious and easy to break; full list in README "Conventions & inva
 11. **Never put secrets in `settingsPublic`.** It is mirrored to every connected client; only the public theme policy belongs there.
 10. **Batch CRDT/SQLite writes.** Wrap multi-record Yjs writes in one `sharedTransact` and SQLite batches in one `db.transaction` (`upsertCommandLogBatch`); `PRAGMA synchronous = NORMAL` pairs with WAL so a batch is one commit, not one fsync per row.
 
+14. **No native browser dialogs, and native controls follow the theme.** `window.confirm`/`prompt`/`alert` paint outside the skin; use `src/components/ui/ConfirmDialog.tsx` (a portal sheet, with an optional input for prompts) or an inline notice. `index.css` declares `color-scheme` on `:root`/`.dark` so select popups, date/colour pickers and spinners render dark, and restyles `select` (own chevron, `appearance: none`) and the accent of range/checkbox/date inputs; keep those rules when touching form styling. Audit record: [docs/ui-audit-2026-08-28.md](docs/ui-audit-2026-08-28.md).
+
 ## Performance
 Full CPU/memory audit and the fixes applied: [docs/perf-audit-2026-08-19.md](docs/perf-audit-2026-08-19.md). Static assets are precompressed at build time (the Dockerfile gzips `dist/`) and `tryServeStatic` serves the `.gz` sibling plus an mtime+size ETag; keep both when touching static serving.
 

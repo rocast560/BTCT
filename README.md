@@ -1148,6 +1148,14 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    `position: fixed`), match class tokens with `[class~=]`, and pair every
    restyled surface with its own `:hover` (unlayered rules beat Tailwind's
    hover utilities too).
+22. **No native browser dialogs, and native controls follow the theme.**
+   `window.confirm`, `window.prompt` and `window.alert` paint outside the
+   skin; use `src/components/ui/ConfirmDialog.tsx` (a portal sheet with an
+   optional input) or an inline notice. `index.css` declares `color-scheme`
+   on `:root` and `.dark` so select popups, date and colour pickers and
+   spinners render in the right scheme, gives `select` its own chevron and
+   the range/checkbox/date inputs the accent colour. The audit that
+   introduced this is [docs/ui-audit-2026-08-28.md](docs/ui-audit-2026-08-28.md).
 
 ### Recipes: how to extend
 

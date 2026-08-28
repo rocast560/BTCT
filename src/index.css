@@ -748,3 +748,50 @@ button:focus-visible {
   margin-left: -0.6em;
 }
 .history-viewer .ProseMirror > [data-ychange-type="removed"] { opacity: 0.7; }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Native controls follow the theme. Without a color-scheme the browser
+   paints every popup it owns (select lists, date and colour pickers,
+   number spinners, scrollbars) in its light scheme regardless of the dark
+   surface it sits on. Selects also drop the platform arrow for the app's
+   own chevron so they read like the other fields.
+   ────────────────────────────────────────────────────────────────────── */
+:root { color-scheme: light; }
+.dark { color-scheme: dark; }
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 1.75rem;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.55rem center;
+  background-size: 12px 12px;
+  cursor: pointer;
+}
+.dark select {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a3a3a3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+}
+select option {
+  background-color: hsl(var(--popover));
+  color: hsl(var(--foreground));
+}
+/* Sliders, checkboxes, radios and the date/colour pickers pick up the accent. */
+input[type="range"],
+input[type="checkbox"],
+input[type="radio"],
+input[type="date"],
+input[type="datetime-local"] {
+  accent-color: hsl(var(--primary));
+}
+input[type="range"] { cursor: pointer; }
+input[type="color"] {
+  padding: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-sm);
+  background: hsl(var(--card));
+  cursor: pointer;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 3px; }
+input[type="number"]::-webkit-inner-spin-button { opacity: 0.6; }
