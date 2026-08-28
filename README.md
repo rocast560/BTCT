@@ -540,7 +540,10 @@ full mechanics:
   from the layers icon in the sidebar header or **Profile → Interface**.
   **Classic** is the original flat dark grey; **Glass** is floating translucent
   panels in the style of Apple's Liquid Glass on the same dark-grey palette
-  (system font, capsule chips, blurred sheets and popovers; it honours Reduce
+  (one platform UI font for chrome, notes and form controls, semibold rather
+  than bold, title-case section headers, flat sidebar rows with the coloured
+  icon carrying the category, capsule chips, blurred menus and sheets, a flat
+  tinted primary button and no gloss gradients; it honours Reduce
   Transparency, Increase Contrast and Reduce Motion, and falls back to solid
   panels where `backdrop-filter` is missing). The choice is saved on the
   account and cached locally so the login screen paints in the right look.
@@ -815,11 +818,30 @@ a theme exists: the sidebar toggle, the Profile section, `resolvePrefs`
   substrings, so `hover:` and `/10` variants are not caught by accident. Five
   `data-ui` hooks (`shell`, `main`, `sidebar`, `tabbar`, `toolbar`) mark the
   only places where the layout itself changes (floating rails with gaps).
+- The design follows Apple's Liquid Glass rules. The material is a tint plus
+  `blur(24px) saturate(150%)`, a 1px rim that is brighter along the top edge
+  and one soft shadow; it sits only on the navigation layer (rails, tab
+  strip, menus, sheets) while the content column, cards and graph nodes stay
+  opaque, and glass never stacks on glass. Radii are concentric: an 8px
+  shell gap, 18px rails, 10px groups, 8px controls, capsules for chips.
+  Type is one platform face (SF Pro on a Mac, Segoe UI Variable on Windows)
+  applied to the body, the note editor and form controls, on a 600/500/400
+  weight scale: `font-bold` renders as 600, and the classic theme's
+  uppercase micro-labels become title-case 11px semibold headers on the
+  secondary label colour (0.86 / 0.55 / 0.30 white in dark mode). Sidebar
+  rows lose their tinted frames (the coloured icon carries the category),
+  are 28px tall with 2px gaps, and every icon in the rail sits at the same
+  x, page rows reserving a 16px disclosure gutter. Motion is 160ms ease-out
+  for colour, 120ms for the press scale, a short fade or scale on menus and
+  sheets, and nothing under Reduce Motion. The wallpaper is one flat colour
+  with a single soft glow so the blur has something to reveal; the primary
+  button is a flat tint with no gloss.
 - The rails and the content column never create stacking contexts or
   containing blocks (no `backdrop-filter`, `filter`, `transform`,
   `isolation` or `z-index` on them): dialogs render inside those elements
   with `position: fixed` and would be trapped behind later siblings. The
-  blurred material lives on a `::before` with `z-index: -1` instead.
+  blurred material lives on a `::before` with `z-index: -1` instead, and the
+  rails' mount animation ends at `transform: none` and full opacity.
 - `main.tsx` applies the cached theme (`localStorage` `btct.ui-theme`) before
   the first paint; after login the account pref wins. The server only checks
   `prefs.uiTheme` is a short slug; an unknown id falls back to the default on
