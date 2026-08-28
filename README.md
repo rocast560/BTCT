@@ -551,7 +551,7 @@ below for the full mechanics:
   panels in the style of Apple's Liquid Glass on the same dark-grey palette
   (one platform UI font for chrome, notes and form controls, semibold rather
   than bold, title-case section headers, flat sidebar rows with the coloured
-  icon carrying the category, capsule chips, blurred menus and sheets, a flat
+  icon carrying the category, capsule chips, opaque menus and dialogs, a flat
   tinted primary button and no gloss gradients; it honours Reduce
   Transparency, Increase Contrast and Reduce Motion, and falls back to solid
   panels where `backdrop-filter` is missing). The choice is saved on the
@@ -829,9 +829,9 @@ a theme exists: the sidebar toggle, the Profile section, `resolvePrefs`
   only places where the layout itself changes (floating rails with gaps).
 - The design follows Apple's Liquid Glass rules. The material is a tint plus
   `blur(24px) saturate(150%)`, a 1px rim that is brighter along the top edge
-  and one soft shadow; it sits only on the navigation layer (rails, tab
-  strip, menus, sheets) while the content column, cards and graph nodes stay
-  opaque, and glass never stacks on glass. Radii are concentric: an 8px
+  and one soft shadow; it sits only on the rails, the tab strip and the
+  toolbars, while every pop-up (dialogs, menus, popovers), the content
+  column, cards and graph nodes are opaque, and glass never stacks on glass. Radii are concentric: an 8px
   shell gap, 18px rails, 10px groups, 8px controls, capsules for chips.
   Type is one platform face (SF Pro on a Mac, Segoe UI Variable on Windows)
   applied to the body, the note editor and form controls, on a 600/500/400
@@ -847,7 +847,7 @@ a theme exists: the sidebar toggle, the Profile section, `resolvePrefs`
   `::after`, the container itself has no border). The row whose entity is
   the active tab carries `data-active` and a rounded grey fill, the
   disclosure chevrons are one arrow that rotates (right closed, down open),
-  and the admin panel sits on a near-opaque sheet. Motion is 160ms ease-out
+  and every dialog is opaque. Motion is 160ms ease-out
   for colour, 120ms for the press scale, a short fade or scale on menus and
   sheets, and nothing under Reduce Motion. The wallpaper is one flat colour
   with a single soft glow so the blur has something to reveal; the primary

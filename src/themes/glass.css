@@ -22,8 +22,10 @@
        edge-to-edge columns).
 
    Apple's rules, as applied here:
-     • Glass lives on the navigation layer only: rails, tab strip, toolbars,
-       menus, sheets. The content column, cards and graph nodes are opaque.
+     • Glass lives on the rails, the tab strip and the toolbars only. Every
+       pop-up (sheets, menus, popovers), the content column, cards and graph
+       nodes are opaque: a working surface never has the page bleeding
+       through it.
      • One sheet of glass per stack. Controls inside glass sit on flat
        fills, never on a second blur.
      • The material is a tint + blur + saturate, a 1px rim that is brighter
@@ -57,7 +59,6 @@ html[data-ui-theme="glass"] {
     "Segoe UI Variable Text", "Segoe UI", "Helvetica Neue", Helvetica, Arial,
     system-ui, sans-serif;
   --g-blur: 24px;
-  --g-blur-sheet: 32px;
   --g-blur-scrim: 4px;
   --g-saturate: 150%;
   --g-gap: 8px;
@@ -82,9 +83,8 @@ html[data-ui-theme="glass"].dark {
   --g-label-2: rgba(255, 255, 255, 0.55);
   --g-label-3: rgba(255, 255, 255, 0.30);
   --g-glass: rgba(26, 26, 29, 0.62);
-  --g-sheet: rgba(30, 30, 33, 0.84);
-  --g-sheet-solid: #1e1e21;
-  --g-popover: rgba(34, 34, 38, 0.80);
+  --g-sheet: #1e1e21;
+  --g-popover: #222226;
   --g-tree: rgba(255, 255, 255, 0.16);
   --g-card: rgba(255, 255, 255, 0.03);
   --g-node: #232326;
@@ -115,9 +115,8 @@ html[data-ui-theme="glass"]:not(.dark) {
   --g-label-2: rgba(0, 0, 0, 0.50);
   --g-label-3: rgba(0, 0, 0, 0.28);
   --g-glass: rgba(246, 246, 248, 0.64);
-  --g-sheet: rgba(250, 250, 252, 0.88);
-  --g-sheet-solid: #fafafc;
-  --g-popover: rgba(252, 252, 254, 0.84);
+  --g-sheet: #fafafc;
+  --g-popover: #fcfcfe;
   --g-tree: rgba(0, 0, 0, 0.14);
   --g-card: rgba(255, 255, 255, 0.70);
   --g-node: #ffffff;
@@ -141,7 +140,7 @@ html[data-ui-theme="glass"]:not(.dark) {
 
 /* Solid fallbacks: the same look without the translucency. */
 @media (prefers-reduced-transparency: reduce) {
-  html[data-ui-theme="glass"] { --g-blur: 0px; --g-blur-sheet: 0px; --g-blur-scrim: 0px; }
+  html[data-ui-theme="glass"] { --g-blur: 0px; --g-blur-scrim: 0px; }
   html[data-ui-theme="glass"].dark { --g-glass: #1a1a1d; --g-sheet: #1e1e21; --g-popover: #222226; }
   html[data-ui-theme="glass"]:not(.dark) { --g-glass: #f6f6f8; --g-sheet: #fafafc; --g-popover: #fcfcfe; }
 }
@@ -630,21 +629,11 @@ html[data-ui-theme="glass"] [class~="shadow-xl"][class~="rounded-2xl"] {
   border: 1px solid var(--g-rim-strong);
   border-radius: var(--g-r-sheet);
   box-shadow: var(--g-shadow-sheet), inset 0 1px 0 var(--g-spec), inset 0 -1px 0 var(--g-spec-soft);
-  -webkit-backdrop-filter: blur(var(--g-blur-sheet)) saturate(var(--g-saturate));
-  backdrop-filter: blur(var(--g-blur-sheet)) saturate(var(--g-saturate));
   animation: g-sheet-in 200ms var(--g-ease);
 }
 @keyframes g-sheet-in {
   from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: none; }
-}
-/* The admin panel is a working surface (user table, tokens, backups) and
-   sits on a near-opaque sheet rather than the translucent one. */
-html[data-ui-theme="glass"] [class~="shadow-2xl"][class~="rounded-lg"][class~="bg-[hsl(var(--card))]"]:not([class~="absolute"]) {
-  background: var(--g-sheet-solid);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  animation: none;
 }
 /* The admin panel is built on white/10 + black/20 instead of the tokens. */
 html[data-ui-theme="glass"] [class~="shadow-2xl"][class~="rounded-lg"][class~="bg-[hsl(var(--card))]"] [class~="border-white/10"] {
@@ -673,8 +662,6 @@ html[data-ui-theme="glass"] [class~="shadow-2xl"][class~="rounded-lg"][class~="b
   background: var(--g-popover);
   border-color: var(--g-rim-strong);
   box-shadow: var(--g-shadow-pop), inset 0 1px 0 var(--g-spec-soft);
-  -webkit-backdrop-filter: blur(var(--g-blur)) saturate(var(--g-saturate));
-  backdrop-filter: blur(var(--g-blur)) saturate(var(--g-saturate));
   animation: g-pop-in 140ms var(--g-ease);
 }
 @keyframes g-pop-in {
