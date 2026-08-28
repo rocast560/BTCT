@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
-import { EditorState, TextSelection } from '@milkdown/prose/state';
+import { EditorState, TextSelection, type Transaction } from '@milkdown/prose/state';
 import { EditorView } from '@milkdown/prose/view';
 import { Schema } from '@milkdown/prose/model';
 import {
   stepBlockSelection,
   createBlockSelectProsePlugin,
   selectBlockAt,
-  __resetDoubleEscForTests,
+  moveBlocksTr,
+  __resetBlockSelectForTests,
 } from '@/lib/block-select';
 
 // ── Pure navigation math ──────────────────────────────────────────────────
@@ -73,16 +74,13 @@ describe('block-select plugin (integration)', () => {
     // coords — irrelevant to what these tests assert.
     EditorView.prototype.coordsAtPos = () => ({ left: 0, right: 0, top: 0, bottom: 0 });
   });
-  beforeEach(() => __resetDoubleEscForTests());
+  beforeEach(() => __resetBlockSelectForTests());
 
-  it('a double Escape enters block-selection mode and highlights one block', () => {
+  it('a single Escape enters block-selection mode and highlights one block', () => {
     const view = makeView(['one', 'two', 'three']);
     expect(view.dom.classList.contains('block-select-mode')).toBe(false);
 
-    key(view, 'Escape'); // first tap only arms — nothing visible yet
-    expect(view.dom.classList.contains('block-select-mode')).toBe(false);
-
-    key(view, 'Escape'); // second tap enters
+    key(view, 'Escape');
     expect(view.dom.classList.contains('block-select-mode')).toBe(true);
     expect(selectedClasses(view)).toBe(1);
 
@@ -96,13 +94,11 @@ describe('block-select plugin (integration)', () => {
     popup.setAttribute('data-show', 'true');
     document.body.appendChild(popup);
 
-    key(view, 'Escape'); // should dismiss the popup, not grab a block or arm
-    key(view, 'Escape'); // still popup-open: also ignored
+    key(view, 'Escape'); // should dismiss the popup, not grab a block
     expect(view.dom.classList.contains('block-select-mode')).toBe(false);
 
     popup.remove();
-    key(view, 'Escape'); // popup gone — first real tap arms
-    key(view, 'Escape'); // second tap enters
+    key(view, 'Escape'); // popup gone — Escape selects the block
     expect(view.dom.classList.contains('block-select-mode')).toBe(true);
 
     view.destroy();
@@ -113,7 +109,6 @@ describe('block-select plugin (integration)', () => {
     const pos = 7; // inside the second paragraph ("two")
     view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, pos)));
 
-    key(view, 'Escape');
     key(view, 'Escape'); // enter block mode from block 1
     expect(view.dom.classList.contains('block-select-mode')).toBe(true);
 
@@ -163,5 +158,105 @@ describe('block-select plugin (integration)', () => {
     expect(view.state.doc.childCount).toBe(2);
 
     view.destroy();
+  });
+
+  it('Ctrl+A ladders: block text, then the block, then every block', () => {
+    const view = makeView(['one', 'two', 'three']);
+    // Caret starts collapsed at the top of "one".
+    key(view, 'a', { ctrlKey: true });
+    expect(view.dom.classList.contains('block-select-mode')).toBe(false);
+    expect(view.state.selection.from).toBe(1);
+    expect(view.state.selection.to).toBe(4); // "one" fully selected
+
+    key(view, 'a', { ctrlKey: true });
+    expect(view.dom.classList.contains('block-select-mode')).toBe(true);
+    expect(selectedClasses(view)).toBe(1);
+
+    key(view, 'a', { ctrlKey: true });
+    expect(selectedClasses(view)).toBe(3);
+
+    view.destroy();
+  });
+
+  it('Ctrl+Shift+ArrowDown while editing moves the current block down', () => {
+    const view = makeView(['one', 'two', 'three']);
+    // Caret in the first paragraph.
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 2)));
+
+    key(view, 'ArrowDown', { ctrlKey: true, shiftKey: true });
+    expect(view.state.doc.child(0).textContent).toBe('two');
+    expect(view.state.doc.child(1).textContent).toBe('one');
+    // The caret rode along with its block.
+    expect(view.state.doc.resolve(view.state.selection.from).parent.textContent).toBe('one');
+
+    view.destroy();
+  });
+
+  it('Ctrl+Shift+Arrow in block mode moves the selected block', () => {
+    const view = makeView(['one', 'two', 'three']);
+    selectBlockAt(view, 1); // block 0 ("one") selected
+
+    key(view, 'ArrowDown', { ctrlKey: true, shiftKey: true });
+    expect(view.dom.classList.contains('block-select-mode')).toBe(true);
+    expect(view.state.doc.child(0).textContent).toBe('two');
+    expect(view.state.doc.child(1).textContent).toBe('one');
+    expect(selectedClasses(view)).toBe(1);
+
+    view.destroy();
+  });
+
+  it('Ctrl+D in block mode duplicates the selection and selects the copy', () => {
+    const view = makeView(['one', 'two']);
+    selectBlockAt(view, 1); // block 0 ("one") selected
+
+    key(view, 'd', { ctrlKey: true });
+    expect(view.state.doc.childCount).toBe(3);
+    expect(view.state.doc.child(0).textContent).toBe('one');
+    expect(view.state.doc.child(1).textContent).toBe('one');
+    expect(view.dom.classList.contains('block-select-mode')).toBe(true);
+    expect(selectedClasses(view)).toBe(1);
+
+    view.destroy();
+  });
+});
+
+// ── moveBlocksTr (pure transaction builder) ───────────────────────────────
+
+describe('moveBlocksTr', () => {
+  function makeState(paragraphs: string[]) {
+    const doc = schema.node(
+      'doc',
+      null,
+      paragraphs.map((t) => schema.node('paragraph', null, t ? [schema.text(t)] : [])),
+    );
+    return EditorState.create({ doc });
+  }
+
+  function texts(tr: Transaction) {
+    const out: string[] = [];
+    tr.doc.forEach((n) => out.push(n.textContent));
+    return out;
+  }
+
+  it('moves a single block down and up', () => {
+    const state = makeState(['a', 'b', 'c']);
+    const down = moveBlocksTr(state, 0, 0, 1);
+    expect(down).not.toBeNull();
+    expect(texts(down!.tr)).toEqual(['b', 'a', 'c']);
+
+    const up = moveBlocksTr(state, 2, 2, -1);
+    expect(texts(up!.tr)).toEqual(['a', 'c', 'b']);
+  });
+
+  it('moves a multi-block span as one unit', () => {
+    const state = makeState(['a', 'b', 'c', 'd']);
+    const moved = moveBlocksTr(state, 1, 2, 1);
+    expect(texts(moved!.tr)).toEqual(['a', 'd', 'b', 'c']);
+  });
+
+  it('returns null at the document edges', () => {
+    const state = makeState(['a', 'b']);
+    expect(moveBlocksTr(state, 0, 0, -1)).toBeNull();
+    expect(moveBlocksTr(state, 1, 1, 1)).toBeNull();
   });
 });

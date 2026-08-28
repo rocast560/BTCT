@@ -1,16 +1,23 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Notion-style block selection.
 //
-// Press Escape TWICE while editing to leave text mode and start selecting whole
-// blocks (paragraphs, headings, code blocks, lists, quotes, …). Then:
+// Press Escape ONCE while editing to leave text mode and select the block the
+// caret is in (paragraphs, headings, code blocks, lists, quotes, …). Then:
 //
 //   ↑ / ↓            move the single-block selection
 //   Shift+↑ / ↓      extend the selection across multiple blocks
+//   Ctrl/⌘+Shift+↑/↓ move the selected block(s) up / down
+//   Ctrl/⌘+D         duplicate the selected block(s), selecting the copy
 //   Backspace/Del    delete the selected block(s); caret lands where they were
 //   Enter            drop the caret INTO the selected block and edit it
 //   Esc              leave block mode and restore the caret to where it started
 //   click            leave block-selection mode
 //   Ctrl/⌘+A         select every block
+//
+// While still editing text, Ctrl/⌘+A ladders the Notion way: the first press
+// selects the current block's text, the second selects the block itself
+// (entering this mode), and the third selects every block. Ctrl/⌘+Shift+↑/↓
+// also work in text mode, moving the top-level block the caret sits in.
 //
 // Selection lives in this plugin's own state (not ProseMirror's) and is drawn
 // with node decorations, so it can span several top-level blocks at once. The
@@ -18,15 +25,10 @@
 // Escape puts the cursor back exactly where it was — while Enter instead drops
 // into the block you highlighted, and Delete leaves the caret at the deletion.
 //
-// Entering takes a DOUBLE Escape. The earlier double-tap implementation earned a
-// "press Esc three times" reputation because the first Esc had a visible side
-// effect (it blurred / moved things), so people paused to look — blowing the
-// timing window, which silently re-armed as a fresh "first" tap. This version
-// fixes that by *consuming* the first Esc so it does nothing observable and can
-// never leak to another handler: the only feedback is that block mode appears on
-// the second press. The window (DOUBLE_ESC_MS) is generous, and an open Crepe
-// popup (slash menu, link / latex / table tooltip) always wins the first Esc —
-// there the key should dismiss the popup, so we bail and reset the tap timer.
+// A single Escape enters the mode (matching Notion's "Esc selects the current
+// block" and the single-Esc behavior inside code blocks). An open Crepe popup
+// (slash menu, link / latex / table tooltip) always wins the Escape — there
+// the key should dismiss the popup, so we bail without entering.
 //
 // Keyboard handling runs in a *capture-phase* listener on `document`
 // (`view()` below) rather than ProseMirror's `handleKeyDown`. Capture phase
@@ -47,7 +49,14 @@
 // `selectBlockAt` (see editor-keybinds.ts).
 // ─────────────────────────────────────────────────────────────────────────
 
-import { Plugin, PluginKey, Selection, TextSelection } from '@milkdown/prose/state';
+import {
+  Plugin,
+  PluginKey,
+  Selection,
+  TextSelection,
+  type EditorState,
+  type Transaction,
+} from '@milkdown/prose/state';
 import type { Node as ProseNode } from '@milkdown/prose/model';
 import { Decoration, DecorationSet, type EditorView } from '@milkdown/prose/view';
 import { $prose } from '@milkdown/utils';
@@ -65,9 +74,6 @@ interface BlockSelState {
   saved: { from: number; to: number } | null;
 }
 
-/** How long after the first Escape a second one still counts as a double-tap. */
-const DOUBLE_ESC_MS = 600;
-
 const KEY = new PluginKey<BlockSelState>('milkdown-block-select');
 const INACTIVE: BlockSelState = { active: false, anchor: 0, head: 0, saved: null };
 
@@ -78,7 +84,7 @@ const INACTIVE: BlockSelState = { active: false, anchor: 0, head: 0, saved: null
 let primaryView: EditorView | null = null;
 
 /** Test-only: reset cross-keydown state so it can't leak across cases. */
-export function __resetDoubleEscForTests(): void {
+export function __resetBlockSelectForTests(): void {
   primaryView = null;
 }
 
@@ -134,6 +140,34 @@ export function stepBlockSelection(
   if (shift) return { anchor: s.anchor, head: Math.max(s.head - 1, 0) };
   const n = Math.max(lo - 1, 0);
   return { anchor: n, head: n };
+}
+
+/**
+ * Build the transaction that moves the top-level blocks `lo..hi` one step up
+ * (`dir` = -1) or down (`dir` = 1), swapping places with the neighbouring
+ * block. Returns the transaction plus `delta`, the signed distance every
+ * position inside the moved span travels (so callers can re-derive a caret
+ * or the new block indices). Null when the move would fall off either end.
+ * Exported for unit testing.
+ */
+export function moveBlocksTr(
+  state: EditorState,
+  lo: number,
+  hi: number,
+  dir: -1 | 1,
+): { tr: Transaction; delta: number } | null {
+  const blocks = topBlocks(state.doc);
+  if (lo < 0 || hi >= blocks.length || lo > hi) return null;
+  if (dir === -1 && lo === 0) return null;
+  if (dir === 1 && hi === blocks.length - 1) return null;
+  const from = blocks[lo]!.from;
+  const to = blocks[hi]!.to;
+  const slice = state.doc.slice(from, to);
+  const insertPos =
+    dir === -1 ? blocks[lo - 1]!.from : blocks[hi + 1]!.to - (to - from);
+  const tr = state.tr.delete(from, to);
+  tr.insert(insertPos, slice.content);
+  return { tr, delta: insertPos - from };
 }
 
 /**
@@ -230,20 +264,26 @@ export function createBlockSelectProsePlugin(): Plugin<BlockSelState> {
       claimPrimary();
       view.dom.addEventListener('focusin', claimPrimary);
 
-      // Timestamp of the first Escape of a potential double-tap (0 = not armed).
-      let lastEscAt = 0;
-
       const onKeyDown = (event: KeyboardEvent) => {
         // Keystrokes inside a code block belong to CodeMirror (and the
-        // code-block double-Esc path in editor-keybinds.ts).
+        // code-block Esc path in editor-keybinds.ts).
         const target = event.target as HTMLElement | null;
         if (target?.closest?.('.cm-editor, .milkdown-code-block')) return;
 
         const s = KEY.getState(view.state) ?? INACTIVE;
 
+        const modKey = event.metaKey || event.ctrlKey;
+        const isSelectAll =
+          modKey && !event.shiftKey && !event.altKey &&
+          (event.key === 'a' || event.key === 'A');
+        const isMoveCombo =
+          modKey && event.shiftKey && !event.altKey &&
+          (event.key === 'ArrowUp' || event.key === 'ArrowDown');
+
         // Fast-path bail for the common case (typing anywhere): when idle the
-        // only key that matters is Escape.
-        if (!s.active && event.key !== 'Escape') return;
+        // only keys that matter are Escape, the Ctrl/⌘+A ladder, and the
+        // Ctrl/⌘+Shift+↑/↓ block moves.
+        if (!s.active && event.key !== 'Escape' && !isSelectAll && !isMoveCombo) return;
 
         // Does the event originate from inside THIS editor's prose? If so it's
         // the focused case and always ours. Otherwise this is a focus-
@@ -272,28 +312,70 @@ export function createBlockSelectProsePlugin(): Plugin<BlockSelState> {
           event.stopPropagation();
         };
 
-        // ── Not in block mode: a DOUBLE Escape enters block selection. ──
+        // ── Not in block mode. ──
         if (!s.active) {
-          if (event.key !== 'Escape') return;
-          // A Crepe popup owns Escape — let it close and don't let that press
-          // count toward the double-tap.
-          if (crepePopupOpen()) {
-            lastEscAt = 0;
+          // Ctrl/⌘+Shift+↑/↓ while editing: move the current top-level block
+          // (Notion's "move selected block", available without selecting).
+          if (isMoveCombo) {
+            if (!inThisEditor) return;
+            consume();
+            const sel = view.state.selection;
+            const idx = blockIndexAt(blocks, sel.from);
+            const dir = event.key === 'ArrowDown' ? 1 : -1;
+            const moved = moveBlocksTr(view.state, idx, idx, dir);
+            if (!moved) return;
+            // Keep the caret at the same spot inside the moved block.
+            const size = moved.tr.doc.content.size;
+            const a = Math.max(0, Math.min(sel.anchor + moved.delta, size));
+            const h = Math.max(0, Math.min(sel.head + moved.delta, size));
+            moved.tr.setSelection(
+              TextSelection.between(moved.tr.doc.resolve(a), moved.tr.doc.resolve(h)),
+            );
+            view.dispatch(moved.tr.scrollIntoView());
             return;
           }
-          // Consume every idle Escape so the first tap has no observable side
-          // effect (the old "press it three times" bug) and can't leak to
-          // another handler.
+
+          // Ctrl/⌘+A ladder (Notion): first select the current block's text,
+          // then the block itself; a third press (handled in-mode below)
+          // selects every block. A selection already spanning several blocks
+          // jumps straight to selecting those blocks.
+          if (isSelectAll) {
+            if (!inThisEditor) return;
+            const sel = view.state.selection;
+            const idxA = blockIndexAt(blocks, sel.from);
+            const idxB = blockIndexAt(blocks, Math.max(sel.from, sel.to - 1));
+            if (idxA === idxB && sel.$head.parent.isTextblock) {
+              const start = sel.$head.start();
+              const end = sel.$head.end();
+              const covers = sel.from <= start && sel.to >= end;
+              if (!covers && end > start) {
+                consume();
+                view.dispatch(
+                  view.state.tr.setSelection(
+                    TextSelection.create(view.state.doc, start, end),
+                  ),
+                );
+                return;
+              }
+            }
+            consume();
+            view.dispatch(
+              view.state.tr.setMeta(KEY, {
+                active: true,
+                anchor: idxA,
+                head: idxB,
+                saved: { from: sel.from, to: sel.to },
+              }),
+            );
+            view.focus();
+            return;
+          }
+
+          // A single Escape enters block selection (Notion: "Esc selects the
+          // current block"), unless a Crepe popup owns the key — there it
+          // should dismiss the popup instead.
+          if (crepePopupOpen()) return;
           consume();
-          const nowMs = Date.now();
-          if (nowMs - lastEscAt > DOUBLE_ESC_MS) {
-            // First tap: arm and wait for the second.
-            lastEscAt = nowMs;
-            return;
-          }
-          // Second tap within the window → enter block mode. Remember the caret
-          // so a later Escape can put it back exactly here.
-          lastEscAt = 0;
           const original = view.state.selection;
           const idx = blockIndexAt(blocks, original.from);
           view.dispatch(
@@ -352,6 +434,21 @@ export function createBlockSelectProsePlugin(): Plugin<BlockSelState> {
           case 'ArrowDown':
           case 'ArrowUp': {
             consume();
+            // Ctrl/⌘+Shift+↑/↓ moves the selected block(s); the selection
+            // follows the blocks to their new position.
+            if (isMoveCombo) {
+              const dir = event.key === 'ArrowDown' ? 1 : -1;
+              const moved = moveBlocksTr(view.state, lo, hi, dir);
+              if (moved) {
+                moved.tr.setMeta(KEY, {
+                  active: true,
+                  anchor: s.anchor + dir,
+                  head: s.head + dir,
+                });
+                view.dispatch(moved.tr.scrollIntoView());
+              }
+              return;
+            }
             const next = stepBlockSelection(s, event.key, event.shiftKey, blocks.length);
             select(next.anchor, next.head);
             return;
@@ -391,6 +488,28 @@ export function createBlockSelectProsePlugin(): Plugin<BlockSelState> {
               return;
             }
             consume();
+            return;
+
+          case 'd':
+          case 'D':
+            // Ctrl/⌘+D duplicates the selected block(s) below themselves and
+            // moves the selection onto the copy (Notion's duplicate).
+            if (modKey && !event.shiftKey && !event.altKey) {
+              consume();
+              const from = blocks[lo]!.from;
+              const to = blocks[hi]!.to;
+              const copy = view.state.doc.slice(from, to);
+              const tr = view.state.tr.insert(to, copy.content);
+              tr.setMeta(KEY, {
+                active: true,
+                anchor: hi + 1,
+                head: hi + 1 + (hi - lo),
+              });
+              view.dispatch(tr.scrollIntoView());
+              return;
+            }
+            // Plain typing is swallowed while selecting, like other letters.
+            if (!event.metaKey && !event.ctrlKey && !event.altKey) consume();
             return;
 
           default:

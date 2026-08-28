@@ -18,7 +18,7 @@ import { LoginScreen } from '@/auth/LoginScreen';
 import { getSharedDoc } from '@/realtime/shared-doc';
 import { bindSharedSubscriptions } from '@/stores/shared-bindings';
 import { getActiveMilkdownEditor, hasMilkdownSelection } from '@/lib/active-editor';
-import { callCommand } from '@milkdown/utils';
+import { openLinkEditor } from '@/lib/link-editor';
 import { startPresence } from '@/realtime/presence';
 import { useFollowEngine } from '@/realtime/use-follow';
 import { PresenceAvatars } from '@/realtime/PresenceAvatars';
@@ -163,10 +163,9 @@ function AuthedApp() {
           const editor = getActiveMilkdownEditor();
           if (editor) {
             e.preventDefault();
-            const href = window.prompt('Link URL');
-            if (href) {
-              editor.action(callCommand('ToggleLink', { href, title: '' }));
-            }
+            // Inline "Paste link..." input at the selection (Crepe's link
+            // tooltip), matching Notion's Ctrl+K.
+            openLinkEditor(editor);
             return;
           }
         }

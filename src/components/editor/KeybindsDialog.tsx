@@ -120,6 +120,18 @@ export function KeybindsDialog({ onClose }: { onClose: () => void }) {
             })}
           </div>
 
+          <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2">
+            <div className="mb-1 text-[9px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+              Built-in (not rebindable)
+            </div>
+            <ul className="space-y-0.5 text-[11px] text-[hsl(var(--muted-foreground))]">
+              <li><span className="font-mono">Esc</span> selects the current block; arrows move, Shift extends</li>
+              <li><span className="font-mono">Ctrl+A</span> selects block text, then the block, then all blocks</li>
+              <li><span className="font-mono">Ctrl+Shift+↑/↓</span> moves a block; <span className="font-mono">Ctrl+D</span> duplicates (block selected)</li>
+              <li><span className="font-mono">Ctrl+Shift+0..8</span> turns into text / H1-H3 / to-do / lists / code</li>
+            </ul>
+          </div>
+
           {error && (
             <div className="rounded-lg border border-[hsl(var(--status-red))]/40 bg-[hsl(var(--status-red))]/10 px-2.5 py-1.5 text-[11px] text-[hsl(var(--status-red))]">
               {error}

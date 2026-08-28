@@ -77,32 +77,50 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
 - **Block syntax**: `# ` … `###### ` headings, `- ` / `1. ` lists, `- [ ]`
   task lists (click to toggle), `> ` quotes, `|` tables, `---` rules, `![](url)`
   images, `[text](url)` links.
-- **Slash menu**: type `/` to open Crepe's block-insert menu (Heading, lists,
-  quote, **Code**, table, image, …). Inserting **Code** defaults the new block
-  to the `shell` language.
-- **Inline formatting**: `**bold**`, `*italic*`, `~~strike~~`, and inline code.
-  Select text and press **`` ` ``** to wrap the selection as inline code (or type
-  `` `x` `` to convert as you type).
-- **Floating format panel**: appears whenever you select text. Buttons for
-  bold / italic / strikethrough / inline-code / link, block conversions
-  (H1–H3, bullet/numbered list, quote), and a **7-color highlighter** (yellow,
-  green, blue, pink, orange, purple, red) + a clear button. A gear/keyboard icon
-  opens the **Keybinds** dialog. *Highlight marks are session-only*: they're an
-  annotation aid and are intentionally stripped when the page is saved (CommonMark
-  has no highlight syntax), so the saved markdown stays portable.
+- **Slash menu**: type `/` to open the block-insert menu (Heading, lists,
+  quote, **Code**, table, image, …); filtering uses Notion's vocabulary, so
+  `/bullet`, `/num`, and `/todo` match the bulleted / numbered / to-do list
+  entries. Inserting **Code** defaults the new block to the `shell` language.
+- **Typing conversions**: the usual markdown (`**bold**`, `*italic*`,
+  `~~strike~~`, `` `code` ``, `#`/`##`/`###` headings, `-`/`1.` lists), plus
+  two Notion shortcuts: **`[]`** turns into a to-do checkbox the moment you
+  type the `]` (no space, `[ ]`/`[x]` + space work too), and **`"` + space**
+  starts a quote. Select text and press **`` ` ``** to wrap the selection as
+  inline code.
+- **Floating format toolbar**: a Notion-style horizontal bar that appears above
+  the selection. A **Turn into** dropdown (left) shows the selection's current
+  block type and converts it to text / H1–H3 / to-do / bulleted / numbered /
+  quote / code, lifting it out of any list or quote first. Then the inline marks
+  (bold / italic / strikethrough / inline code) with **live active states**, an
+  inline **link** editor, a **7-color highlighter** dropdown (yellow, green,
+  blue, pink, orange, purple, red + clear), and a keyboard icon that opens the
+  **Keybinds** dialog. *Highlight marks are session-only*: they're an annotation
+  aid and are intentionally stripped when the page is saved (CommonMark has no
+  highlight syntax), so the saved markdown stays portable.
+- **Turn-into shortcuts**: `Ctrl/⌘+Shift+0..8` convert the current block the
+  way Notion's digit family does: `0` text, `1`/`2`/`3` headings, `4` to-do,
+  `5` bulleted list, `6` numbered list, `8` code.
+- **Links**: `Ctrl/⌘+K` (or the toolbar link button) opens Crepe's inline
+  "Paste link…" input on the selection instead of a browser prompt; run it on
+  an already-linked selection to unlink it.
 - **Code blocks**: full syntax highlighting via CodeMirror using the **GitHub
   Dark** palette. Click the language button to pick a language; or press
   **Ctrl+Shift+L** inside a block to jump to the picker and **arrow-key** through
   it (Enter selects, Esc closes). New code blocks default to `shell`, whether
   they come from `/code` or from typing ``` and pressing Enter; type a language
   after the fence (```py) to keep it.
-- **Notion-style block selection**: tap **Esc twice** to leave text editing and
-  select whole blocks. Then **↑/↓** to move, **Shift+↑/↓** to multi-select,
-  **Backspace/Delete** to delete the selected block(s), **Ctrl/⌘+A** to select
-  all, **Enter** to edit the focused block, **Esc/click** to exit.
+- **Notion-style block selection**: tap **Esc** to leave text editing and
+  select the block the caret is in. Then **↑/↓** to move the selection,
+  **Shift+↑/↓** to multi-select, **Ctrl/⌘+Shift+↑/↓** to move the selected
+  block(s) up/down, **Ctrl/⌘+D** to duplicate them, **Backspace/Delete** to
+  delete them, **Ctrl/⌘+A** to select all, **Enter** to edit the focused block,
+  **Esc/click** to exit. While still editing text, **Ctrl/⌘+A** ladders the
+  Notion way (select the block's text, then the block, then every block), and
+  **Ctrl/⌘+Shift+↑/↓** moves the current block without selecting it first.
 - **Per-account personalization**: each account can rebind the editor shortcuts
-  (Keybinds dialog) and choose a **code accent** color that retints code-block
-  keywords. Both follow your account (stored server-side) and apply live.
+  (Keybinds dialog, which also lists the built-in block shortcuts) and choose a
+  **code accent** color that retints code-block keywords. Both follow your
+  account (stored server-side) and apply live.
 - **Backlinks**: for a graph-linked page, the right sidebar lists the graph
   nodes and edges that reference it. (Note: there's no `[[wikilink]]` syntax;
   use standard markdown links.)
@@ -547,14 +565,18 @@ panel).
 | Global | Browser back/forward | Navigate tab history |
 | Editor | `Mod+B` ⚙ / `Mod+I` ⚙ / `Mod+Shift+X` ⚙ | Bold / Italic / Strikethrough |
 | Editor | `Mod+E` ⚙ | Inline code |
-| Editor | `Mod+Shift+K` ⚙ | Insert link |
-| Editor | `Mod+Shift+H` ⚙ | Highlight (yellow) |
+| Editor | `Mod+K` / `Mod+Shift+K` ⚙ | Inline link editor (unlink if already a link) |
+| Editor | `Mod+Shift+H` ⚙ | Highlight (re-applies the last color used) |
+| Editor | `Mod+Shift+0..8` | Turn block into text / H1–H3 / to-do / lists / code |
 | Editor | `` ` `` around a selection | Wrap selection as inline code |
-| Editor | `/` | Slash block-insert menu |
+| Editor | `[]` · `"` + space | To-do checkbox · quote block |
+| Editor | `/` | Slash block-insert menu (`/bullet`, `/num`, `/todo`, …) |
 | Editor | ``````````` + `Enter` | Code block (Shell unless a language follows the fence) |
-| Editor | **double `Esc`** | Enter block-selection mode |
-| Block mode | `↑`/`↓`, `Shift+↑`/`↓`, `Mod+A` | Move / extend / select-all blocks |
-| Block mode | `Backspace`/`Delete`, `Enter`, `Esc`/click | Delete / edit / exit |
+| Editor | `Esc` | Select the current block (enter block mode) |
+| Editor / Block mode | `Mod+A` | Ladder: block text → the block → all blocks |
+| Editor / Block mode | `Mod+Shift+↑`/`↓` | Move the current / selected block up / down |
+| Block mode | `↑`/`↓`, `Shift+↑`/`↓` | Move / extend the block selection |
+| Block mode | `Mod+D`, `Backspace`/`Delete`, `Enter`, `Esc`/click | Duplicate / delete / edit / exit |
 | Code block | `Mod+Shift+L` ⚙ | Focus language picker |
 | Language picker | `↑`/`↓`, `Enter`, `Esc` | Navigate / select / close |
 | Typst preview | click | Select the matching editable text in the source |
@@ -1084,7 +1106,10 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
 - **New edge type** → add to `EDGE_TYPES`; it auto-appears in the type selector.
 - **New editor shortcut/action** → add to `KeybindAction` + `DEFAULT_KEYBINDS` +
   `KEYBIND_ACTIONS` in `editor-prefs.ts`; implement in `runAction()` in
-  `editor-keybinds.ts`; add a button to the floating panel.
+  `editor-keybinds.ts`; add a button to the floating toolbar in `PageEditor.tsx`.
+- **New "turn into" target / block shortcut** → add to `TurnIntoTarget`,
+  `TURN_INTO_ITEMS`, and `digitToTarget` in `lib/turn-into.ts`; the toolbar
+  dropdown and the `Ctrl/⌘+Shift+digit` handler both read from there.
 - **New HTTP endpoint** → add a branch in `server/index.mjs`, gate with
   `authFromHeader`/`requireAdmin`, parse with `readJsonBody`, reply with
   `sendJson`.

@@ -27,6 +27,39 @@ export const HIGHLIGHT_COLORS = [
 
 export type HighlightColor = (typeof HIGHLIGHT_COLORS)[number];
 
+// ── Last-used colour ─────────────────────────────────────────────────────
+//
+// Notion's highlight shortcut re-applies "the last color you used", so the
+// swatch picker records each choice here and the keybind reads it back.
+// Persisted per browser; falls back to yellow on a fresh profile.
+
+const LAST_HIGHLIGHT_KEY = 'btct-last-highlight';
+
+let lastHighlightColor: HighlightColor = (() => {
+  try {
+    const stored = localStorage.getItem(LAST_HIGHLIGHT_KEY);
+    if (stored && (HIGHLIGHT_COLORS as readonly string[]).includes(stored)) {
+      return stored as HighlightColor;
+    }
+  } catch {
+    /* storage unavailable (SSR / tests) */
+  }
+  return 'yellow';
+})();
+
+export function getLastHighlightColor(): HighlightColor {
+  return lastHighlightColor;
+}
+
+export function setLastHighlightColor(color: HighlightColor): void {
+  lastHighlightColor = color;
+  try {
+    localStorage.setItem(LAST_HIGHLIGHT_KEY, color);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export const highlightMark = $mark('highlight', () => ({
   attrs: {
     color: { default: 'yellow' as HighlightColor, validate: 'string' },

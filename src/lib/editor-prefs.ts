@@ -118,7 +118,7 @@ export const KEYBIND_ACTIONS: ReadonlyArray<{ id: KeybindAction; label: string }
   { id: 'strikethrough', label: 'Strikethrough' },
   { id: 'inlineCode', label: 'Inline code' },
   { id: 'link', label: 'Link' },
-  { id: 'highlight', label: 'Highlight (yellow)' },
+  { id: 'highlight', label: 'Highlight (last color)' },
   { id: 'focusLanguage', label: 'Focus code language' },
   { id: 'openFollowPanel', label: 'Active users / follow' },
 ];

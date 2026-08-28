@@ -10,12 +10,12 @@ import '@milkdown/crepe/theme/common/style.css';
 import '@milkdown/crepe/theme/frame-dark.css';
 import {
   Bold, Italic, Strikethrough, Code, Link as LinkIcon,
-  Heading1, Heading2, Heading3,
-  List, ListOrdered, Quote, Keyboard,
+  ChevronDown, Highlighter, Keyboard,
 } from 'lucide-react';
 import {
   HIGHLIGHT_COLORS,
   highlightPlugin,
+  setLastHighlightColor,
   toggleHighlightCommand,
   type HighlightColor,
 } from '@/lib/highlight-plugin';
@@ -23,10 +23,16 @@ import { codeLanguages, codeSyntaxThemeExtension, codeLanguageAttrPlugin } from 
 import {
   codeBlockShellDefault,
   codeFenceInputRule,
+  getEditorKeybinds,
   inlineCodeNonInclusive,
   userKeybindsPlugin,
   focusLanguageKeymap,
 } from '@/lib/editor-keybinds';
+import { formatShortcut } from '@/lib/editor-prefs';
+import { openLinkEditor } from '@/lib/link-editor';
+import { notionTypingRules } from '@/lib/notion-typing';
+import { TURN_INTO_ITEMS, turnIntoBlock, type TurnIntoTarget } from '@/lib/turn-into';
+import { editorViewCtx } from '@milkdown/core';
 import { createCodeBlockInputRule } from '@milkdown/preset-commonmark';
 import { blockSelectPlugin } from '@/lib/block-select';
 import {
@@ -404,6 +410,12 @@ function MarkdownEditor({
         [Crepe.Feature.Toolbar]: false,
       },
       featureConfigs: {
+        // Notion-style ghost text on the current empty line instead of
+        // Crepe's default "Please enter...".
+        [Crepe.Feature.Placeholder]: {
+          text: "Write, or type '/' for commands…",
+          mode: 'block',
+        },
         // Give code blocks the full language list (so the picker has options
         // and blocks get highlighted) plus our CSS-variable-driven syntax
         // theme and the "focus the language picker" keybind.
@@ -416,6 +428,16 @@ function MarkdownEditor({
         // seeded column names render as a shaded header, a blank row renders
         // flat (see lib/table-plugin.ts).
         [Crepe.Feature.BlockEdit]: {
+          // Notion's slash-menu vocabulary: filtering matches labels, so
+          // "Bulleted list" answers /bullet and "Numbered list" answers /num
+          // the way Notion users type them. H4-H6 leave the menu (Notion
+          // stops at H3); typing #### etc. still works.
+          textGroup: { h4: null, h5: null, h6: null },
+          listGroup: {
+            bulletList: { label: 'Bulleted list' },
+            orderedList: { label: 'Numbered list' },
+            taskList: { label: 'To-do list' },
+          },
           advancedGroup: {
             // Replace Crepe's built-in entry so the shaded variant is the one
             // that seeds labels; the plain variant is added alongside it.
@@ -447,12 +469,15 @@ function MarkdownEditor({
     crepe.editor
       .use(listener)
       .use(highlightPlugin)
-      // `/code` and a bare ``` both default to shell; inline-code mark made
+      // `/code` and a bare ``` both default to shell; Notion typing
+      // conversions ([] to-dos, " quotes); inline-code mark made
       // non-inclusive so the caret stays visible and code styling stops at
-      // the closing backtick; per-account keybinds + backtick-wrap;
-      // Notion-style block selection (double-Esc); per-language data attr.
+      // the closing backtick; per-account keybinds + backtick-wrap +
+      // Ctrl+Shift+digit turn-into; Notion-style block selection (Esc);
+      // per-language data attr.
       .use(codeBlockShellDefault)
       .use(codeFenceInputRule)
+      .use(notionTypingRules)
       .use(inlineCodeNonInclusive)
       .use(userKeybindsPlugin)
       .use(blockSelectPlugin)
@@ -567,13 +592,73 @@ function MarkdownEditor({
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Floating format panel — portal-mounted popup that appears only while the
-// user has a non-empty text selection inside the editor. Positioned to the
-// right of the selection when there's room, otherwise to the left, flipped
-// above/below as needed so it never covers the selected text.
+// Floating format toolbar — a Notion-style horizontal bar that appears just
+// above the selection (below it when there's no headroom), centered on it.
+// Layout mirrors Notion's edit bar: a "Turn into" dropdown showing the
+// current block type, the inline marks with live active states, link, a
+// highlight-color dropdown, and the keybinds gear. It's a portal overlay,
+// so opening/closing it can never remount the editor (invariant #3).
 // ─────────────────────────────────────────────────────────────────────────
+
+interface ActiveFormats {
+  bold: boolean;
+  italic: boolean;
+  strike: boolean;
+  code: boolean;
+  link: boolean;
+  /** Label for the "Turn into" button (the selection's block type). */
+  block: string;
+}
+
+const EMPTY_ACTIVE: ActiveFormats = {
+  bold: false, italic: false, strike: false, code: false, link: false, block: 'Text',
+};
+
+function sameFormats(a: ActiveFormats, b: ActiveFormats): boolean {
+  return a.bold === b.bold && a.italic === b.italic && a.strike === b.strike
+    && a.code === b.code && a.link === b.link && a.block === b.block;
+}
+
+/** Read which marks cover the selection and what block type it sits in. */
+function readActiveFormats(editor: Editor): ActiveFormats {
+  const out = { ...EMPTY_ACTIVE };
+  try {
+    editor.action((ctx) => {
+      const { state } = ctx.get(editorViewCtx);
+      const { from, to, $from } = state.selection;
+      const has = (name: string) => {
+        const type = state.schema.marks[name];
+        return type ? state.doc.rangeHasMark(from, to, type) : false;
+      };
+      out.bold = has('strong');
+      out.italic = has('emphasis');
+      out.strike = has('strike_through');
+      out.code = has('inlineCode');
+      out.link = has('link');
+      for (let d = $from.depth; d > 0; d--) {
+        const node = $from.node(d);
+        if (node.type.name === 'heading') { out.block = `Heading ${node.attrs.level}`; return; }
+        if (node.type.name === 'code_block') { out.block = 'Code'; return; }
+        if (node.type.name === 'blockquote') { out.block = 'Quote'; return; }
+        if (node.type.name === 'list_item') {
+          if (node.attrs.checked != null) { out.block = 'To-do list'; return; }
+          out.block = $from.node(d - 1)?.type.name === 'ordered_list'
+            ? 'Numbered list'
+            : 'Bulleted list';
+          return;
+        }
+      }
+    });
+  } catch {
+    /* editor mid-teardown */
+  }
+  return out;
+}
+
 function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<Editor | null> }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [active, setActive] = useState<ActiveFormats>(EMPTY_ACTIVE);
+  const [openMenu, setOpenMenu] = useState<'turninto' | 'highlight' | null>(null);
   const [keybindsOpen, setKeybindsOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -582,15 +667,17 @@ function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
         setPos(null);
+        setOpenMenu(null);
         return;
       }
       const anchor = sel.anchorNode;
-      if (!anchor) { setPos(null); return; }
+      if (!anchor) { setPos(null); setOpenMenu(null); return; }
       const anchorEl = anchor.nodeType === Node.ELEMENT_NODE
         ? (anchor as Element)
         : anchor.parentElement;
       if (!anchorEl || !anchorEl.closest('.milkdown-host .ProseMirror')) {
         setPos(null);
+        setOpenMenu(null);
         return;
       }
       // Don't hide when interacting with the panel itself.
@@ -599,33 +686,29 @@ function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<
       const rect = sel.getRangeAt(0).getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) {
         setPos(null);
+        setOpenMenu(null);
         return;
       }
 
       const panel = panelRef.current;
-      const w = panel?.offsetWidth ?? 200;
-      const h = panel?.offsetHeight ?? 160;
-      const gap = 12;
+      const w = panel?.offsetWidth ?? 380;
+      const h = panel?.offsetHeight ?? 38;
+      const gap = 8;
       const vw = window.innerWidth;
       const vh = window.innerHeight;
 
-      // Prefer right of the selection, then left, then below, then above.
-      let left: number;
-      let top: number;
-      if (rect.right + gap + w <= vw - 8) {
-        left = rect.right + gap;
-        top = Math.min(vh - h - 8, Math.max(8, rect.top));
-      } else if (rect.left - gap - w >= 8) {
-        left = rect.left - gap - w;
-        top = Math.min(vh - h - 8, Math.max(8, rect.top));
-      } else if (rect.bottom + gap + h <= vh - 8) {
-        top = rect.bottom + gap;
-        left = Math.min(vw - w - 8, Math.max(8, rect.left + rect.width / 2 - w / 2));
-      } else {
-        top = Math.max(8, rect.top - gap - h);
-        left = Math.min(vw - w - 8, Math.max(8, rect.left + rect.width / 2 - w / 2));
-      }
+      // Notion placement: centered above the selection; flip below when the
+      // selection starts too close to the top of the viewport.
+      let top = rect.top - gap - h;
+      if (top < 8) top = Math.min(vh - h - 8, rect.bottom + gap);
+      const left = Math.min(vw - w - 8, Math.max(8, rect.left + rect.width / 2 - w / 2));
       setPos({ top, left });
+
+      const editor = editorRef.current;
+      if (editor) {
+        const next = readActiveFormats(editor);
+        setActive((prev) => (sameFormats(prev, next) ? prev : next));
+      }
     };
 
     // Coalesce bursts (a scroll fires this per event, capture-phase, for
@@ -645,7 +728,7 @@ function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<
       window.removeEventListener('scroll', onChange, true);
       window.removeEventListener('resize', onChange);
     };
-  }, []);
+  }, [editorRef]);
 
   const run = useCallback(<P,>(commandKey: string, payload?: P) => {
     const editor = editorRef.current;
@@ -653,80 +736,136 @@ function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<
     editor.action(callCommand(commandKey, payload));
   }, [editorRef]);
 
+  const applyTurnInto = useCallback((target: TurnIntoTarget) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.action((ctx) => turnIntoBlock(ctx, target));
+    setOpenMenu(null);
+  }, [editorRef]);
+
   const applyHighlight = useCallback((color: HighlightColor | null) => {
     const editor = editorRef.current;
     if (!editor) return;
+    if (color) setLastHighlightColor(color);
     editor.action(callCommand(toggleHighlightCommand.key, color));
+    setOpenMenu(null);
   }, [editorRef]);
+
+  const kb = getEditorKeybinds();
 
   return (
     <>
       {pos && createPortal(
     <div
       ref={panelRef}
-      className="fixed z-[60] flex flex-col gap-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2 shadow-xl animate-[hl-toolbar-in_0.08s_ease-out]"
-      style={{ top: pos.top, left: pos.left, width: 200 }}
+      className="fixed z-[60] flex items-center gap-0.5 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-1 shadow-xl animate-[hl-toolbar-in_0.08s_ease-out]"
+      style={{ top: pos.top, left: pos.left }}
       role="toolbar"
       aria-label="Text formatting"
       // Preserve the editor selection while clicking inside the panel.
       onMouseDown={(e) => e.preventDefault()}
     >
-      <div className="flex items-center justify-between">
-        <span className="text-[9px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Format</span>
+      {/* Turn into */}
+      <div className="relative">
         <button
           type="button"
-          title="Customize keybinds"
-          aria-label="Customize keybinds"
-          onClick={() => setKeybindsOpen(true)}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
+          title="Turn into"
+          aria-label={`Turn into (current: ${active.block})`}
+          onClick={() => setOpenMenu((m) => (m === 'turninto' ? null : 'turninto'))}
+          className="flex h-7 items-center gap-1 whitespace-nowrap rounded-md px-2 text-xs text-[hsl(var(--foreground))] hover:bg-[hsl(var(--accent))]"
         >
-          <Keyboard size={13} />
+          {active.block} <ChevronDown size={12} className="text-[hsl(var(--muted-foreground))]" />
         </button>
+        {openMenu === 'turninto' && (
+          <div className="absolute left-0 top-full z-10 mt-1 w-44 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-1 shadow-xl">
+            <div className="px-2 pb-1 pt-0.5 text-[9px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+              Turn into
+            </div>
+            {TURN_INTO_ITEMS.map(({ target, label }) => (
+              <button
+                key={target}
+                type="button"
+                onClick={() => applyTurnInto(target)}
+                className={`flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs hover:bg-[hsl(var(--accent))] ${
+                  label === active.block ? 'text-[hsl(var(--primary))]' : ''
+                }`}
+              >
+                {label}
+                {label === active.block && <span aria-hidden>✓</span>}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      <FormatGroup label="Text">
-        <FormatButton title="Bold (Ctrl+B)"   onClick={() => run('ToggleStrong')}><Bold size={14} /></FormatButton>
-        <FormatButton title="Italic (Ctrl+I)" onClick={() => run('ToggleEmphasis')}><Italic size={14} /></FormatButton>
-        <FormatButton title="Strikethrough"   onClick={() => run('ToggleStrikeThrough')}><Strikethrough size={14} /></FormatButton>
-        <FormatButton title="Inline code"     onClick={() => run('ToggleInlineCode')}><Code size={14} /></FormatButton>
-        <FormatButton title="Link"            onClick={() => {
-          const href = window.prompt('Link URL');
-          if (href) run('ToggleLink', { href, title: '' });
-        }}><LinkIcon size={14} /></FormatButton>
-      </FormatGroup>
+      <ToolbarDivider />
 
-      <FormatGroup label="Block">
-        <FormatButton title="Heading 1"       onClick={() => run('WrapInHeading', 1)}><Heading1 size={14} /></FormatButton>
-        <FormatButton title="Heading 2"       onClick={() => run('WrapInHeading', 2)}><Heading2 size={14} /></FormatButton>
-        <FormatButton title="Heading 3"       onClick={() => run('WrapInHeading', 3)}><Heading3 size={14} /></FormatButton>
-        <FormatButton title="Bulleted list"   onClick={() => run('WrapInBulletList')}><List size={14} /></FormatButton>
-        <FormatButton title="Numbered list"   onClick={() => run('WrapInOrderedList')}><ListOrdered size={14} /></FormatButton>
-        <FormatButton title="Quote"           onClick={() => run('WrapInBlockquote')}><Quote size={14} /></FormatButton>
-      </FormatGroup>
+      <ToolbarButton title={`Bold (${formatShortcut(kb.bold)})`} active={active.bold} onClick={() => run('ToggleStrong')}>
+        <Bold size={14} />
+      </ToolbarButton>
+      <ToolbarButton title={`Italic (${formatShortcut(kb.italic)})`} active={active.italic} onClick={() => run('ToggleEmphasis')}>
+        <Italic size={14} />
+      </ToolbarButton>
+      <ToolbarButton title={`Strikethrough (${formatShortcut(kb.strikethrough)})`} active={active.strike} onClick={() => run('ToggleStrikeThrough')}>
+        <Strikethrough size={14} />
+      </ToolbarButton>
+      <ToolbarButton title={`Inline code (${formatShortcut(kb.inlineCode)})`} active={active.code} onClick={() => run('ToggleInlineCode')}>
+        <Code size={14} />
+      </ToolbarButton>
 
-      <div>
-        <div className="mb-1 text-[9px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Highlight</div>
-        <div className="grid grid-cols-4 gap-1.5">
-          {HIGHLIGHT_COLORS.map((color) => (
-            <button
-              key={color}
-              type="button"
-              title={`Highlight ${color}`}
-              aria-label={`Highlight ${color}`}
-              onClick={() => applyHighlight(color)}
-              className="hl-swatch"
-              style={{ backgroundColor: swatchCssColor(color) }}
-            />
-          ))}
-          <button
-            type="button"
-            title="Remove highlight"
-            aria-label="Remove highlight"
-            onClick={() => applyHighlight(null)}
-            className="hl-swatch hl-swatch--clear"
-          />
-        </div>
+      <ToolbarDivider />
+
+      <ToolbarButton
+        title={`Link (${formatShortcut(kb.link)})`}
+        active={active.link}
+        onClick={() => { const editor = editorRef.current; if (editor) openLinkEditor(editor); }}
+      >
+        <LinkIcon size={14} />
+      </ToolbarButton>
+
+      {/* Highlight color */}
+      <div className="relative">
+        <ToolbarButton
+          title={`Highlight (${formatShortcut(kb.highlight)} re-applies the last color)`}
+          active={openMenu === 'highlight'}
+          onClick={() => setOpenMenu((m) => (m === 'highlight' ? null : 'highlight'))}
+        >
+          <Highlighter size={14} />
+        </ToolbarButton>
+        {openMenu === 'highlight' && (
+          <div className="absolute right-0 top-full z-10 mt-1 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2 shadow-xl">
+            <div className="pb-1 text-[9px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+              Highlight
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {HIGHLIGHT_COLORS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  title={`Highlight ${color}`}
+                  aria-label={`Highlight ${color}`}
+                  onClick={() => applyHighlight(color)}
+                  className="hl-swatch"
+                  style={{ backgroundColor: swatchCssColor(color) }}
+                />
+              ))}
+              <button
+                type="button"
+                title="Remove highlight"
+                aria-label="Remove highlight"
+                onClick={() => applyHighlight(null)}
+                className="hl-swatch hl-swatch--clear"
+              />
+            </div>
+          </div>
+        )}
       </div>
+
+      <ToolbarDivider />
+
+      <ToolbarButton title="Customize keybinds" onClick={() => setKeybindsOpen(true)}>
+        <Keyboard size={13} />
+      </ToolbarButton>
     </div>,
     document.body,
       )}
@@ -735,23 +874,28 @@ function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<
   );
 }
 
-function FormatGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="mb-1 text-[9px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">{label}</div>
-      <div className="grid grid-cols-5 gap-1">{children}</div>
-    </div>
-  );
+function ToolbarDivider() {
+  return <div aria-hidden className="mx-0.5 h-4 w-px bg-[hsl(var(--border))]" />;
 }
 
-function FormatButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+function ToolbarButton({ title, active, onClick, children }: {
+  title: string;
+  active?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
       title={title}
       aria-label={title}
+      aria-pressed={active ?? false}
       onClick={onClick}
-      className="flex h-7 w-7 items-center justify-center border border-[hsl(var(--border))] bg-[hsl(var(--background))] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--accent))]"
+      className={`flex h-7 w-7 items-center justify-center rounded-md hover:bg-[hsl(var(--accent))] ${
+        active
+          ? 'bg-[hsl(var(--accent))] text-[hsl(var(--primary))]'
+          : 'text-[hsl(var(--foreground))]'
+      }`}
     >
       {children}
     </button>

@@ -599,7 +599,7 @@ button:focus-visible {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
-   Notion-style block selection (double-Esc to enter). Hides the text caret
+   Notion-style block selection (Esc to enter). Hides the text caret
    and draws a highlighted ring around each selected block.
    ────────────────────────────────────────────────────────────────────── */
 .milkdown-host .ProseMirror.block-select-mode { caret-color: transparent; }

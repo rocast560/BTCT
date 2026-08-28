@@ -30,10 +30,12 @@ import { textblockTypeInputRule } from '@milkdown/prose/inputrules';
 import { Plugin } from '@milkdown/prose/state';
 import { $inputRule, $prose } from '@milkdown/utils';
 
-import { toggleHighlightCommand } from '@/lib/highlight-plugin';
+import { getLastHighlightColor, toggleHighlightCommand } from '@/lib/highlight-plugin';
 import { getActiveMilkdownEditor } from '@/lib/active-editor';
+import { openLinkEditor } from '@/lib/link-editor';
 import { selectBlockAt } from '@/lib/block-select';
 import { DEFAULT_CODE_LANGUAGE, fenceLanguage } from '@/lib/code-theme';
+import { digitToTarget, turnIntoBlock } from '@/lib/turn-into';
 import {
   DEFAULT_KEYBINDS,
   matchShortcut,
@@ -46,6 +48,11 @@ let currentKeybinds: Record<KeybindAction, string> = { ...DEFAULT_KEYBINDS };
 
 export function setEditorKeybinds(keybinds: Record<KeybindAction, string>): void {
   currentKeybinds = keybinds;
+}
+
+/** Current (live) keybinds, for UI that wants to print shortcut hints. */
+export function getEditorKeybinds(): Record<KeybindAction, string> {
+  return currentKeybinds;
 }
 
 // ── /code defaults to shell ──────────────────────────────────────────────
@@ -123,10 +130,12 @@ function runAction(action: KeybindAction, commands: CommandManager): void {
     case 'italic': commands.call('ToggleEmphasis'); break;
     case 'strikethrough': commands.call('ToggleStrikeThrough'); break;
     case 'inlineCode': commands.call('ToggleInlineCode'); break;
-    case 'highlight': commands.call(toggleHighlightCommand.key, 'yellow'); break;
+    // Notion re-applies "the last color you used"; so do we.
+    case 'highlight': commands.call(toggleHighlightCommand.key, getLastHighlightColor()); break;
     case 'link': {
-      const href = window.prompt('Link URL');
-      if (href) commands.call('ToggleLink', { href, title: '' });
+      // Inline link input (Crepe's tooltip), not a browser prompt.
+      const editor = getActiveMilkdownEditor();
+      if (editor) openLinkEditor(editor);
       break;
     }
     case 'focusLanguage': break; // handled in the CodeMirror layer
@@ -143,6 +152,24 @@ export const userKeybindsPlugin = $prose((ctx) =>
           event.preventDefault();
           ctx.get(commandsCtx).call('ToggleInlineCode');
           return true;
+        }
+
+        // Notion's create-a-block digit family: Ctrl/⌘+Shift+0..8 turns the
+        // current block into text / H1-H3 / to-do / bulleted / numbered /
+        // code. Matched on `event.code` because Shift+digit produces symbol
+        // characters in `event.key` on most layouts.
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.shiftKey &&
+          !event.altKey &&
+          event.code.startsWith('Digit')
+        ) {
+          const target = digitToTarget(Number(event.code.slice(5)));
+          if (target) {
+            event.preventDefault();
+            turnIntoBlock(ctx, target);
+            return true;
+          }
         }
 
         for (const action of PM_ACTIONS) {
