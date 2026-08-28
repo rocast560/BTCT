@@ -831,7 +831,14 @@ a theme exists: the sidebar toggle, the Profile section, `resolvePrefs`
   secondary label colour (0.86 / 0.55 / 0.30 white in dark mode). Sidebar
   rows lose their tinted frames (the coloured icon carries the category),
   are 28px tall with 2px gaps, and every icon in the rail sits at the same
-  x, page rows reserving a 16px disclosure gutter. Motion is 160ms ease-out
+  x, page rows reserving a 16px disclosure gutter. Nested page trees draw
+  FolderPalette-style tree lines: a 1px grey L with a 5px rounded corner from
+  the parent's chevron into each child row, a vertical run to the next
+  sibling only, no tail after the last child (per-child `::before` and
+  `::after`, the container itself has no border). The row whose entity is
+  the active tab carries `data-active` and a rounded grey fill, the
+  disclosure chevrons are one arrow that rotates (right closed, down open),
+  and the admin panel sits on a near-opaque sheet. Motion is 160ms ease-out
   for colour, 120ms for the press scale, a short fade or scale on menus and
   sheets, and nothing under Reduce Motion. The wallpaper is one flat colour
   with a single soft glow so the blur has something to reveal; the primary

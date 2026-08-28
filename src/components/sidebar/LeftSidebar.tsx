@@ -9,7 +9,6 @@ import { ThemePicker } from '@/components/sidebar/ThemePicker';
 import { applyUiTheme, nextUiTheme, UI_THEMES } from '@/themes/registry';
 import { resolvePrefs } from '@/lib/editor-prefs';
 import {
-  ChevronDown,
   ChevronRight,
   Network,
   Plus,
@@ -260,7 +259,7 @@ export function LeftSidebar() {
   const openChain = async (chain: AttackChain) => {
     // Left-click opens (or lazily creates) the chain's writeup page so the
     // user can document the attack steps. Highlighting on the graph is now
-    // an explicit right-click action — see `highlightChain`.
+    // an explicit right-click action: see `highlightChain`.
     let pageId = chain.linkedPageId;
     if (!pageId) {
       pageId = await ensureAttackChainPage(chain.id);
@@ -376,7 +375,7 @@ export function LeftSidebar() {
               className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--foreground))]"
             >
               Pages
-              {pagesExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              <ChevronRight size={10} className={cn('transition-transform duration-150', pagesExpanded && 'rotate-90')} />
             </button>
             <button onClick={(e) => { e.stopPropagation(); void handleCreatePage(); }} className="p-0.5 hover:bg-[hsl(var(--accent))] text-[hsl(var(--muted-foreground))]">
               <Plus size={12} />
@@ -447,7 +446,7 @@ export function LeftSidebar() {
               className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--foreground))]"
             >
               Attack Narratives
-              {narrativesExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              <ChevronRight size={10} className={cn('transition-transform duration-150', narrativesExpanded && 'rotate-90')} />
             </button>
             <button onClick={(e) => { e.stopPropagation(); void handleCreateGraph(); }} className="p-0.5 hover:bg-[hsl(var(--accent))] text-[hsl(var(--muted-foreground))]">
               <Plus size={12} />
@@ -473,7 +472,7 @@ export function LeftSidebar() {
               className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--foreground))]"
             >
               Attack Chains
-              {chainsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              <ChevronRight size={10} className={cn('transition-transform duration-150', chainsExpanded && 'rotate-90')} />
             </button>
           </div>
           {chainsExpanded && (
@@ -509,7 +508,7 @@ export function LeftSidebar() {
               className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--foreground))]"
             >
               Nmap Scans
-              {nmapExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              <ChevronRight size={10} className={cn('transition-transform duration-150', nmapExpanded && 'rotate-90')} />
             </button>
             <button onClick={() => { setCreatingGroup(true); setNmapExpanded(true); }} className="p-0.5 hover:bg-[hsl(var(--accent))] text-[hsl(var(--muted-foreground))]" title="Create group">
               <Plus size={12} />
@@ -632,6 +631,10 @@ function PageTreeItem({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const updatePage = useAppStore((s) => s.updatePage);
+  const isActive = useAppStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    return tab?.kind === 'page' && tab.entityId === page.id;
+  });
   const slugRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -704,12 +707,14 @@ function PageTreeItem({
     <div className="group relative">
       <div
         draggable
+        data-active={isActive || undefined}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
           'flex w-full items-center rounded-lg border border-[hsl(var(--status-blue))]/30 bg-[hsl(var(--status-blue))]/10 hover:bg-[hsl(var(--status-blue))]/20',
+          isActive && 'bg-[hsl(var(--status-blue))]/25',
           dragOver && 'ring-2 ring-[hsl(var(--primary))] ring-offset-1 ring-offset-[hsl(var(--background))]',
         )}
         onContextMenu={(e) => {
@@ -725,7 +730,7 @@ function PageTreeItem({
             className="ml-0.5 shrink-0 rounded p-0.5 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]"
             title={isExpanded ? 'Collapse' : 'Expand'}
           >
-            {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+            <ChevronRight size={10} className={cn('transition-transform duration-150', isExpanded && 'rotate-90')} />
           </button>
         ) : (
           <span className="ml-0.5 inline-block w-[14px] shrink-0" aria-hidden />
@@ -821,7 +826,7 @@ function PageTreeItem({
         </div>
       )}
 
-      {/* Children — wrapped in a left-bordered indent so the tree
+      {/* Children: wrapped in a left-bordered indent so the tree
           structure is visible. Each nesting level adds its own border-l,
           so a node at depth 3 shows 3 stacked guide lines on its left. */}
       {isExpanded && hasChildren && (
@@ -861,6 +866,10 @@ function NarrativeItem({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [nameValue, setNameValue] = useState(graph.name);
+  const isActive = useAppStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    return tab?.kind === 'graph' && tab.entityId === graph.id;
+  });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -891,7 +900,11 @@ function NarrativeItem({
 
   return (
     <div
-      className="group flex w-full items-center rounded-lg border border-[hsl(var(--status-amber))]/30 bg-[hsl(var(--status-amber))]/10 hover:bg-[hsl(var(--status-amber))]/20"
+      data-active={isActive || undefined}
+      className={cn(
+        'group flex w-full items-center rounded-lg border border-[hsl(var(--status-amber))]/30 bg-[hsl(var(--status-amber))]/10 hover:bg-[hsl(var(--status-amber))]/20',
+        isActive && 'bg-[hsl(var(--status-amber))]/25',
+      )}
       onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
     >
       {renaming ? (
@@ -971,6 +984,10 @@ function NmapScanItem({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [nameValue, setNameValue] = useState(scan.name);
+  const isActive = useAppStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    return tab?.kind === 'nmap' && tab.entityId === scan.id;
+  });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1000,7 +1017,12 @@ function NmapScanItem({
   };
 
   return (
-    <div className="group flex w-full items-center rounded-lg border border-[hsl(var(--status-green))]/30 bg-[hsl(var(--status-green))]/10 hover:bg-[hsl(var(--status-green))]/20"
+    <div
+      data-active={isActive || undefined}
+      className={cn(
+        'group flex w-full items-center rounded-lg border border-[hsl(var(--status-green))]/30 bg-[hsl(var(--status-green))]/10 hover:bg-[hsl(var(--status-green))]/20',
+        isActive && 'bg-[hsl(var(--status-green))]/25',
+      )}
       onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
     >
       {renaming ? (
