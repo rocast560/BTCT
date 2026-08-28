@@ -1,97 +1,77 @@
 /**
- * Page-body snapshots. The live body of each page lives in its own Y.Doc
- * (see `yjs-providers.ts`), so we can't roll back a page from the regular
- * `changeLogs` table, which only sees high-level metadata events.
+ * Restoring a page body to an earlier version.
  *
- * Instead we periodically encode the entire page Y.Doc as an update blob
- * via `Y.encodeStateAsUpdate(doc)` and store the bytes (base64) in the
- * shared `pageSnapshots` table. Restoring = decode → temp Y.Doc → clone
- * the snapshot's `prosemirror` XmlFragment children back into the live
- * doc, replacing current body content. Because the replacement runs
- * inside a single Y transaction it merges deterministically across all
- * connected clients (every collaborator sees the rollback the same way).
+ * Versions themselves are recorded on the server (server/history.mjs) from a
+ * GC-off twin of each page room; the client fetches a version's full state
+ * through src/realtime/page-history-api.ts and hands the bytes here.
  *
- * Cadence: auto-snapshot 2 minutes after the last keystroke on a page,
- * with a per-page cap so the log doesn't grow forever. Named snapshots
- * (passed `label`) are never pruned.
+ * Two paths, best first:
+ *   1. The page is open in a tab: the restored document is built with the
+ *      live editor's schema and applied as ONE ProseMirror transaction. The
+ *      y-prosemirror binding diffs it against the fragment and emits a
+ *      minimal Yjs delta, so unchanged blocks stay untouched and remote
+ *      cursors survive (invariant #3b).
+ *   2. No editor for that page is mounted: the snapshot is decoded into a
+ *      throwaway Y.Doc and its `prosemirror` fragment children are cloned
+ *      into the live fragment inside one Y transaction, which still merges
+ *      deterministically for every peer.
+ *
+ * Either way the caller records a `restore` version afterwards so the
+ * rollback is part of the timeline and later versions are kept.
  */
 import * as Y from 'yjs';
-import { pageSnapshotRepo, base64ToBytes } from '@/db';
-import { useAuthStore } from '@/auth/auth-store';
+import { yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
+import { editorViewCtx } from '@milkdown/core';
+import { base64ToBytes } from '@/db';
+import { getPageEditor } from '@/lib/active-editor';
 import { getPageYContext } from './yjs-providers';
-import type { PageSnapshot } from '@/types';
 
-const AUTO_IDLE_MS = 2 * 60 * 1000;        // 2 minutes since last edit
-const AUTO_RETAIN_PER_PAGE = 20;           // keep the 20 newest auto snapshots
-const debounceTimers = new Map<string, number>();
+const FRAGMENT = 'prosemirror';
 
-function currentAuthor() {
-  const u = useAuthStore.getState().user;
-  if (!u) return { userId: null, userName: null, userColor: null };
-  return { userId: u.id, userName: u.username, userColor: u.color };
+export function restoreFromState(pageId: string, bytes: Uint8Array): 'editor' | 'yjs' {
+  const editor = getPageEditor(pageId);
+  if (editor) {
+    try {
+      let applied = false;
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const tmp = new Y.Doc();
+        Y.applyUpdate(tmp, bytes);
+        const node = yXmlFragmentToProseMirrorRootNode(tmp.getXmlFragment(FRAGMENT), view.state.schema);
+        tmp.destroy();
+        view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, node.content));
+        applied = true;
+      });
+      if (applied) return 'editor';
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn('[history] editor restore failed, using the Yjs path:', err);
+    }
+  }
+  replaceFragment(pageId, bytes);
+  return 'yjs';
 }
 
-/** Capture immediately and persist. Used by the explicit "Save version" UI. */
-export async function captureSnapshotNow(
-  pageId: string,
-  workspaceId: string,
-  label: string | null = null,
-): Promise<PageSnapshot> {
-  const ctx = getPageYContext(pageId);
-  const bytes = Y.encodeStateAsUpdate(ctx.doc);
-  return pageSnapshotRepo.add(workspaceId, pageId, bytes, currentAuthor(), label);
-}
-
-/**
- * Debounced auto-snapshot. Reset the timer on each call; when it fires
- * (after AUTO_IDLE_MS of inactivity) capture and prune old autos.
- */
-export function scheduleAutoSnapshot(pageId: string, workspaceId: string): void {
-  const existing = debounceTimers.get(pageId);
-  if (existing) window.clearTimeout(existing);
-  const tid = window.setTimeout(() => {
-    debounceTimers.delete(pageId);
-    void captureSnapshotNow(pageId, workspaceId).then(
-      () => pageSnapshotRepo.pruneAuto(pageId, AUTO_RETAIN_PER_PAGE),
-    );
-  }, AUTO_IDLE_MS);
-  debounceTimers.set(pageId, tid);
-}
-
-/**
- * Replace the live page body with the contents of a snapshot. Implemented
- * by decoding the snapshot into a throwaway Y.Doc, deep-cloning the
- * `prosemirror` XmlFragment children, and swapping them into the live
- * fragment within one Y transaction. Y.XmlElement / Y.XmlText.clone()
- * returns detached copies safe to insert into a different parent doc.
- */
-export function restoreSnapshot(pageId: string, updateBase64: string): void {
-  const ctx = getPageYContext(pageId);
-  const liveDoc = ctx.doc;
-  const liveFragment = liveDoc.getXmlFragment('prosemirror');
+function replaceFragment(pageId: string, bytes: Uint8Array): void {
+  const liveDoc = getPageYContext(pageId).doc;
+  const liveFragment = liveDoc.getXmlFragment(FRAGMENT);
 
   const tmpDoc = new Y.Doc();
-  Y.applyUpdate(tmpDoc, base64ToBytes(updateBase64));
-  const snapFragment = tmpDoc.getXmlFragment('prosemirror');
-
-  // Snapshot the children first; we'll iterate after deleting the live
-  // ones (deleting first would invalidate the array if we reused refs
-  // across docs, but in practice these are separate docs, safe either
-  // way; collecting up-front is clearer).
-  const replacementChildren = snapFragment.toArray().map((child) => {
-    // Both Y.XmlElement and Y.XmlText expose .clone(); we can't share
-    // the same type ref across docs, so clone unconditionally.
-    return (child as Y.XmlElement | Y.XmlText).clone();
-  });
+  Y.applyUpdate(tmpDoc, bytes);
+  // Y.XmlElement / Y.XmlText expose .clone(); a type cannot be shared across
+  // docs, so clone unconditionally before touching the live fragment.
+  const replacement = tmpDoc
+    .getXmlFragment(FRAGMENT)
+    .toArray()
+    .map((child) => (child as Y.XmlElement | Y.XmlText).clone());
 
   liveDoc.transact(() => {
-    if (liveFragment.length > 0) {
-      liveFragment.delete(0, liveFragment.length);
-    }
-    if (replacementChildren.length > 0) {
-      liveFragment.insert(0, replacementChildren);
-    }
+    if (liveFragment.length > 0) liveFragment.delete(0, liveFragment.length);
+    if (replacement.length > 0) liveFragment.insert(0, replacement);
   });
-
   tmpDoc.destroy();
+}
+
+/** Legacy entry point (base64 full-state captures). */
+export function restoreSnapshot(pageId: string, updateBase64: string): void {
+  restoreFromState(pageId, base64ToBytes(updateBase64));
 }

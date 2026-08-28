@@ -92,6 +92,7 @@ export interface BackupIncludes {
   yjsShared: boolean;
   yjsPages: boolean;
   assets: boolean;
+  history: boolean;
 }
 
 export interface BackupConfig {

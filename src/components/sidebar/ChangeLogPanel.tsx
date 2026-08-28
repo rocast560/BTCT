@@ -3,6 +3,11 @@ import { useAppStore } from '@/stores';
 import { History, Undo2 } from 'lucide-react';
 import type { ChangeLogEntry } from '@/types';
 
+/**
+ * Workspace activity: renames, creations, deletions and other metadata
+ * events from the change log, newest first, each restorable to its previous
+ * value. Page bodies are versioned separately (PageHistoryPanel).
+ */
 export function ChangeLogPanel() {
   const changeLogs = useAppStore((s) => s.changeLogs);
   const loadChangeLogs = useAppStore((s) => s.loadChangeLogs);
@@ -13,14 +18,6 @@ export function ChangeLogPanel() {
   useEffect(() => {
     void loadChangeLogs();
   }, [loadChangeLogs]);
-
-  if (changeLogs.length === 0) {
-    return (
-      <div className="text-xs text-[hsl(var(--muted-foreground))]">
-        No changes recorded yet.
-      </div>
-    );
-  }
 
   const handleRestore = async (entry: ChangeLogEntry) => {
     setPendingId(entry.id);
@@ -37,50 +34,54 @@ export function ChangeLogPanel() {
   };
 
   return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-1.5 pb-1 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+    <div className="space-y-3">
+      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
         <History size={12} />
         History
       </div>
+
       {status && (
-        <div className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--accent))] px-2 py-1 text-[10px]">
+        <div className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--accent))] px-2.5 py-1.5 text-[11px]">
           {status}
         </div>
       )}
-      {changeLogs.map((entry) => (
-        <div key={entry.id} className="border-l-2 border-[hsl(var(--border))] pl-2 py-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex-1 min-w-0">
-              <div className="text-xs leading-tight break-words">{entry.summary}</div>
-              <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
-                {entry.userName && (
-                  <span className="flex items-center gap-1">
-                    <span
-                      className="inline-block h-2 w-2 rounded-full"
-                      style={{ backgroundColor: entry.userColor ?? '#888' }}
-                      aria-hidden
-                    />
-                    {entry.userName}
-                  </span>
+
+      {changeLogs.length === 0 ? (
+        <div className="text-xs text-[hsl(var(--muted-foreground))]">No changes recorded yet.</div>
+      ) : (
+        <ol className="relative ml-1 border-l border-[hsl(var(--border))] pl-4">
+          {changeLogs.map((entry) => (
+            <li key={entry.id} className="relative py-2 first:pt-0 last:pb-0">
+              <span
+                className="absolute -left-[21px] top-2.5 h-2 w-2 rounded-full ring-2 ring-[hsl(var(--card))] first:top-1"
+                style={{ backgroundColor: entry.userColor ?? 'hsl(var(--muted-foreground))' }}
+                aria-hidden
+              />
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs leading-snug break-words">{entry.summary}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[11px] text-[hsl(var(--muted-foreground))]">
+                    {entry.userName && <span>{entry.userName}</span>}
+                    {entry.userName && <span aria-hidden>·</span>}
+                    <span title={new Date(entry.timestamp).toLocaleString()}>{formatTimeAgo(entry.timestamp)}</span>
+                  </div>
+                </div>
+                {entry.reversible && entry.action !== 'restore' && (
+                  <button
+                    type="button"
+                    onClick={() => void handleRestore(entry)}
+                    disabled={pendingId === entry.id}
+                    className="flex shrink-0 items-center gap-1 rounded-md border border-[hsl(var(--border))] px-2 py-1 text-[11px] hover:bg-[hsl(var(--accent))] disabled:opacity-50"
+                    title="Restore to the previous value"
+                  >
+                    <Undo2 size={11} /> Undo
+                  </button>
                 )}
-                {entry.userName && <span aria-hidden>·</span>}
-                <span>{formatTimeAgo(entry.timestamp)}</span>
               </div>
-            </div>
-            {entry.reversible && entry.action !== 'restore' && (
-              <button
-                type="button"
-                onClick={() => void handleRestore(entry)}
-                disabled={pendingId === entry.id}
-                className="flex shrink-0 items-center gap-1 rounded-full border border-[hsl(var(--border))] px-2 py-0.5 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] disabled:opacity-50"
-                title="Restore to the previous value"
-              >
-                <Undo2 size={10} /> Restore
-              </button>
-            )}
-          </div>
-        </div>
-      ))}
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }

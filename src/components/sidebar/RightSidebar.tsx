@@ -8,6 +8,7 @@ import { ChangeLogPanel } from '@/components/sidebar/ChangeLogPanel';
 import { PageHistoryPanel } from '@/components/sidebar/PageHistoryPanel';
 import { LastEditedBadge } from '@/components/sidebar/LastEditedBadge';
 import { ExportDialog } from '@/components/ui/ExportDialog';
+import { Portal } from '@/components/ui/Portal';
 import { PanelRightClose, AlertTriangle } from 'lucide-react';
 
 export function RightSidebar() {
@@ -46,7 +47,7 @@ export function RightSidebar() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className="flex-1 overflow-y-auto px-4 py-3">
         {selectedNodeId && (
           <>
             <NodeProperties nodeId={selectedNodeId} />
@@ -63,7 +64,7 @@ export function RightSidebar() {
           <>
             <BacklinksPanel pageId={activeTab.entityId} />
             <div className="mt-2"><LastEditedBadge target="page" targetId={activeTab.entityId} /></div>
-            <div className="mt-4 border-t border-[hsl(var(--border))] pt-3">
+            <div className="mt-5 border-t border-[hsl(var(--border))] pt-4">
               <PageHistoryPanel pageId={activeTab.entityId} />
             </div>
           </>
@@ -71,7 +72,7 @@ export function RightSidebar() {
         {!selectedNodeId && !selectedEdgeId && !activeTab && (
           <p className="text-sm text-[hsl(var(--muted-foreground))]">Select a node, edge, or open a page to see properties.</p>
         )}
-        <div className="mt-4 border-t border-[hsl(var(--border))] pt-3">
+        <div className="mt-5 border-t border-[hsl(var(--border))] pt-4">
           <ChangeLogPanel />
         </div>
       </div>
@@ -91,9 +92,10 @@ export function RightSidebar() {
         </button>
       </div>
 
-      <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+      <Portal><ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} /></Portal>
 
       {showDeleteConfirm && (
+        <Portal>
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowDeleteConfirm(false)}>
           <div className="w-80 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center gap-2 text-[hsl(var(--status-red))]">
@@ -131,6 +133,7 @@ export function RightSidebar() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );

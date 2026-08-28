@@ -41,6 +41,7 @@ const DB_PATH = path.resolve(process.env.DB_PATH || path.join(__dirname, 'data.s
 const DATA_DIR = path.dirname(DB_PATH);
 const YPERSISTENCE = process.env.YPERSISTENCE ? path.resolve(process.env.YPERSISTENCE) : null;
 const ASSETS_DIR = process.env.ASSETS_DIR ? path.resolve(process.env.ASSETS_DIR) : path.join(DATA_DIR, 'assets');
+const HISTORY_DIR = process.env.HISTORY_DIR ? path.resolve(process.env.HISTORY_DIR) : path.join(DATA_DIR, 'history');
 
 const SHARED_ROOM = 'btct-shared';
 
@@ -115,7 +116,7 @@ async function main() {
   const inc = m.includes;
   const missing = INCLUDE_KEYS.filter((k) => !inc[k]);
   console.log(`[restore] ${m.createdAt} (${m.trigger}) from instance ${m.instanceId || '?'}: ${m.files.length} files, ${formatBytes(m.totalBytes)}`);
-  console.log(`[restore]   sqlite=${inc.sqlite} shared-doc=${inc.yjsShared} page-docs=${inc.yjsPages} assets=${inc.assets}`);
+  console.log(`[restore]   sqlite=${inc.sqlite} shared-doc=${inc.yjsShared} page-docs=${inc.yjsPages} assets=${inc.assets} history=${inc.history}`);
   if (missing.length && !args.partial) {
     console.error(`[restore] this backup does not cover: ${missing.join(', ')}. Pass --partial to restore what it has and keep the current data for the rest.`);
     process.exit(2);
@@ -202,6 +203,19 @@ async function main() {
       n += 1;
     }
     summary.push(`assets: ${n}`);
+  }
+
+  if (inc.history) {
+    moveAside(HISTORY_DIR, aside, 'history');
+    fs.mkdirSync(HISTORY_DIR, { recursive: true });
+    let n = 0;
+    for (const h of m.history || []) {
+      const src = path.join(dir, 'history', `${h.pageId}.ydoc`);
+      if (!fs.existsSync(src)) continue;
+      fs.copyFileSync(src, path.join(HISTORY_DIR, `${h.pageId}.ydoc`));
+      n += 1;
+    }
+    summary.push(`history twins: ${n}`);
   }
 
   console.log(`[restore] done: ${summary.join(', ')}`);

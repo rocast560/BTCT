@@ -45,6 +45,7 @@ import {
   listAssetRows,
   assetPath,
 } from './data-export.mjs';
+import { HISTORY_DIR, flushAllTwins } from './history.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -175,6 +176,7 @@ export async function runBackup({ trigger = 'manual' } = {}) {
   const files = [];
   const docsMeta = [];
   const assetsMeta = [];
+  const historyMeta = [];
   let sqliteMeta = null;
 
   const record = async (rel, abs) => {
@@ -230,6 +232,21 @@ export async function runBackup({ trigger = 'manual' } = {}) {
       }
     }
 
+    if (cfg.includes.history) {
+      // Version diffs need the GC-off twins; flush the open ones first so
+      // the files match what the running server holds.
+      flushAllTwins();
+      fs.mkdirSync(path.join(tmpDir, 'history'));
+      const names = fs.existsSync(HISTORY_DIR) ? fs.readdirSync(HISTORY_DIR).filter((f) => f.endsWith('.ydoc')) : [];
+      for (const file of names) {
+        const rel = `history/${file}`;
+        const dest = path.join(tmpDir, rel);
+        fs.copyFileSync(path.join(HISTORY_DIR, file), dest);
+        historyMeta.push({ pageId: file.slice(0, -'.ydoc'.length), bytes: fs.statSync(dest).size });
+        await record(rel, dest);
+      }
+    }
+
     const manifest = buildManifest({
       instanceId: cfg.instanceId,
       createdAt: new Date(startedAt).toISOString(),
@@ -239,6 +256,7 @@ export async function runBackup({ trigger = 'manual' } = {}) {
       docs: docsMeta,
       sqlite: sqliteMeta,
       assets: assetsMeta,
+      history: historyMeta,
       app: { name: 'btct', hostname: os.hostname() },
     });
     fs.writeFileSync(path.join(tmpDir, MANIFEST_FILE), JSON.stringify(manifest, null, 2));
@@ -253,6 +271,7 @@ export async function runBackup({ trigger = 'manual' } = {}) {
       files: files.length,
       docs: docsMeta.length,
       assets: assetsMeta.filter((a) => a.present).length,
+      history: historyMeta.length,
       durationMs: Date.now() - startedAt,
     };
     setSetting(T.LAST_RESULT, JSON.stringify(result));

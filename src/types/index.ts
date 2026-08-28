@@ -208,7 +208,7 @@ export interface TypstAsset {
 }
 
 // ---- UI State Types ----
-export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline' | 'typst' | 'ai' | 'cmdlog';
+export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline' | 'typst' | 'ai' | 'cmdlog' | 'history';
 
 export interface TabItem {
   id: string;
@@ -306,6 +306,30 @@ export interface PageSnapshot {
   label?: string | null;       // human label when user explicitly named the version
   updateBase64: string;        // Y.encodeStateAsUpdate(pageDoc) -> base64
   byteLength: number;          // for UI display
+}
+
+// ---- Page version history (server-side, see server/history.mjs) ----
+export type PageVersionTrigger = 'auto' | 'named' | 'restore' | 'import';
+
+export interface PageVersion {
+  id: ID;
+  pageId: ID;
+  workspaceId: ID | null;
+  createdAt: number;
+  trigger: PageVersionTrigger;
+  name: string | null;
+  createdBy: number | null;
+  /** Accounts whose edits landed between the previous version and this one (0 = unknown). */
+  changedBy: number[];
+  /** True when the version is a twin snapshot (renders with per-user changes); false for imports. */
+  diffable: boolean;
+  size: number;
+}
+
+export interface PageVersionUser {
+  id: number;
+  username: string;
+  color: string;
 }
 
 // ---- Nmap Scan ----

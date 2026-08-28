@@ -68,6 +68,8 @@ COPY server/backup-format.mjs /app/server/backup-format.mjs
 COPY server/data-export.mjs   /app/server/data-export.mjs
 COPY server/backup.mjs        /app/server/backup.mjs
 COPY server/restore.mjs       /app/server/restore.mjs
+COPY server/history.mjs       /app/server/history.mjs
+COPY server/history-diff.mjs  /app/server/history-diff.mjs
 
 # Copy the static client build.
 COPY --from=client-build /app/dist /app/dist

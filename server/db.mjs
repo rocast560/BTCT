@@ -81,6 +81,26 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_cmdlog_ws ON command_logs(workspace_id, started_at DESC);
   CREATE INDEX IF NOT EXISTS idx_cmdlog_op ON command_logs(workspace_id, operator, started_at DESC);
+
+  -- Page version history (history.mjs). One row per version. The snapshot
+  -- column is a Yjs snapshot (state vector + delete set) against the page's
+  -- GC-off twin file under HISTORY_DIR; rows imported from the old
+  -- pageSnapshots CRDT map carry the full document state instead. Bytes
+  -- only: the server never reads what a page says.
+  CREATE TABLE IF NOT EXISTS page_versions (
+    id           TEXT PRIMARY KEY,
+    page_id      TEXT NOT NULL,
+    workspace_id TEXT,
+    created_at   INTEGER NOT NULL,
+    trigger      TEXT NOT NULL,          -- auto | named | restore | import
+    name         TEXT,
+    created_by   INTEGER,
+    changed_by   TEXT NOT NULL DEFAULT '[]',  -- JSON array of user ids (0 = unknown)
+    snapshot     BLOB,
+    state        BLOB,
+    size         INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_page_versions_page ON page_versions(page_id, created_at DESC);
 `);
 
 // Best-effort migration for databases predating the is_admin column.
@@ -413,6 +433,60 @@ export const upsertCommandLogBatch = db.transaction((records) =>
 
 export function clearCommandLogs(workspaceId) {
   clearCmdlogStmt.run(workspaceId);
+}
+
+// ── Page version history (see history.mjs) ──────────────────────────────
+const insertVersionStmt = db.prepare(`
+  INSERT OR IGNORE INTO page_versions
+    (id, page_id, workspace_id, created_at, trigger, name, created_by, changed_by, snapshot, state, size)
+  VALUES
+    ($id, $page_id, $workspace_id, $created_at, $trigger, $name, $created_by, $changed_by, $snapshot, $state, $size)
+`);
+
+export function insertPageVersion(v) {
+  insertVersionStmt.run({
+    $id: v.id,
+    $page_id: v.pageId,
+    $workspace_id: v.workspaceId ?? null,
+    $created_at: v.createdAt,
+    $trigger: v.trigger,
+    $name: v.name ?? null,
+    $created_by: v.createdBy ?? null,
+    $changed_by: v.changedBy ?? '[]',
+    $snapshot: v.snapshot ?? null,
+    $state: v.state ?? null,
+    $size: v.size ?? 0,
+  });
+}
+
+/** Metadata only (no blobs), newest first. */
+export function listPageVersions(pageId) {
+  return db
+    .query(`SELECT id, page_id, workspace_id, created_at, trigger, name, created_by, changed_by, size,
+                   (snapshot IS NOT NULL) AS has_snapshot
+            FROM page_versions WHERE page_id = ? ORDER BY created_at DESC`)
+    .all(pageId);
+}
+
+export function getPageVersion(pageId, id) {
+  return db.query(`SELECT * FROM page_versions WHERE page_id = ? AND id = ?`).get(pageId, id) ?? null;
+}
+
+/** The newest version that carries a twin snapshot (imports do not). */
+export function latestDiffableVersion(pageId) {
+  return db
+    .query(`SELECT id, created_at, snapshot FROM page_versions
+            WHERE page_id = ? AND snapshot IS NOT NULL ORDER BY created_at DESC LIMIT 1`)
+    .get(pageId) ?? null;
+}
+
+export function deletePageVersion(pageId, id) {
+  db.query(`DELETE FROM page_versions WHERE page_id = ? AND id = ?`).run(pageId, id);
+}
+
+export function renamePageVersion(pageId, id, name, createdBy) {
+  db.query(`UPDATE page_versions SET name = ?, created_by = COALESCE(?, created_by) WHERE page_id = ? AND id = ?`)
+    .run(name, createdBy ?? null, pageId, id);
 }
 
 export function publicUser(row) {

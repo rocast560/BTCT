@@ -6,6 +6,7 @@ export interface BackupIncludes {
   yjsShared: boolean;
   yjsPages: boolean;
   assets: boolean;
+  history: boolean;
 }
 
 export interface BackupConfig {
@@ -34,6 +35,11 @@ export interface ManifestAsset {
   workspaceId?: string;
   kind?: string;
   present?: boolean;
+}
+
+export interface ManifestHistory {
+  pageId: string;
+  bytes: number;
 }
 
 export interface BackupManifest {

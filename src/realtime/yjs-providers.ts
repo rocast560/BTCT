@@ -3,6 +3,7 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 import { WebsocketProvider } from 'y-websocket';
 import type { Awareness } from 'y-protocols/awareness';
 import { useAuthStore, WS_URL } from '@/auth/auth-store';
+import { attachUserMapping } from './page-history-api';
 
 /**
  * Per-page Yjs context: Y.Doc + IndexedDB persistence (offline cache) +
@@ -74,7 +75,10 @@ export function getPageYContext(pageId: string): PageYContext {
   // the refresh after the first reconnect (and leak the subscription for a
   // socket that never connected at all).
   const unsubscribeAuth = useAuthStore.subscribe((state, prev) => {
-    if (state.user !== prev.user) applyAwarenessUser(awareness);
+    if (state.user !== prev.user) {
+      applyAwarenessUser(awareness);
+      if (state.user) attachUserMapping(doc);
+    }
   });
 
   const whenSynced = persistence.whenSynced.then(() => undefined);
@@ -97,6 +101,9 @@ export function getPageYContext(pageId: string): PageYContext {
   });
 
   const whenFullySynced = Promise.all([persistence.whenSynced, whenWsSynced]).then(() => undefined);
+  // Map this client to the account in the doc's `users` map so the server
+  // can credit versions and the History tab can colour edits per user.
+  void whenFullySynced.then(() => attachUserMapping(doc));
 
   const ctx: PageYContext = { doc, persistence, provider, awareness, unsubscribeAuth, whenSynced, whenFullySynced };
   cache.set(pageId, ctx);

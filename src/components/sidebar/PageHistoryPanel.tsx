@@ -1,148 +1,125 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Save, Undo2, Clock } from 'lucide-react';
-import { pageSnapshotRepo } from '@/db';
-import { subscribeTable } from '@/realtime/shared-doc';
-import { captureSnapshotNow, restoreSnapshot } from '@/realtime/page-snapshots';
-import type { PageSnapshot } from '@/types';
+import { useCallback, useEffect, useState } from 'react';
+import { Clock, History, Save } from 'lucide-react';
 import { useAppStore } from '@/stores';
+import { createVersion, listVersions, type VersionListResponse } from '@/realtime/page-history-api';
+import { formatVersionTime, dayLabel, versionLabel } from '@/lib/page-history';
 
+/**
+ * Properties-panel entry point for a page's version history: a one-line
+ * summary of the latest version, a "save a named version" field, and the
+ * button that opens the full History tab (viewer + timeline + restore).
+ */
 export function PageHistoryPanel({ pageId }: { pageId: string }) {
-  const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
-  const [snaps, setSnaps] = useState<PageSnapshot[]>([]);
+  const page = useAppStore((s) => s.pages.find((p) => p.id === pageId));
+  const openTab = useAppStore((s) => s.openTab);
+  const [data, setData] = useState<VersionListResponse | null>(null);
+  const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const [labelInput, setLabelInput] = useState('');
 
   const refresh = useCallback(() => {
-    void pageSnapshotRepo.getByPage(pageId).then(setSnaps);
+    listVersions(pageId).then(setData).catch(() => setData(null));
   }, [pageId]);
 
-  useEffect(() => { refresh(); }, [refresh]);
-  // Refresh when the shared pageSnapshots table actually changes (another
-  // client saved a version), instead of a 5s poll that rebuilt the list (and
-  // re-rendered the panel) on every tick regardless of change.
-  useEffect(() => subscribeTable('pageSnapshots', refresh), [refresh]);
+  useEffect(() => {
+    refresh();
+    const id = window.setInterval(refresh, 30_000);
+    return () => window.clearInterval(id);
+  }, [refresh]);
 
-  const handleSaveNamed = async () => {
-    if (!activeWorkspaceId) return;
+  const flash = (msg: string) => {
+    setStatus(msg);
+    window.setTimeout(() => setStatus(null), 3000);
+  };
+
+  const saveNamed = async () => {
     setBusy(true);
     try {
-      await captureSnapshotNow(pageId, activeWorkspaceId, labelInput.trim() || null);
-      setLabelInput('');
-      setStatus('Version saved.');
+      await createVersion(pageId, { name: label.trim() || null, trigger: 'named' });
+      setLabel('');
+      flash('Version saved.');
       refresh();
     } catch (err) {
-      setStatus(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+      flash(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);
-      window.setTimeout(() => setStatus(null), 3000);
     }
   };
 
-  const handleRestore = async (snap: PageSnapshot) => {
-    if (!window.confirm(`Replace the current page body with this version from ${new Date(snap.timestamp).toLocaleString()}?\n\nThis change is collaborative: every connected user will see the rollback.`)) return;
-    setBusy(true);
-    try {
-      restoreSnapshot(pageId, snap.updateBase64);
-      setStatus('Restored. The editor should refresh to the snapshot in a moment.');
-    } catch (err) {
-      setStatus(`Restore failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setBusy(false);
-      window.setTimeout(() => setStatus(null), 4000);
-    }
+  const openHistory = () => {
+    openTab({
+      id: `history:${pageId}`,
+      kind: 'history',
+      entityId: pageId,
+      title: `History: ${page?.title ?? 'page'}`,
+    });
   };
 
-  const handleDelete = async (snap: PageSnapshot) => {
-    if (!window.confirm('Delete this saved version? (Will not affect the live page.)')) return;
-    await pageSnapshotRepo.remove(snap.id);
-    refresh();
-  };
+  const latest = data?.versions[0] ?? null;
+  const count = data?.versions.length ?? 0;
+  const latestUser = latest ? data?.users[String(latest.changedBy[0] ?? latest.createdBy ?? 0)] : null;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
         <Clock size={12} />
         Page Versions
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="text-xs text-[hsl(var(--muted-foreground))]">
+        {latest ? (
+          <>
+            <span className="text-[hsl(var(--foreground))]">{count} version{count === 1 ? '' : 's'}</span>
+            <span aria-hidden> · </span>
+            latest {versionLabel(latest).toLowerCase()} {dayLabel(latest.createdAt).toLowerCase()} at {formatVersionTime(latest.createdAt)}
+            {latestUser && (
+              <>
+                {' '}by{' '}
+                <span className="inline-flex items-center gap-1 text-[hsl(var(--foreground))]">
+                  <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: latestUser.color }} aria-hidden />
+                  {latestUser.username}
+                </span>
+              </>
+            )}
+          </>
+        ) : (
+          'No versions yet. One is recorded about two minutes after editing stops.'
+        )}
+      </div>
+
+      <div className="flex items-center gap-2">
         <input
           type="text"
-          value={labelInput}
-          onChange={(e) => setLabelInput(e.target.value)}
-          placeholder="Label (optional)"
-          className="flex-1 border border-[hsl(var(--border))] bg-transparent px-2 py-1 text-xs outline-none focus:border-[hsl(var(--primary))]"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !busy) void saveNamed(); }}
+          placeholder="Name this version"
+          className="min-w-0 flex-1 rounded-md border border-[hsl(var(--border))] bg-transparent px-2.5 py-1.5 text-xs outline-none focus:border-[hsl(var(--primary))]"
         />
         <button
           type="button"
-          onClick={() => void handleSaveNamed()}
+          onClick={() => void saveNamed()}
           disabled={busy}
-          className="flex items-center gap-1 border border-[hsl(var(--border))] px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-2.5 py-1.5 text-xs hover:bg-[hsl(var(--accent))] disabled:opacity-50"
           title="Save the current page body as a named version"
         >
-          <Save size={10} /> Save
+          <Save size={12} /> Save
         </button>
       </div>
 
+      <button
+        type="button"
+        onClick={openHistory}
+        className="flex w-full items-center justify-center gap-2 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-xs font-medium hover:bg-[hsl(var(--accent))]"
+      >
+        <History size={13} />
+        Open version history
+      </button>
+
       {status && (
-        <div className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--accent))] px-2 py-1 text-[10px]">
+        <div className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--accent))] px-2.5 py-1.5 text-[11px]">
           {status}
         </div>
-      )}
-
-      {snaps.length === 0 ? (
-        <div className="text-xs text-[hsl(var(--muted-foreground))]">
-          No versions yet. Auto-snapshots appear ~2 minutes after you stop typing, or click <strong>Save</strong> to bookmark one now.
-        </div>
-      ) : (
-        <ul className="space-y-1">
-          {snaps.map((s) => (
-            <li key={s.id} className="border-l-2 border-[hsl(var(--border))] pl-2 py-1">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs leading-tight break-words">
-                    {s.label ? <strong>{s.label}</strong> : <em className="text-[hsl(var(--muted-foreground))]">Auto-saved</em>}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
-                    {s.userName && (
-                      <span className="flex items-center gap-1">
-                        <span
-                          className="inline-block h-2 w-2 rounded-full"
-                          style={{ backgroundColor: s.userColor ?? '#888' }}
-                          aria-hidden
-                        />
-                        {s.userName}
-                      </span>
-                    )}
-                    {s.userName && <span aria-hidden>·</span>}
-                    <span>{new Date(s.timestamp).toLocaleString()}</span>
-                    <span aria-hidden>·</span>
-                    <span>{(s.byteLength / 1024).toFixed(1)} KB</span>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <button
-                    type="button"
-                    onClick={() => void handleRestore(s)}
-                    disabled={busy}
-                    className="flex items-center gap-1 rounded-full border border-[hsl(var(--border))] px-2 py-0.5 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] disabled:opacity-50"
-                  >
-                    <Undo2 size={10} /> Restore
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete(s)}
-                    disabled={busy}
-                    className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))] disabled:opacity-50"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );

@@ -48,6 +48,15 @@ import {
   handleAssetList,
   handleAssetDelete,
 } from './assets.mjs';
+import {
+  trackPageDoc,
+  handleVersionList,
+  handleVersionCreate,
+  handleVersionGet,
+  handleVersionDelete,
+  handleVersionRename,
+  handleTwinGet,
+} from './history.mjs';
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const DEFAULT_THEME_COLOR = '#f59e0b'; // yellow-orange (amber-500)
@@ -107,7 +116,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // y-websocket ships its server helpers as CJS: load via createRequire.
 const require = createRequire(import.meta.url);
-const { setupWSConnection } = require('y-websocket/bin/utils');
+const { setupWSConnection, docs: relayDocs } = require('y-websocket/bin/utils');
 
 const PORT = Number(process.env.PORT || 1234);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -557,6 +566,31 @@ const httpServer = http.createServer(async (req, res) => {
         return handleAssetList(req, res, { sendJson });
       }
     }
+    // ── Page version history (server/history.mjs). Any account may read
+    // and create versions; deleting follows the author-or-admin rule. ──
+    if (req.url?.startsWith('/api/pages/')) {
+      const claims = authFromHeader(req);
+      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
+      const user = getUserById(claims.uid);
+      if (!user) return sendJson(res, 401, { error: 'unauthorized' });
+      const parts = req.url.slice('/api/pages/'.length).split('?')[0].split('/').map((p) => decodeURIComponent(p));
+      const pageId = parts[0] || '';
+      if (parts[1] === 'versions') {
+        const versionId = parts[2] || '';
+        if (!versionId && req.method === 'GET') return handleVersionList(req, res, pageId, { sendJson });
+        if (!versionId && req.method === 'POST') return handleVersionCreate(req, res, pageId, { user, sendJson, readJsonBody });
+        if (versionId && parts[3] === 'name' && req.method === 'POST') {
+          return handleVersionRename(req, res, pageId, versionId, { user, sendJson, readJsonBody });
+        }
+        if (versionId && !parts[3] && req.method === 'GET') return handleVersionGet(req, res, pageId, versionId, { sendJson });
+        if (versionId && !parts[3] && req.method === 'DELETE') return handleVersionDelete(req, res, pageId, versionId, { user, sendJson });
+      }
+      if (parts[1] === 'history' && parts[2] === 'twin' && req.method === 'GET') {
+        return handleTwinGet(req, res, pageId, { sendJson });
+      }
+      return sendJson(res, 404, { error: 'not found' });
+    }
+
     if (req.url?.startsWith('/api/assets/')) {
       const claims = authFromHeader(req);
       if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
@@ -837,6 +871,11 @@ httpServer.on('upgrade', (req, socket, head) => {
 
 wss.on('connection', (ws, req) => {
   setupWSConnection(ws, req);
+  // Every page room gets a GC-off history twin (server/history.mjs). The
+  // shared metadata room is skipped inside trackPageDoc.
+  const room = (req.url || '').slice(1).split('?')[0];
+  const relayDoc = relayDocs.get(room);
+  if (relayDoc) trackPageDoc(room, relayDoc);
 });
 
 httpServer.listen(PORT, HOST, () => {

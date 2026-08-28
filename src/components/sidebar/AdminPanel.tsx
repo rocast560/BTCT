@@ -369,15 +369,15 @@ function AiConfigSection() {
       </div>
 
       {/* Mode + enable */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-3">
         <span className="text-[11px] text-white/60">Mode</span>
-        <div className="flex overflow-hidden rounded-md border border-white/10">
+        <div className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-white/10 p-0.5">
           {(['view', 'edit'] as const).map((m) => (
             <button
               key={m}
               onClick={() => void save({ mode: m }, `Mode set to ${m}`)}
               disabled={busy}
-              className={`px-2.5 py-1 text-[11px] ${cfg?.mode === m ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]' : 'text-white/60 hover:bg-white/10'}`}
+              className={`min-w-[76px] whitespace-nowrap rounded-md px-3 py-1 text-[11px] font-medium ${cfg?.mode === m ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]' : 'text-white/60 hover:bg-white/10'}`}
             >
               {m === 'view' ? 'View only' : 'Edit'}
             </button>
@@ -489,13 +489,13 @@ function McpConfigSection() {
           Enabled
         </label>
         <span className="ml-2 text-[11px] text-white/60">Edit permissions</span>
-        <div className="flex overflow-hidden rounded-md border border-white/10">
+        <div className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-white/10 p-0.5">
           {(['read', 'edit'] as const).map((m) => (
             <button
               key={m}
               onClick={() => void save({ mode: m }, `MCP mode: ${m}`)}
               disabled={busy}
-              className={`px-2.5 py-1 text-[11px] ${cfg?.mode === m ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]' : 'text-white/60 hover:bg-white/10'}`}
+              className={`min-w-[76px] whitespace-nowrap rounded-md px-3 py-1 text-[11px] font-medium ${cfg?.mode === m ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]' : 'text-white/60 hover:bg-white/10'}`}
             >
               {m === 'read' ? 'Read-only' : 'Edit'}
             </button>
@@ -708,6 +708,7 @@ const INCLUDE_LABELS: ReadonlyArray<{ key: keyof BackupConfig['includes']; label
   { key: 'yjsShared', label: 'Workspace metadata', hint: 'the shared doc: pages list, graphs, findings, chains, nmap, change log' },
   { key: 'yjsPages', label: 'Page bodies', hint: 'one Yjs document per page' },
   { key: 'assets', label: 'Uploaded assets', hint: 'Typst screenshots and fonts' },
+  { key: 'history', label: 'Version history', hint: 'per-page history twins behind version diffs' },
 ];
 
 function BackupConfigSection() {

@@ -11,6 +11,7 @@
 //     yjs/btct-shared.yupdate.gz    the shared metadata doc as one Yjs update
 //     yjs/<pageId>.yupdate.gz       one per page body
 //     assets/<id>                   uploaded blobs, copied as-is
+//     history/<pageId>.ydoc         GC-off history twin per page (version diffs)
 //
 // A directory per run keeps restore trivial (read files back), is easy to
 // inspect by hand, and is exactly the per-object layout the OneDrive target
@@ -31,12 +32,12 @@ export const FULL_INTERVAL_MIN_FLOOR = 1;
 export const FULL_INTERVAL_MIN_CEIL = 7 * 24 * 60;
 export const FULL_INTERVAL_MIN_DEFAULT = 60;
 
-export const INCLUDE_KEYS = ['sqlite', 'yjsShared', 'yjsPages', 'assets'];
+export const INCLUDE_KEYS = ['sqlite', 'yjsShared', 'yjsPages', 'assets', 'history'];
 
 export const DEFAULT_BACKUP_CONFIG = Object.freeze({
   enabled: false,
   fullIntervalMin: FULL_INTERVAL_MIN_DEFAULT,
-  includes: Object.freeze({ sqlite: true, yjsShared: true, yjsPages: true, assets: true }),
+  includes: Object.freeze({ sqlite: true, yjsShared: true, yjsPages: true, assets: true, history: true }),
 });
 
 /** Which categories a backup covers. Anything missing or non-boolean means "include it". */
@@ -120,7 +121,7 @@ export function sha256File(absPath) {
  * authoritative inventory: restore refuses anything not listed, and verify
  * re-hashes every entry.
  */
-export function buildManifest({ instanceId, createdAt, trigger, includes, files, docs, sqlite, assets, app }) {
+export function buildManifest({ instanceId, createdAt, trigger, includes, files, docs, sqlite, assets, history, app }) {
   return {
     schemaVersion: BACKUP_SCHEMA_VERSION,
     format: 'btct-backup',
@@ -132,6 +133,7 @@ export function buildManifest({ instanceId, createdAt, trigger, includes, files,
     sqlite: sqlite || null,
     docs: Array.isArray(docs) ? docs : [],
     assets: Array.isArray(assets) ? assets : [],
+    history: Array.isArray(history) ? history : [],
     files: (files || []).map((f) => ({ path: f.path, bytes: f.bytes, sha256: f.sha256 })),
     totalBytes: (files || []).reduce((n, f) => n + (f.bytes || 0), 0),
   };

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
 import { Briefcase, Plus, Trash2, ChevronUp, AlertTriangle } from 'lucide-react';
+import { Portal } from '@/components/ui/Portal';
 
 export function WorkspaceSelector() {
   const { workspaces, activeWorkspaceId, setActiveWorkspace, createWorkspace, deleteWorkspace, loadPages, loadGraphs } =
@@ -96,6 +97,7 @@ export function WorkspaceSelector() {
       )}
 
       {pendingDelete && (
+        <Portal>
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPendingDelete(null)}>
           <div className="w-80 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center gap-2 text-[hsl(var(--status-red))]">
@@ -133,6 +135,7 @@ export function WorkspaceSelector() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );

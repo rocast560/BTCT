@@ -18,13 +18,13 @@ import {
 
 describe('normalizeIncludes', () => {
   it('defaults every category to true', () => {
-    expect(normalizeIncludes(undefined)).toEqual({ sqlite: true, yjsShared: true, yjsPages: true, assets: true });
-    expect(normalizeIncludes(null)).toEqual({ sqlite: true, yjsShared: true, yjsPages: true, assets: true });
+    expect(normalizeIncludes(undefined)).toEqual({ sqlite: true, yjsShared: true, yjsPages: true, assets: true, history: true });
+    expect(normalizeIncludes(null)).toEqual({ sqlite: true, yjsShared: true, yjsPages: true, assets: true, history: true });
   });
 
   it('keeps explicit booleans and ignores anything else', () => {
     expect(normalizeIncludes({ sqlite: false, assets: 'no', extra: true })).toEqual({
-      sqlite: false, yjsShared: true, yjsPages: true, assets: true,
+      sqlite: false, yjsShared: true, yjsPages: true, assets: true, history: true,
     });
   });
 });

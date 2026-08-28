@@ -490,19 +490,28 @@ Everything is live and multi-user over the LAN:
 
 ### Edit history & versioning
 
-Two complementary systems, both stored in the shared CRDT and synced to everyone.
-See [Edit history & rollback](#edit-history--versioning-detail) below for the
-full mechanics:
+Two complementary systems. See [Edit history & rollback](#edit-history--versioning-detail)
+below for the full mechanics:
 
 - **Activity log**: every create/update/delete/restore on a workspace, page,
   graph, node, edge, or attack chain, with author + timestamp + a reversible
-  field delta (or a full entity snapshot for deletes). Surfaced as a feed and as
-  per-entity "Last edited by …" badges; reversible entries get a **Restore**
-  button.
-- **Page version history**: long-form page bodies get auto-snapshots ~2 minutes
-  after you stop typing (20 most-recent kept) plus unlimited **named** versions.
-  Restoring swaps the body in one CRDT transaction so all collaborators roll back
-  together.
+  field delta (or a full entity snapshot for deletes). Surfaced as the
+  right-sidebar **History** feed and as per-entity "Last edited by …" badges;
+  reversible entries get an **Undo** button.
+- **Page version history (Google Docs style)**: the server keeps a version
+  timeline per page. Versions are recorded automatically about two minutes
+  after editing stops (and every ten minutes during a long session, and when
+  the last editor leaves), on demand as **named** versions from the Properties
+  panel or the History tab, and after every restore. Nothing is thinned; a
+  named version is deleted by its author or an admin, an automatic one by an
+  admin. **Open version history** opens a tab with the rendered version on the
+  left and a day-grouped timeline on the right; **Show changes** colours every
+  insertion and deletion since the previous version in the colour of the
+  account that made it, and the timeline filters by person or by named
+  versions only. **Restore this version** rewrites the live page as a normal
+  edit (everyone sees it, later versions are kept) and records a "Restored …"
+  version. Versions written by older builds appear as *imported* (restorable,
+  without per-user colours).
 
 ### Export & import
 
@@ -900,6 +909,12 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `GET` | `/api/assets?workspaceId=…` | yes | Metadata inventory of a workspace's assets |
 | `GET` | `/api/assets/:id` | yes | The raw asset bytes (`Cache-Control: immutable`, since bytes never change for an id) |
 | `DELETE` | `/api/assets/:id` | uploader/admin | Delete the row **and** the file on disk |
+| `GET` | `/api/pages/:id/versions` | yes | Version timeline of a page, newest first: `{ versions, users, tracked, dirty, twinExists }`. Imports the page's legacy `pageSnapshots` rows on first read |
+| `POST` | `/api/pages/:id/versions` | yes | Record a version of the open page now (`{ name?, trigger: 'named' \| 'restore' }`); 409 when the page room is not open on the server |
+| `GET` | `/api/pages/:id/versions/:vid` | yes | One version with its twin `snapshot` and full `state` (both base64; the state is derived from the twin when the row has none) |
+| `POST` | `/api/pages/:id/versions/:vid/name` | yes (author/admin to rename a named one) | Name or rename a version (`{ name }`, empty clears) |
+| `DELETE` | `/api/pages/:id/versions/:vid` | author (named) / admin | Delete one version |
+| `GET` | `/api/pages/:id/history/twin` | yes | The page's GC-off history twin as one Yjs update (`application/octet-stream`, gzipped when accepted) |
 | `GET` | `/api/mcp/config` | admin | MCP server config incl. the bearer token (so it can be copied) |
 | `POST` | `/api/mcp/config` | admin | Enable/disable + set mode (`read`/`edit`); mints a token on first enable |
 | `POST` | `/api/mcp/token` | admin | Regenerate (rotate) the MCP bearer token |
@@ -953,7 +968,9 @@ uses a static bearer token (`cmdlog_enabled`/`cmdlog_token`/`cmdlog_whitelist`/
 **Environment variables:** `AUTH_SECRET` (required in prod; HMAC key, random &
 ephemeral if unset, which silently invalidates tokens on restart), `HOST`,
 `PORT`, `STATIC_DIR`, `DB_PATH`, `ASSETS_DIR` (Typst image/font blobs; defaults
-to `assets/` beside `DB_PATH`, i.e. `/data/assets` in Docker), `YPERSISTENCE`
+to `assets/` beside `DB_PATH`, i.e. `/data/assets` in Docker), `HISTORY_DIR`
+(per-page GC-off history twins behind version diffs; defaults to `history/`
+beside `DB_PATH`, i.e. `/data/history` in Docker), `YPERSISTENCE`
 (LevelDB dir; **set it or Yjs rooms are memory-only**), `BACKUP_DIR` (where
 scheduled backups are written; `/backups` in Docker, bind-mounted from
 `./backups`, else `backups/` beside `DB_PATH`),
@@ -1018,8 +1035,10 @@ src/
 server/
   index.mjs                   HTTP + WS entry, all REST routes, static serving
   auth.mjs                    PBKDF2 hashing + HMAC token sign/verify
-  db.mjs                      bun:sqlite users + settings + assets + command_logs, migrations
+  db.mjs                      bun:sqlite users + settings + assets + command_logs + page_versions, migrations
   assets.mjs                  Typst image/font blob store (disk + metadata rows)
+  history.mjs                 Page version history: GC-off twin per room, auto/named/restore versions, twin + version routes
+  history-diff.mjs            Who changed a page body between two snapshots (pure, Yjs injected, unit-tested)
   cmdlog.mjs                  Command-log ingest + config (SQLite archive + CRDT live window)
   scheduler.mjs               Single-timeout job scheduler: no overlap, no drift, persisted last run
   backup-format.mjs           Backup folder layout, manifest build/verify, config normalisation (pure)
@@ -1292,7 +1311,7 @@ All data lives in a single named Docker volume, `btct-data`, mounted at `/data`:
 | User accounts + per-account prefs + settings | `/data/data.sqlite` | yes |
 | Notes, pages, graphs, chains, nmap scans (Yjs LevelDB) | `/data/yjs/` | yes |
 | Activity log (every change, author + timestamp) | `/data/yjs/` | yes |
-| Page-body version history (point-in-time snapshots) | `/data/yjs/` | yes |
+| Page version timeline (who changed what, named versions) | `/data/data.sqlite` + `/data/history/` | yes |
 | Typst screenshots + custom fonts (raw bytes) | `/data/assets/` | yes |
 | Typst asset metadata (names, crop rects, blur regions, font families) | `/data/yjs/` | yes |
 
@@ -1329,6 +1348,7 @@ backups/btct-backup-20260823-101500/
   yjs/btct-shared.yupdate.gz    workspace metadata (pages list, graphs, findings, ...)
   yjs/<pageId>.yupdate.gz       one per page body
   assets/<id>                   uploaded screenshots and fonts
+  history/<pageId>.ydoc         GC-off history twin per page (what version diffs render from)
 ```
 
 A run is built under a `.tmp` name and renamed into place only after the
@@ -1393,14 +1413,46 @@ updates re-apply the previous value; deletes re-create the entity from the
 snapshot (reusing the original ID so references resolve). Restores are themselves
 logged.
 
-**Page version history**: page bodies live in their own per-page Yjs doc, so the
-right sidebar has a dedicated **Page Versions** panel for them. It shows
-**auto-saved** snapshots (captured ~2 minutes after the last keystroke; 20
-most-recent kept per page) and **named** versions (never pruned). Each snapshot
-stores the full `Y.encodeStateAsUpdate(pageDoc)` bytes (base64). Restoring decodes
-the bytes, clones the `prosemirror` fragment, and swaps it into the live doc in a
-single Yjs transaction, so every connected collaborator sees the same rollback in
-real time, non-destructively (prior state stays in the CRDT update log).
+**Page version history**: page bodies live in their own per-page Yjs doc, and
+the live docs are garbage-collected, so once a deletion has reached every
+client the bytes are gone and nothing can say who wrote what. The server
+therefore keeps a **GC-off twin** of every open page room
+([server/history.mjs](server/history.mjs)): the relay doc's `update` events are
+applied to the twin, which is flushed to `HISTORY_DIR/<pageId>.ydoc` (5 s
+debounce, on every version, and when the room closes). A **version** is a Yjs
+snapshot of the twin (a state vector plus a delete set, a few hundred bytes)
+in the `page_versions` SQLite table with `trigger` (`auto`, `named`,
+`restore`, `import`), an optional name, the creator, and `changed_by`: the
+accounts whose edits landed since the previous version. Attribution comes from
+`Y.PermanentUserData`: every client maps its clientID to its account id in the
+page doc's `users` map when the doc has synced (`attachUserMapping` in
+[src/realtime/page-history-api.ts](src/realtime/page-history-api.ts)) and records
+the delete sets of its own transactions there, so insertions are credited to
+the writer and deletions to the deleter. `server/history-diff.mjs` (pure,
+unit-tested) walks the twin between two snapshots and only counts items inside
+the `prosemirror` fragment, so opening a page (which writes the mapping) is
+not an edit. Policy: an automatic version two minutes after the last update,
+or every ten minutes of continuous editing, or on room close, skipped when the
+body did not change; named and restore versions on request; no thinning.
+
+The **History tab** (`kind: 'history'`,
+[src/components/history/HistoryView.tsx](src/components/history/HistoryView.tsx))
+downloads the twin once (`GET /api/pages/:id/history/twin`, gzipped) and each
+selected version's snapshot, builds a local GC-off doc, and renders it in its
+own read-only ProseMirror view with the editor's schema extended by a
+`ychange` attribute and mark ([src/lib/history-schema.ts](src/lib/history-schema.ts)).
+"Show changes" hands y-prosemirror's snapshot renderer the version and the
+previous diffable version; it tags every added or removed node and text run
+with `data-ychange-type` and the author's colour, which `index.css` paints.
+The viewer never touches a live editor (invariant #3). **Restore** fetches the
+version's full state (derived on the server with `Y.createDocFromSnapshot`),
+and, when the page is open in a tab, applies it as one ProseMirror transaction
+through that editor so the collab binding emits a minimal Yjs delta and remote
+cursors survive; otherwise it clones the fragment into the live doc in one Yjs
+transaction. Either way a `restore` version is recorded afterwards. The
+pre-history `pageSnapshots` CRDT rows are imported into `page_versions` as
+`import` versions (full state, restorable, not diffable) the first time a
+page's history is listed, and removed from the shared doc.
 
 ---
 

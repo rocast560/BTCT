@@ -1,15 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Module-level reference to the currently focused Milkdown editor.
+// Module-level references to mounted Milkdown editors.
 //
-// Lets global keyboard handlers (e.g. Ctrl+K for link insertion in
-// `App.tsx`) dispatch commands at the active editor without prop-drilling
-// the ref through React. Set on mount in `MarkdownEditor` and cleared on
-// unmount or focus loss.
+// `active` is the most recently focused editor, for global keyboard
+// handlers (e.g. Ctrl+K for link insertion in `App.tsx`) that dispatch
+// commands without prop-drilling. The per-page registry lets the version
+// history restore a page through its live ProseMirror view (a forward edit
+// that the collab binding turns into a minimal Yjs delta) instead of
+// rewriting the Y.Doc underneath everyone's cursors.
 // ─────────────────────────────────────────────────────────────────────────
 
 import type { Editor } from '@milkdown/core';
 
 let active: Editor | null = null;
+const byPage = new Map<string, Editor>();
 
 export function setActiveMilkdownEditor(editor: Editor | null): void {
   active = editor;
@@ -17,6 +20,19 @@ export function setActiveMilkdownEditor(editor: Editor | null): void {
 
 export function getActiveMilkdownEditor(): Editor | null {
   return active;
+}
+
+export function registerPageEditor(pageId: string, editor: Editor): void {
+  byPage.set(pageId, editor);
+}
+
+export function unregisterPageEditor(pageId: string, editor: Editor): void {
+  if (byPage.get(pageId) === editor) byPage.delete(pageId);
+}
+
+/** The mounted editor for a page, if that page is open in a tab. */
+export function getPageEditor(pageId: string): Editor | null {
+  return byPage.get(pageId) ?? null;
 }
 
 /**

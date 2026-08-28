@@ -34,6 +34,7 @@ import {
 import type { Page, Graph, NmapScan, AttackChain } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { cn } from '@/lib/utils';
+import { Portal } from '@/components/ui/Portal';
 
 // Custom drag MIME for moving a page row into another page row (or out
 // to the root level). Distinct from the tab drag MIME so the two flows
@@ -597,9 +598,9 @@ export function LeftSidebar() {
         )}
       </div>
 
-      {adminPanelOpen && <AdminPanel onClose={() => setAdminPanelOpen(false)} />}
-      {profileEditorOpen && <ProfileEditor onClose={() => setProfileEditorOpen(false)} />}
-      {themePickerOpen && <ThemePicker onClose={() => setThemePickerOpen(false)} />}
+      {adminPanelOpen && <Portal><AdminPanel onClose={() => setAdminPanelOpen(false)} /></Portal>}
+      {profileEditorOpen && <Portal><ProfileEditor onClose={() => setProfileEditorOpen(false)} /></Portal>}
+      {themePickerOpen && <Portal><ThemePicker onClose={() => setThemePickerOpen(false)} /></Portal>}
     </div>
   );
 }
@@ -775,12 +776,12 @@ function PageTreeItem({
 
       {/* Delete confirmation */}
       {confirmDelete && (
-        <ConfirmDeleteDialog
+        <Portal><ConfirmDeleteDialog
           name={page.title}
           kind="page"
           onConfirm={() => { setConfirmDelete(false); void deletePage(page.id); }}
           onCancel={() => setConfirmDelete(false)}
-        />
+        /></Portal>
       )}
 
       {/* Context menu */}
@@ -932,12 +933,12 @@ function NarrativeItem({
         </button>
       )}
       {confirmDelete && (
-        <ConfirmDeleteDialog
+        <Portal><ConfirmDeleteDialog
           name={graph.name}
           kind="attack narrative"
           onConfirm={() => { setConfirmDelete(false); void deleteGraph(graph.id); }}
           onCancel={() => setConfirmDelete(false)}
-        />
+        /></Portal>
       )}
       {ctxMenu && (
         <div
@@ -1048,12 +1049,12 @@ function NmapScanItem({
       )}
 
       {confirmDelete && (
-        <ConfirmDeleteDialog
+        <Portal><ConfirmDeleteDialog
           name={scan.name}
           kind="nmap scan"
           onConfirm={() => { setConfirmDelete(false); void deleteNmapScan(scan.id); }}
           onCancel={() => setConfirmDelete(false)}
-        />
+        /></Portal>
       )}
 
       {ctxMenu && (
@@ -1207,12 +1208,12 @@ function AttackChainItem({
       )}
 
       {confirmDelete && (
-        <ConfirmDeleteDialog
+        <Portal><ConfirmDeleteDialog
           name={chain.name}
           kind="attack chain"
           onConfirm={() => { setConfirmDelete(false); void deleteChain(chain.id); }}
           onCancel={() => setConfirmDelete(false)}
-        />
+        /></Portal>
       )}
 
       {ctxMenu && (

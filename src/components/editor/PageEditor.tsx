@@ -43,11 +43,10 @@ import {
 } from '@/lib/table-plugin';
 import { KeybindsDialog } from '@/components/editor/KeybindsDialog';
 import type { Ctx } from '@milkdown/ctx';
-import { setActiveMilkdownEditor } from '@/lib/active-editor';
+import { setActiveMilkdownEditor, registerPageEditor, unregisterPageEditor } from '@/lib/active-editor';
 import { useAppStore } from '@/stores';
 import { normalizePageContent } from '@/export/markdown';
 import { getPageYContext } from '@/realtime/yjs-providers';
-import { scheduleAutoSnapshot } from '@/realtime/page-snapshots';
 import { textKey } from '@/realtime/shared-doc';
 import { useYTextInput } from '@/realtime/use-y-text';
 import { graphNodeRepo } from '@/db/graph-node-repo';
@@ -346,9 +345,6 @@ function PageEditorInner({ page, linkedNode }: {
             onChange={(md) => {
               latestMarkdown.current = md;
               queueSave();
-              // Reset the page-body snapshot debouncer; fires ~2min after
-              // the last keystroke so we don't snapshot mid-typing.
-              if (page.workspaceId) scheduleAutoSnapshot(page.id, page.workspaceId);
             }}
           />
         </MilkdownProvider>
@@ -503,6 +499,7 @@ function MarkdownEditor({
 
     editorRef.current = editor;
     setActiveMilkdownEditor(editor);
+    registerPageEditor(pageId, editor);
     let cancelled = false;
 
     void yctx.whenFullySynced.then(() => {
@@ -566,6 +563,7 @@ function MarkdownEditor({
         /* editor already destroyed */
       }
       if (editorRef.current === editor) editorRef.current = null;
+      unregisterPageEditor(pageId, editor);
       // Only clear the global reference if it's still pointing to *this*
       // editor, otherwise we'd stomp on a newer editor that registered
       // itself between this effect cleanup and a remount.

@@ -9,7 +9,8 @@ import { AttackTimeline } from '@/components/findings/AttackTimeline';
 import { TypstView } from '@/components/typst/TypstView';
 import { AiAssistant } from '@/components/ai/AiAssistant';
 import { CommandLogView } from '@/components/cmdlog/CommandLogView';
-import { FileText, Network, Radar, Monitor, X, Bug, Clock, FileType2, Sparkles, Terminal } from 'lucide-react';
+import { HistoryView } from '@/components/history/HistoryView';
+import { FileText, Network, Radar, Monitor, X, Bug, Clock, FileType2, Sparkles, Terminal, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export const TAB_DRAG_TYPE = 'application/x-btct-tab';
@@ -235,6 +236,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
         {activeTab?.kind === 'typst' && <TypstView />}
         {activeTab?.kind === 'ai' && <AiAssistant />}
         {activeTab?.kind === 'cmdlog' && <CommandLogView />}
+        {activeTab?.kind === 'history' && <HistoryView pageId={activeTab.entityId} />}
         {!activeTab && (
           <div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">
             Drop a tab here
@@ -281,7 +283,7 @@ const PaneTabChip = memo(function PaneTabChip({
           : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]/60',
       )}
     >
-      {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'findings' ? <Bug size={9} /> : tab.kind === 'timeline' ? <Clock size={9} /> : tab.kind === 'typst' ? <FileType2 size={9} /> : tab.kind === 'ai' ? <Sparkles size={9} /> : tab.kind === 'cmdlog' ? <Terminal size={9} /> : <Network size={9} />}
+      {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'findings' ? <Bug size={9} /> : tab.kind === 'timeline' ? <Clock size={9} /> : tab.kind === 'typst' ? <FileType2 size={9} /> : tab.kind === 'ai' ? <Sparkles size={9} /> : tab.kind === 'cmdlog' ? <Terminal size={9} /> : tab.kind === 'history' ? <History size={9} /> : <Network size={9} />}
       <span className="max-w-[100px] truncate">{tab.title}</span>
       <button
         onClick={(e) => { e.stopPropagation(); onClose(); }}
