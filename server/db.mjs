@@ -415,8 +415,9 @@ export function queryCommandLogs(filters = {}) {
   if (filters.status === 'success') clauses.push('exit_code = 0');
   if (filters.status === 'running') clauses.push('exit_code IS NULL');
   const limit = Math.min(Math.max(Number(filters.limit) || 1000, 1), 5000);
+  params.push(limit);
   const sql =
-    `SELECT * FROM command_logs WHERE ${clauses.join(' AND ')} ORDER BY started_at DESC LIMIT ${limit}`;
+    `SELECT * FROM command_logs WHERE ${clauses.join(' AND ')} ORDER BY started_at DESC LIMIT ?`;
   // db.query caches the compiled statement by SQL text (db.prepare compiles
   // a fresh one per call); the filter combinations are few, so every shape
   // ends up cached after first use.

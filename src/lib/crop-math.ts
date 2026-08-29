@@ -137,12 +137,15 @@ export function zoomCrop(
   anchorY = 0.5,
 ): CropRect {
   const limited = clamp(factor, 0.01, 100);
-  const w = clamp(crop.w * limited, MIN_VISIBLE_FRACTION, MAX_VISIBLE_FRACTION);
-  // Derive the height from the *applied* width factor rather than clamping it
-  // independently: clamping each axis separately would silently distort the
-  // aspect ratio at the limits, which is exactly what must not happen here.
-  const applied = crop.w > 0 ? w / crop.w : 1;
-  const hKept = crop.h * applied;
+  // One factor for both axes (the aspect ratio must not change), limited so
+  // that NEITHER side leaves [MIN, MAX]: clamping the width alone let the
+  // height of a tall frame grow without bound.
+  const base = crop.w > 0 && crop.h > 0 ? crop : { ...crop, w: Math.max(crop.w, 1e-6), h: Math.max(crop.h, 1e-6) };
+  const maxFactor = Math.min(MAX_VISIBLE_FRACTION / base.w, MAX_VISIBLE_FRACTION / base.h);
+  const minFactor = Math.max(MIN_VISIBLE_FRACTION / base.w, MIN_VISIBLE_FRACTION / base.h);
+  const applied = minFactor > maxFactor ? 1 : clamp(limited, minFactor, maxFactor);
+  const w = base.w * applied;
+  const hKept = base.h * applied;
 
   // The anchor is a point inside the current rect that must not move.
   const ax = crop.x + crop.w * anchorX;

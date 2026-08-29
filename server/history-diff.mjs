@@ -63,13 +63,23 @@ export function changedUsersBetween(Y, doc, fragmentName, prevSnapshot, snapshot
 
   snapshot.ds.clients.forEach((ranges, client) => {
     const structs = doc.store.clients.get(client) ?? [];
+    const prevRanges = prevSnapshot.ds.clients.get(client) ?? [];
     for (const range of ranges) {
-      const id = Y.createID(client, range.clock);
-      if (Y.isDeleted(prevSnapshot.ds, id)) continue;
-      const s = findStruct(structs, range.clock);
-      if (s && s instanceof Y.Item && itemInFragment(s, fragment)) {
-        changed = true;
-        users.add(pud?.getUserByDeletedId(id) ?? UNKNOWN_USER);
+      // Yjs merges adjacent deleted ranges (and the deleted structs behind
+      // them), so a fresh deletion next to an older one arrives as one wider
+      // range. Only the part the previous snapshot did not already cover is
+      // new; credit the structs inside it.
+      for (const [start, end] of subtractRanges(range, prevRanges)) {
+        let clock = start;
+        while (clock < end) {
+          const s = findStruct(structs, clock);
+          if (!s) break;
+          if (s instanceof Y.Item && itemInFragment(s, fragment)) {
+            changed = true;
+            users.add(pud?.getUserByDeletedId(Y.createID(client, clock)) ?? UNKNOWN_USER);
+          }
+          clock = s.id.clock + s.length;
+        }
       }
     }
   });
@@ -88,4 +98,22 @@ function findStruct(structs, clock) {
     else return s;
   }
   return null;
+}
+
+/** The parts of `range` that no range in `prev` (sorted by clock) covers, as [start, end) pairs. */
+function subtractRanges(range, prev) {
+  const out = [];
+  const end = range.clock + range.len;
+  let cursor = range.clock;
+  for (const p of prev) {
+    const pStart = p.clock;
+    const pEnd = p.clock + p.len;
+    if (pEnd <= cursor) continue;
+    if (pStart >= end) break;
+    if (pStart > cursor) out.push([cursor, pStart]);
+    cursor = Math.max(cursor, pEnd);
+    if (cursor >= end) break;
+  }
+  if (cursor < end) out.push([cursor, end]);
+  return out;
 }

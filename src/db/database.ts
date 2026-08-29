@@ -14,7 +14,7 @@
  * Per-page note *contents* live in their own per-page Y.Doc and merge
  * with proper CRDT semantics; see realtime/yjs-providers.ts.
  */
-import { getSharedDoc, sharedTransact, type TableName } from '@/realtime/shared-doc';
+import { getSharedDoc, sharedTransact, type TableName, textKey, TEXT_FIELDS_BY_ENTITY } from '@/realtime/shared-doc';
 import type {
   Workspace, Page, Graph, GraphNode, GraphEdge,
   ChangeLogEntry, NmapScan, NmapMachine, AttackChain, PageSnapshot, TypstAsset,
@@ -97,6 +97,17 @@ class Where<T extends Row> {
   deleteIds: (ids: string[]) => void = () => undefined;
 }
 
+/** Y.Texts belong to their record: drop them with it, or the shared doc keeps every deleted title forever. */
+function deleteTextsFor(c: ReturnType<typeof getSharedDoc>, table: TableName, id: string): void {
+  for (const [entity, info] of Object.entries(TEXT_FIELDS_BY_ENTITY)) {
+    if (info.table !== table) continue;
+    for (const field of info.fields) {
+      const key = textKey(entity, id, field);
+      if (c.texts.has(key)) c.texts.delete(key);
+    }
+  }
+}
+
 class Table<T extends Row> {
   constructor(public readonly name: TableName) {}
 
@@ -152,7 +163,10 @@ class Table<T extends Row> {
   }
 
   async delete(id: string): Promise<void> {
-    sharedTransact(() => { this.yMap.delete(id); });
+    sharedTransact(() => {
+      this.yMap.delete(id);
+      deleteTextsFor(getSharedDoc(), this.name, id);
+    });
   }
 
   where(field: keyof T): { equals: (value: unknown) => Where<T> } {
@@ -165,7 +179,11 @@ class Table<T extends Row> {
         w.deleteIds = (ids) => {
           sharedTransact(() => {
             const m = yMap();
-            for (const id of ids) m.delete(id);
+            const c = getSharedDoc();
+            for (const id of ids) {
+              m.delete(id);
+              deleteTextsFor(c, this.name, id);
+            }
           });
         };
         return w;

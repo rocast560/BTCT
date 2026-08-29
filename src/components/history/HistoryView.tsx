@@ -80,6 +80,28 @@ type ViewerSelection =
   | { kind: 'state'; state: Uint8Array }
   | { kind: 'diff'; snapshot: Uint8Array | null; prevSnapshot: Uint8Array | null; showChanges: boolean };
 
+function sameSelection(a: ViewerSelection | null, b: ViewerSelection): boolean {
+  if (!a || a.kind !== b.kind) return false;
+  if (a.kind === 'live' || b.kind === 'live') return true;
+  if (a.kind === 'state' && b.kind === 'state') return a.state === b.state;
+  if (a.kind === 'diff' && b.kind === 'diff') {
+    return a.snapshot === b.snapshot && a.prevSnapshot === b.prevSnapshot && a.showChanges === b.showChanges;
+  }
+  return false;
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  for (let i = 0; i < a.byteLength; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function sameList(a: VersionListResponse, b: VersionListResponse): boolean {
+  return a.dirty === b.dirty && a.tracked === b.tracked && a.twinExists === b.twinExists
+    && JSON.stringify(a.versions) === JSON.stringify(b.versions)
+    && JSON.stringify(a.users) === JSON.stringify(b.users);
+}
+
 // ── The read-only rendering surface ──────────────────────────────────────
 function VersionViewer({
   schema,
@@ -188,10 +210,20 @@ export function HistoryView({ pageId }: { pageId: string }) {
     window.setTimeout(() => setNotice(null), 4000);
   }, []);
 
-  const refresh = useCallback(async () => {
-    const [list, twinBytes] = await Promise.all([listVersions(pageId), fetchTwin(pageId).catch(() => null)]);
-    setData(list);
-    setTwin(twinBytes);
+  // The twin is only re-downloaded when the version list actually moved
+  // (a new version, or unsaved edits appeared); the 30 s poll otherwise costs
+  // one small JSON request, and identical bytes never rebuild the viewer.
+  const latestRef = useRef<{ id: string | null; dirty: boolean } | null>(null);
+  const refresh = useCallback(async (opts: { twin?: boolean } = {}) => {
+    const list = await listVersions(pageId);
+    const latest = list.versions[0]?.id ?? null;
+    const moved = !latestRef.current || latestRef.current.id !== latest || latestRef.current.dirty !== list.dirty;
+    latestRef.current = { id: latest, dirty: list.dirty };
+    setData((prev) => (prev && sameList(prev, list) ? prev : list));
+    if (opts.twin || moved) {
+      const bytes = await fetchTwin(pageId).catch(() => null);
+      setTwin((prev) => (prev && bytes && sameBytes(prev, bytes) ? prev : bytes));
+    }
   }, [pageId]);
 
   useEffect(() => {
@@ -201,7 +233,7 @@ export function HistoryView({ pageId }: { pageId: string }) {
     viewerSchema()
       .then((s) => { if (!cancelled) setSchema(s); })
       .catch((err) => setError(`Viewer failed to start: ${err instanceof Error ? err.message : String(err)}`));
-    refresh().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    refresh({ twin: true }).catch((err) => setError(err instanceof Error ? err.message : String(err)));
     const id = window.setInterval(() => { refresh().catch(() => { /* transient */ }); }, 30_000);
     return () => { cancelled = true; window.clearInterval(id); };
   }, [pageId, refresh]);
@@ -214,7 +246,12 @@ export function HistoryView({ pageId }: { pageId: string }) {
     return b;
   }, [pageId]);
 
-  // Resolve what the viewer should show for the current selection.
+  // Resolve what the viewer should show for the current selection. Only a
+  // real change reaches state: the viewer rebuilds on every new selection
+  // object, and the poll would otherwise rebuild it twice a minute.
+  const select = useCallback((next: ViewerSelection) => {
+    setSelection((prev) => (sameSelection(prev, next) ? prev : next));
+  }, []);
   useEffect(() => {
     if (!data) return;
     let cancelled = false;
@@ -223,29 +260,31 @@ export function HistoryView({ pageId }: { pageId: string }) {
       if (!selectedId) {
         if (showChanges && latestDiffable && twin) {
           const prev = await loadBytes(latestDiffable.id);
-          if (!cancelled) setSelection({ kind: 'diff', snapshot: null, prevSnapshot: prev.snapshot, showChanges: true });
+          if (!cancelled) select({ kind: 'diff', snapshot: null, prevSnapshot: prev.snapshot, showChanges: true });
         } else if (!cancelled) {
-          setSelection({ kind: 'live' });
+          select({ kind: 'live' });
         }
         return;
       }
       const v = data.versions.find((x) => x.id === selectedId);
-      if (!v) { if (!cancelled) setSelection({ kind: 'live' }); return; }
+      if (!v) { if (!cancelled) select({ kind: 'live' }); return; }
       const bytes = await loadBytes(v.id);
       if (cancelled) return;
       if (v.diffable && bytes.snapshot && twin) {
         const prev = previousDiffable(data.versions, v);
         const prevBytes = prev ? (await loadBytes(prev.id)).snapshot : null;
-        if (!cancelled) setSelection({ kind: 'diff', snapshot: bytes.snapshot, prevSnapshot: prevBytes, showChanges });
+        if (!cancelled) select({ kind: 'diff', snapshot: bytes.snapshot, prevSnapshot: prevBytes, showChanges });
       } else if (bytes.state) {
-        setSelection({ kind: 'state', state: bytes.state });
+        select({ kind: 'state', state: bytes.state });
       }
     })().catch((err) => setError(err instanceof Error ? err.message : String(err)));
     return () => { cancelled = true; };
-  }, [data, twin, selectedId, showChanges, loadBytes]);
+  }, [data, twin, selectedId, showChanges, loadBytes, select]);
 
   const versions = data?.versions ?? [];
-  const users = useMemo(() => data?.users ?? {}, [data]);
+  const usersKey = JSON.stringify(data?.users ?? {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const users = useMemo(() => data?.users ?? {}, [usersKey]);
   const visible = useMemo(() => filterVersions(versions, { namedOnly, userId: userFilter }), [versions, namedOnly, userFilter]);
   const groups = useMemo(() => groupVersionsByDay(visible), [visible]);
   const selected = selectedId ? versions.find((v) => v.id === selectedId) ?? null : null;
@@ -302,6 +341,9 @@ export function HistoryView({ pageId }: { pageId: string }) {
     try {
       const bytes = await loadBytes(selected.id);
       if (!bytes.state) throw new Error('this version has no content to restore');
+      // Never rewrite a page doc that has not synced yet: the restore would
+      // merge with the remote state that arrives a moment later.
+      await getPageYContext(pageId).whenFullySynced;
       const how = restoreFromState(pageId, bytes.state);
       // PermanentUserData records the delete set of a local transaction on a
       // timer; give it (and the relay) a moment so the restore version

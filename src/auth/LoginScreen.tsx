@@ -42,7 +42,7 @@ export function LoginScreen() {
         className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-7 shadow-2xl"
       >
         <div className="mb-5 flex items-center gap-2">
-          <img src="/new-logo.png" alt="" className="h-7 w-7 rounded-md object-cover" />
+          <img src="/new-logo-64.png" alt="" className="h-7 w-7 rounded-md object-cover" />
           <h1 className="text-lg font-semibold tracking-tight">Been There, Conquered That</h1>
         </div>
         <p className="mb-6 text-sm text-[hsl(var(--muted-foreground))]">Sign in to your workspace</p>

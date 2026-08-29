@@ -203,7 +203,9 @@ export const TypstEditor = memo(function TypstEditor({ ytext }: { ytext: Y.Text 
     const awareness = getSharedDoc().provider.awareness;
     const user = useAuthStore.getState().user;
     if (user) {
-      awareness.setLocalStateField('user', { name: user.username, color: user.color });
+      // Same shape as applyAwarenessUser in yjs-providers.ts: dropping `id`
+      // here removed the user from every teammate's presence roster.
+      awareness.setLocalStateField('user', { id: user.id, name: user.username, color: user.color });
     }
 
     const undoManager = new Y.UndoManager(ytext);

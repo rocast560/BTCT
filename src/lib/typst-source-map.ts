@@ -117,8 +117,10 @@ export function designRegions(source: string): Array<[number, number]> {
     }
 
     switch (ch) {
-      case '(': case '[': case '{': depth++; break;
-      case ')': case ']': case '}': if (depth > 0) depth--; break;
+      // Brackets only matter inside a region: a stray `(` in prose used to
+      // leave the depth at 1 forever and hide every later design line.
+      case '(': case '[': case '{': if (start !== -1) depth++; break;
+      case ')': case ']': case '}': if (start !== -1 && depth > 0) depth--; break;
       case '\n':
         if (start !== -1 && depth === 0) {
           regions.push([start, i]);

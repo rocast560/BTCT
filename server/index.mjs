@@ -207,8 +207,12 @@ async function readJsonBody(req, limit = 8 * 1024) {
     req.on('data', (chunk) => {
       total += chunk.length;
       if (total > limit) {
-        reject(new Error('payload too large'));
-        req.destroy();
+        const err = new Error('payload too large');
+        err.status = 413;
+        reject(err);
+        // Stop reading but keep the socket, so the 413 can actually be sent;
+        // the error handler closes the connection once the response is out.
+        req.pause();
         return;
       }
       chunks.push(chunk);
@@ -726,8 +730,18 @@ const httpServer = http.createServer(async (req, res) => {
 
     return sendJson(res, 404, { error: 'not found' });
   } catch (err) {
-    const msg = err && err.message ? err.message : 'internal error';
-    return sendJson(res, 400, { error: msg });
+    // Validation errors thrown by handlers stay 400 with their message; a
+    // programming error (TypeError, ReferenceError, ...) is a 500 with a
+    // generic body and a server-side log, never its internals.
+    const status = err && Number.isInteger(err.status) ? err.status
+      : err instanceof TypeError || err instanceof ReferenceError || err instanceof RangeError ? 500 : 400;
+    if (status === 500) console.error('[btct-server] unhandled error:', err);
+    const msg = status === 500 ? 'internal error' : (err && err.message ? err.message : 'request failed');
+    if (status === 413) {
+      res.setHeader('Connection', 'close');
+      res.once('finish', () => req.socket?.destroy());
+    }
+    return sendJson(res, status, { error: msg });
   }
 });
 
@@ -750,6 +764,7 @@ const MIME = {
   '.jpeg': 'image/jpeg',
   '.gif':  'image/gif',
   '.webp': 'image/webp',
+  '.wasm': 'application/wasm',
   '.ico':  'image/x-icon',
   '.woff': 'font/woff',
   '.woff2':'font/woff2',
@@ -819,10 +834,11 @@ function tryServeStatic(req, res) {
     ETag: etag,
     Vary: 'Accept-Encoding',
     ...(encoding ? { 'Content-Encoding': encoding } : {}),
-    // index.html should never be cached; hashed assets can be.
-    'Cache-Control': filePath.endsWith('index.html') || filePath.endsWith('index.html.gz')
-      ? 'no-cache'
-      : 'public, max-age=31536000, immutable',
+    // Only Vite's content-hashed files under /assets/ are immutable; index.html
+    // and the unhashed public/ files (logo, favicon) revalidate via the ETag.
+    'Cache-Control': /[\\/]assets[\\/]/.test(filePath)
+      ? 'public, max-age=31536000, immutable'
+      : 'no-cache',
   });
   if (req.method === 'HEAD') { res.end(); return true; }
   fs.createReadStream(filePath).pipe(res);

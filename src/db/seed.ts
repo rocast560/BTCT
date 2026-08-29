@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './database';
+import { getSharedDoc, seedMissingYTexts } from '@/realtime/shared-doc';
 import type { Workspace, Page, Graph, GraphNode, GraphEdge, EdgeType } from '@/types';
 import { defaultFindingData } from '@/types';
 
@@ -623,4 +624,7 @@ export async function seedDemoWorkspace(): Promise<void> {
     await db.graphNodes.bulkAdd([...allInternalNodes, ...allExternalNodes]);
     await db.graphEdges.bulkAdd([...internalEdges, ...externalEdges]);
   });
+  // The records above went in as plain JSON; give every collaborative field
+  // its Y.Text now (invariant #1) or the first rename after seeding is lost.
+  seedMissingYTexts(getSharedDoc());
 }

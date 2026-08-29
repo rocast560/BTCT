@@ -1156,6 +1156,28 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    spinners render in the right scheme, gives `select` its own chevron and
    the range/checkbox/date inputs the accent colour. The audit that
    introduced this is [docs/ui-audit-2026-08-28.md](docs/ui-audit-2026-08-28.md).
+23. **Tabs reconcile against the shared doc, and the active pane is always a
+   live leaf.** `reconcileTabs()` (app-store) prunes tabs whose page, graph
+   or scan no longer exists; it runs after the pages/graphs/nmapScans
+   reloads and after local deletes, and is a no-op until the shared doc has
+   synced. Every layout change goes through `reconcileActive()` so
+   `activePaneId`/`activeTabId` never point at a collapsed pane, and
+   `moveTab` (pane-layout) removes, adds, then collapses, in that order. When
+   you add a way to change the layout, keep both.
+24. **Bulk record creation outside the repos seeds its `Y.Text`s.** The demo
+   seed and the zip import write records directly, so they call
+   `seedMissingYTexts(getSharedDoc())` afterwards; a record without its
+   `Y.Text` silently drops inline title edits until a reload. Deleting a
+   record through `database.ts` drops its texts (`deleteTextsFor`).
+25. **First paint stays small.** Heavy tab views (graph, nmap, findings,
+   timeline, Typst, assistant, command log, history) are `React.lazy`
+   imports behind one `Suspense` in `SplitContainer`; a new `TabKind` view
+   should be too. No external font requests (the skin uses the system
+   stack) and no multi-megabyte images in `public/` (the logo ships as
+   `new-logo-64.png`, `apple-touch-icon.png` and `new-logo.ico`). The server
+   marks only `/assets/*` (hashed) `immutable`; everything else is
+   `no-cache` with an ETag. Audit record:
+   [docs/perf-bug-audit-2026-08-28.md](docs/perf-bug-audit-2026-08-28.md).
 
 ### Recipes: how to extend
 

@@ -33,10 +33,10 @@ export function bindSharedSubscriptions(): () => void {
   const s = () => useAppStore.getState();
 
   unsubs.push(subscribeTable('workspaces',   debounce(() => { void s().loadWorkspaces(); })));
-  unsubs.push(subscribeTable('pages',        debounce(() => { void s().loadPages(); })));
-  unsubs.push(subscribeTable('graphs',       debounce(() => { void s().loadGraphs(); })));
+  unsubs.push(subscribeTable('pages',        debounce(() => { void s().loadPages().then(() => s().reconcileTabs()); })));
+  unsubs.push(subscribeTable('graphs',       debounce(() => { void s().loadGraphs().then(() => s().reconcileTabs()); })));
   unsubs.push(subscribeTable('changeLogs',   debounce(() => { void s().loadChangeLogs(); })));
-  unsubs.push(subscribeTable('nmapScans',    debounce(() => { void s().loadNmapScans(); })));
+  unsubs.push(subscribeTable('nmapScans',    debounce(() => { void s().loadNmapScans().then(() => s().reconcileTabs()); })));
   unsubs.push(subscribeTable('attackChains', debounce(() => { void s().loadAttackChains(); })));
   unsubs.push(subscribeTable('typstAssets',  debounce(() => { void s().loadTypstAssets(); })));
   unsubs.push(subscribeTable('commandLogs',  debounce(() => { void s().loadCommandLogs(); })));

@@ -82,8 +82,17 @@ function setText(texts, key, value) {
   }
   const cur = t.toString();
   if (cur === value) return;
-  if (cur.length) t.delete(0, cur.length);
-  if (value) t.insert(0, value);
+  // Minimal delta (invariant #3b): keep the common prefix and suffix so a
+  // collaborator's caret inside the unchanged part survives the write.
+  let prefix = 0;
+  while (prefix < cur.length && prefix < value.length && cur[prefix] === value[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < cur.length - prefix && suffix < value.length - prefix
+    && cur[cur.length - 1 - suffix] === value[value.length - 1 - suffix]) suffix++;
+  const removed = cur.length - prefix - suffix;
+  if (removed > 0) t.delete(prefix, removed);
+  const added = value.slice(prefix, value.length - suffix);
+  if (added) t.insert(prefix, added);
 }
 
 function values(map) {

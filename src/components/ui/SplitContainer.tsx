@@ -1,15 +1,16 @@
-import { useCallback, useRef, useState, memo } from 'react';
+import { useCallback, useRef, useState, memo, lazy, Suspense } from 'react';
 import { useAppStore } from '@/stores';
 import type { PaneNode, LeafPane, SplitPane, TabItem, DropPosition } from '@/types';
 import { PageEditor } from '@/components/editor/PageEditor';
-import { GraphCanvas } from '@/components/graph/GraphCanvas';
-import { NmapScanView, NmapMachineView } from '@/components/nmap/NmapScanView';
-import { FindingsCollector } from '@/components/findings/FindingsCollector';
-import { AttackTimeline } from '@/components/findings/AttackTimeline';
-import { TypstView } from '@/components/typst/TypstView';
-import { AiAssistant } from '@/components/ai/AiAssistant';
-import { CommandLogView } from '@/components/cmdlog/CommandLogView';
-import { HistoryView } from '@/components/history/HistoryView';
+const GraphCanvas = lazy(() => import('@/components/graph/GraphCanvas').then((m) => ({ default: m.GraphCanvas })));
+const NmapScanView = lazy(() => import('@/components/nmap/NmapScanView').then((m) => ({ default: m.NmapScanView })));
+const NmapMachineView = lazy(() => import('@/components/nmap/NmapScanView').then((m) => ({ default: m.NmapMachineView })));
+const FindingsCollector = lazy(() => import('@/components/findings/FindingsCollector').then((m) => ({ default: m.FindingsCollector })));
+const AttackTimeline = lazy(() => import('@/components/findings/AttackTimeline').then((m) => ({ default: m.AttackTimeline })));
+const TypstView = lazy(() => import('@/components/typst/TypstView').then((m) => ({ default: m.TypstView })));
+const AiAssistant = lazy(() => import('@/components/ai/AiAssistant').then((m) => ({ default: m.AiAssistant })));
+const CommandLogView = lazy(() => import('@/components/cmdlog/CommandLogView').then((m) => ({ default: m.CommandLogView })));
+const HistoryView = lazy(() => import('@/components/history/HistoryView').then((m) => ({ default: m.HistoryView })));
 import { FileText, Network, Radar, Monitor, X, Bug, Clock, FileType2, Sparkles, Terminal, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -86,7 +87,7 @@ function PaneSplit({ split }: { split: SplitPane }) {
         const ratio = isH
           ? (ev.clientX - rect.left) / rect.width
           : (ev.clientY - rect.top) / rect.height;
-        latest = Math.min(0.9, Math.max(0.1, ratio));
+        latest = Math.min(0.85, Math.max(0.15, ratio));
         if (!frame) frame = requestAnimationFrame(apply);
       };
 
@@ -256,6 +257,10 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
+        {/* Everything but the note editor loads on first use, so the graph,
+            Typst, assistant, nmap, command-log and history code stays out
+            of the initial bundle. */}
+        <Suspense fallback={<div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">Loading…</div>}>
         {activeTab?.kind === 'page' && <PageEditor pageId={activeTab.entityId} />}
         {activeTab?.kind === 'graph' && <GraphCanvas graphId={activeTab.entityId} />}
         {activeTab?.kind === 'nmap' && <NmapScanView scanId={activeTab.entityId} />}
@@ -271,6 +276,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
             Drop a tab here
           </div>
         )}
+        </Suspense>
       </div>
 
       {/* Drop zone overlay */}

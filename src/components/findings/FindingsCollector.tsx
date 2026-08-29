@@ -28,12 +28,16 @@ export function FindingsCollector() {
   const [loading, setLoading] = useState(true);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
 
+  // Reload when the set of narratives changes, not on every rename keystroke
+  // (which replaced the graphs array and flashed the loading state).
+  const graphKey = graphs.map((g) => g.id).join(',');
   useEffect(() => {
     void loadAllFindings();
-  }, [graphs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphKey]);
 
   const loadAllFindings = async () => {
-    setLoading(true);
+    if (findings.length === 0) setLoading(true);
     const allNodes = await graphNodeRepo.getAllByType('finding');
     // Restrict to the current workspace: graphs in the store are already
     // scoped to the active workspace, so any node whose graphId isn't in

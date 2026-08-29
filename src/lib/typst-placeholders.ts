@@ -241,7 +241,20 @@ export function parseStringLiteral(text: string): string | null {
   let out = '';
   for (let i = 0; i < body.length; i++) {
     if (body[i] === '\\' && i + 1 < body.length) {
-      out += body[++i];
+      const next = body[++i]!;
+      if (next === 'n') out += '\n';
+      else if (next === 't') out += '\t';
+      else if (next === 'r') out += '\r';
+      else if (next === 'u' && body[i + 1] === '{') {
+        const close = body.indexOf('}', i + 2);
+        const hex = close === -1 ? '' : body.slice(i + 2, close);
+        if (close !== -1 && /^[0-9a-fA-F]{1,6}$/.test(hex)) {
+          out += String.fromCodePoint(parseInt(hex, 16));
+          i = close;
+        } else {
+          out += next;
+        }
+      } else out += next;
     } else {
       out += body[i];
     }
@@ -333,7 +346,14 @@ function lineOf(source: string, offset: number): number {
 function isInComment(source: string, offset: number): boolean {
   const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
   const before = source.slice(lineStart, offset);
-  if (before.includes('//')) return true;
+  // A `//` inside a string literal (a URL, say) is not a comment.
+  let inString = false;
+  for (let i = 0; i < before.length; i++) {
+    const ch = before[i];
+    if (ch === '\\' && inString) { i++; continue; }
+    if (ch === '"') inString = !inString;
+    else if (!inString && ch === '/' && before[i + 1] === '/') return true;
+  }
 
   const lastOpen = source.lastIndexOf('/*', offset);
   if (lastOpen === -1) return false;
@@ -391,7 +411,11 @@ function setSlotArg(
     const lead = /^\s*/.exec(original)?.[0] ?? '';
     nextArgs = args.map((a, i) => (i === existing ? `${lead}${name}: ${literal}` : a));
   } else {
-    nextArgs = [...args, ` ${name}: ${literal}`];
+    // A trailing comma in the original leaves an empty last argument; drop
+    // it before appending or the call ends up with `,,`.
+    const base = [...args];
+    while (base.length > 0 && base[base.length - 1]!.trim() === '') base.pop();
+    nextArgs = [...base, ` ${name}: ${literal}`];
   }
 
   // Drop a trailing empty argument left by a trailing comma in the original.
@@ -520,11 +544,22 @@ function endOfPreamble(source: string): number {
   const lines = source.split('\n');
   let offset = 0;
   let lastRuleEnd = 0;
+  // A rule can span lines (`#set page(\n  paper: "a4",\n)`): keep counting
+  // brackets until it closes so the helper lands after the whole statement.
+  let depth = 0;
+  let inRule = false;
   for (const line of lines) {
     const trimmed = line.trim();
     const isRule = /^#(set|import|show)\b/.test(trimmed);
-    if (isRule) lastRuleEnd = offset + line.length;
-    else if (trimmed !== '' && lastRuleEnd > 0) break;
+    if (isRule && depth === 0) inRule = true;
+    if (inRule) {
+      for (const ch of line) {
+        if (ch === '(' || ch === '[' || ch === '{') depth++;
+        else if ((ch === ')' || ch === ']' || ch === '}') && depth > 0) depth--;
+      }
+      lastRuleEnd = offset + line.length;
+      if (depth === 0) inRule = false;
+    } else if (trimmed !== '' && lastRuleEnd > 0) break;
     offset += line.length + 1;
   }
   return lastRuleEnd;

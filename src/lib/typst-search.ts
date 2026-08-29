@@ -51,7 +51,10 @@ function escapeRegExp(s: string): string {
 export function compileMatcher(query: string, opts: SearchOptions): RegExp | null {
   if (!query) return null;
   let body = opts.regex ? query : escapeRegExp(query);
-  if (opts.wholeWord) body = `\\b(?:${body})\\b`;
+  // Lookarounds rather than \b: \b needs a word character on one side, so
+  // a query that starts or ends with punctuation ("#set", "foo()") never
+  // matched as a whole word.
+  if (opts.wholeWord) body = `(?<!\\w)(?:${body})(?!\\w)`;
   let flags = 'g';
   if (!opts.caseSensitive) flags += 'i';
   try {
@@ -158,15 +161,23 @@ export function replaceOne(
   replacement: string,
   opts: SearchOptions,
 ): string {
-  let piece = replacement;
-  const re = compileMatcher(query, opts);
-  if (re) {
-    // Non-global clone so it matches the slice once, from the start.
-    const single = new RegExp(re.source, re.flags.replace('g', ''));
-    const slice = source.slice(match.from, match.to);
-    piece = slice.replace(single, opts.regex ? replacement : literalReplacement(replacement));
+  if (!opts.regex) {
+    return source.slice(0, match.from) + replacement + source.slice(match.to);
   }
-  return source.slice(0, match.from) + piece + source.slice(match.to);
+  const re = compileMatcher(query, opts);
+  if (!re) return source;
+  // A sticky clone anchored at the match runs against the WHOLE source, so a
+  // pattern whose match depends on its surroundings (lookarounds, ^, $, whole
+  // word) still matches; re-running it on the isolated slice did not.
+  const sticky = new RegExp(re.source, re.flags.replace('g', '') + 'y');
+  sticky.lastIndex = match.from;
+  const m = sticky.exec(source);
+  if (!m || m.index !== match.from || m[0].length !== match.to - match.from) return source;
+  // String.replace honours lastIndex on a sticky regex, so this replaces
+  // exactly this occurrence and still expands $1 / $& from the full-source
+  // match.
+  sticky.lastIndex = match.from;
+  return source.replace(sticky, replacement);
 }
 
 /** Count matches without materializing them (bounded by `MAX_MATCHES`). */

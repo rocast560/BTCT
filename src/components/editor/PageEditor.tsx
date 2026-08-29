@@ -78,7 +78,9 @@ export function PageEditor({ pageId }: { pageId: string }) {
   // Read the page reactively from the shared store so remote edits
   // (title, slug, tags, icon, content) propagate to this view in real time.
   const storePage = useAppStore((s) => s.pages.find((p) => p.id === pageId) ?? null);
-  const graphNodes = useAppStore((s) => s.graphNodes);
+  // Only the node linked to this page matters; selecting the whole array
+  // re-rendered every open editor on every node move.
+  const linkedNodeFromStore = useAppStore((s) => s.graphNodes.find((n) => n.linkedPageId === pageId) ?? null);
 
   // Graph node pages are deliberately excluded from `loadPages()` so they
   // don't clutter the sidebar tree, which means double-clicking a graph
@@ -109,8 +111,8 @@ export function PageEditor({ pageId }: { pageId: string }) {
 
   const linkedNode = useMemo<GraphNode | null>(() => {
     if (!page || !page.isGraphPage) return null;
-    return graphNodes.find((n) => n.linkedPageId === page.id) ?? null;
-  }, [page, graphNodes]);
+    return linkedNodeFromStore;
+  }, [page, linkedNodeFromStore]);
 
   // Fallback for graph nodes that haven't been loaded into the store yet
   // (e.g. opening a page tab before its graph tab). Hit the repo once and

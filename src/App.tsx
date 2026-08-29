@@ -261,6 +261,8 @@ function AuthedApp() {
       const tag = t.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
       if (t.isContentEditable) return true;
+      // Arrow keys nudge a focused React Flow node; do not also switch tabs.
+      if (t.closest('.react-flow')) return true;
       return false;
     };
     const handler = (e: KeyboardEvent) => {

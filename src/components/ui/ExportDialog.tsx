@@ -23,6 +23,7 @@ import {
   attackChainRepo,
 } from '@/db';
 import JSZip from 'jszip';
+import { getSharedDoc, seedMissingYTexts } from '@/realtime/shared-doc';
 import { Download, Upload, X } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -256,6 +257,10 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
           const target = remap(origPageId);
           try { applyImportedPageYjsUpdate(target, b64); } catch { /* per-page failure shouldn't abort the whole import */ }
         }
+
+        // Imported records are plain JSON: seed their Y.Texts (invariant #1)
+        // so titles and labels are editable without a reload.
+        seedMissingYTexts(getSharedDoc());
 
         await loadWorkspaces();
         setActiveWorkspace(importedWsId);

@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, TypstAssetKind, CropRect, BlurRegion, CommandLogEntry } from '@/types';
-import { sharedTransact } from '@/realtime/shared-doc';
+import { sharedTransact, getSharedDoc } from '@/realtime/shared-doc';
 import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo, typstAssetRepo, commandLogRepo } from '@/db';
 import type { LogAuthor, LogDelta } from '@/db/changelog-repo';
 import { db } from '@/db/database';
 import { useAuthStore } from '@/auth/auth-store';
-import { createLeaf, findLeafContainingTab, firstLeaf, addTabToPane, removeTab as removeTabFromLayout, collapse, moveTab, moveWithin, reorderTabInLeaf, removeTabsWhere, setActiveInPane, updateRatio } from '@/lib/pane-layout';
+import { createLeaf, findLeaf, findLeafContainingTab, firstLeaf, addTabToPane, removeTab as removeTabFromLayout, collapse, moveTab, moveWithin, reorderTabInLeaf, removeTabsWhere, setActiveInPane, updateRatio } from '@/lib/pane-layout';
 
 // ─────────────────────────────────────────────────────────────────────────
 // UI persistence: keep tabs / active tab / pane layout / active workspace
@@ -13,6 +13,20 @@ import { createLeaf, findLeafContainingTab, firstLeaf, addTabToPane, removeTab a
 // Stored as a single JSON blob in localStorage.
 // ─────────────────────────────────────────────────────────────────────────
 const UI_PERSIST_KEY = 'btct.ui.v1';
+
+/**
+ * After tabs left a layout, keep activeTabId / activePaneId pointing at
+ * things that still exist: a deleted page used to leave both aimed at a
+ * collapsed pane, so the next openTab landed in a pane nobody rendered.
+ */
+function reconcileActive(tabs: TabItem[], layout: PaneNode, activeTabId: string | null, activePaneId: string | null) {
+  const tabAlive = activeTabId && tabs.some((t) => t.id === activeTabId) ? activeTabId : null;
+  const leaf =
+    (tabAlive && findLeafContainingTab(layout, tabAlive)) ||
+    (activePaneId && findLeaf(layout, activePaneId)) ||
+    firstLeaf(layout);
+  return { activeTabId: tabAlive ?? leaf.activeTabId ?? leaf.tabIds[0] ?? null, activePaneId: leaf.id };
+}
 
 interface PersistedUi {
   activeWorkspaceId: ID | null;
@@ -98,6 +112,8 @@ interface AppState {
   moveTabToPane: (tabId: string, targetPaneId: string, position: DropPosition) => void;
   /** Drag a tab left or right: place it before or after another tab (same strip, or into that tab's pane). */
   reorderTab: (tabId: string, targetTabId: string, place: 'before' | 'after') => void;
+  /** Drop tabs whose entity no longer exists (deleted remotely or while this browser was closed) and keep the active ids valid. */
+  reconcileTabs: () => void;
   updateSplitRatio: (splitId: string, ratio: number) => void;
   /**
    * Collapse every split pane into a single pane holding all current tabs
@@ -354,6 +370,7 @@ export const useAppStore = create<AppState>((set, get) => {
         return !!tab && tab.kind === 'page' && tab.entityId === id;
       })),
     }));
+    get().reconcileTabs();
     log('delete', 'page', id, `Deleted page "${page?.title ?? id}"`, {
       prevValue: encodeValue(page),
       reversible: !!page,
@@ -412,6 +429,7 @@ export const useAppStore = create<AppState>((set, get) => {
         return !!tab && tab.kind === 'graph' && tab.entityId === id;
       })),
     }));
+    get().reconcileTabs();
     log('delete', 'graph', id, `Deleted narrative "${graph?.name ?? id}"`);
   },
 
@@ -570,7 +588,10 @@ export const useAppStore = create<AppState>((set, get) => {
             paneLayout: setActiveInPane(s.paneLayout, leaf.id, existing.id),
           };
         }
-        return { activeTabId: existing.id };
+        // A tab with no pane (left over from an older layout bug): put it
+        // back in the active pane instead of activating a ghost.
+        const paneId = s.activePaneId ?? firstLeaf(s.paneLayout).id;
+        return { activeTabId: existing.id, activePaneId: paneId, paneLayout: addTabToPane(s.paneLayout, paneId, existing.id) };
       }
       // Add to active pane (or first leaf)
       const targetPaneId = s.activePaneId ?? firstLeaf(s.paneLayout).id;
@@ -600,6 +621,12 @@ export const useAppStore = create<AppState>((set, get) => {
           const remaining = leaf.tabIds.filter((id) => id !== tabId);
           const prevIdx = Math.max(0, leaf.tabIds.indexOf(tabId) - 1);
           newActive = remaining[Math.min(prevIdx, remaining.length - 1)] ?? null;
+          if (!newActive) {
+            // The pane emptied and collapsed away: fall through to whatever
+            // the surviving pane shows instead of leaving nothing active.
+            const surviving = firstLeaf(newLayout);
+            newActive = surviving.activeTabId ?? surviving.tabIds[0] ?? null;
+          }
         } else {
           const prev = newTabs[Math.max(0, idx - 1)];
           newActive = prev?.id ?? null;
@@ -625,7 +652,10 @@ export const useAppStore = create<AppState>((set, get) => {
           paneLayout: setActiveInPane(s.paneLayout, leaf.id, tabId),
         };
       }
-      return { activeTabId: tabId };
+      if (!s.tabs.some((t) => t.id === tabId)) return { activeTabId: tabId };
+      // Known tab with no pane: re-attach it to the active pane (self-heal).
+      const paneId = s.activePaneId ?? firstLeaf(s.paneLayout).id;
+      return { activeTabId: tabId, activePaneId: paneId, paneLayout: addTabToPane(s.paneLayout, paneId, tabId) };
     });
   },
 
@@ -672,6 +702,31 @@ export const useAppStore = create<AppState>((set, get) => {
       }
       const leaf = findLeafContainingTab(paneLayout, tabId);
       return { tabs, paneLayout, activeTabId: tabId, activePaneId: leaf?.id ?? s.activePaneId };
+    });
+  },
+
+  reconcileTabs: () => {
+    const c = getSharedDoc();
+    // Before the doc has loaded every map is empty; pruning then would drop
+    // every restored tab.
+    if (c.tables.workspaces.size === 0) return;
+    const alive = (t: TabItem): boolean => {
+      switch (t.kind) {
+        case 'page':
+        case 'history': return c.tables.pages.has(t.entityId);
+        case 'graph': return c.tables.graphs.has(t.entityId);
+        case 'nmap': return c.tables.nmapScans.has(t.entityId);
+        case 'nmap-machine': return c.tables.nmapMachines.has(t.entityId);
+        default: return true;
+      }
+    };
+    set((s) => {
+      const dead = new Set(s.tabs.filter((t) => !alive(t)).map((t) => t.id));
+      const tabs = dead.size ? s.tabs.filter((t) => !dead.has(t.id)) : s.tabs;
+      const paneLayout = dead.size ? collapse(removeTabsWhere(s.paneLayout, (id) => dead.has(id))) : s.paneLayout;
+      const next = reconcileActive(tabs, paneLayout, s.activeTabId, s.activePaneId);
+      if (!dead.size && next.activeTabId === s.activeTabId && next.activePaneId === s.activePaneId) return {};
+      return { tabs, paneLayout, ...next };
     });
   },
 
@@ -891,6 +946,7 @@ export const useAppStore = create<AppState>((set, get) => {
         return !!tab && tab.kind === 'nmap' && tab.entityId === id;
       })),
     }));
+    get().reconcileTabs();
     log('delete', 'page', id, 'Deleted nmap scan');
   },
   loadNmapMachines: async (scanId: ID) => {

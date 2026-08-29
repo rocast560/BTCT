@@ -68,7 +68,10 @@ function toBool(v) {
 export function normalizeBackupConfig(raw) {
   const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const enabled = toBool(src.enabled);
-  let interval = Number(src.fullIntervalMin);
+  const rawInterval = src.fullIntervalMin;
+  // '' and null coerce to 0, which the floor would turn into a backup every
+  // minute; a blank value means "default".
+  let interval = rawInterval === '' || rawInterval == null ? NaN : Number(rawInterval);
   if (!Number.isFinite(interval)) interval = FULL_INTERVAL_MIN_DEFAULT;
   interval = Math.floor(interval);
   if (interval < FULL_INTERVAL_MIN_FLOOR) interval = FULL_INTERVAL_MIN_FLOOR;

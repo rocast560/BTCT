@@ -84,6 +84,10 @@ function loadTwin(pageId) {
 
 function flushTwin(pageId, t) {
   if (t.flushTimer) { clearTimeout(t.flushTimer); t.flushTimer = null; }
+  // Nothing new since the last write: skip the full-state encode (a room
+  // that is merely opened and closed used to pay it twice).
+  if (!t.unflushed) return;
+  t.unflushed = false;
   const bytes = Y.encodeStateAsUpdate(t.twin);
   const target = twinPath(pageId);
   const tmp = `${target}.tmp`;
@@ -115,6 +119,7 @@ export function trackPageDoc(pageId, relayDoc) {
     lastUpdateAt: 0,
     lastVersionAt: Date.now(),
     dirty: false,
+    unflushed: false,
     flushTimer: null,
     onUpdate: null,
   };
@@ -127,6 +132,7 @@ export function trackPageDoc(pageId, relayDoc) {
     }
     t.lastUpdateAt = Date.now();
     t.dirty = true;
+    t.unflushed = true;
     scheduleFlush(pageId, t);
   };
   relayDoc.on('update', t.onUpdate);

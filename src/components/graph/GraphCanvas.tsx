@@ -522,6 +522,13 @@ const GraphCanvasInner = memo(function GraphCanvasInner({ graphId }: { graphId: 
   // ── Ctrl+Z undo for node moves ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Only the graph that is the active tab owns these shortcuts, and never
+      // while the user is typing somewhere (the editor's own undo/find).
+      const st = useAppStore.getState();
+      const active = st.tabs.find((x) => x.id === st.activeTabId);
+      if (!active || active.kind !== 'graph' || active.entityId !== graphId) return;
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest('input, textarea, select, [contenteditable="true"]')) return;
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         const entry = undoStack.current.pop();
         if (entry) {

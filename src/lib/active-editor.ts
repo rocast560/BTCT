@@ -49,5 +49,8 @@ export function hasMilkdownSelection(): boolean {
     ? (anchor as Element)
     : anchor?.parentElement;
   if (!el) return false;
+  // The read-only version viewer is a ProseMirror too, but not an editor:
+  // Ctrl+K there should reach the command palette.
+  if (el.closest('.history-viewer')) return false;
   return !!el.closest('.milkdown-host .ProseMirror');
 }

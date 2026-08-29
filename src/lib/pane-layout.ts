@@ -147,9 +147,15 @@ export function moveTab(
   targetPaneId: string,
   position: DropPosition,
 ): PaneNode {
-  // First remove from wherever it is
+  const from = findLeafContainingTab(root, tabId);
+  // Dropping a tab onto the centre of its own pane is a no-op.
+  if (position === 'center' && from && from.id === targetPaneId) return root;
+  // The target has to exist before the tab leaves its pane: removing first
+  // and collapsing could delete the very leaf we are about to add to, and
+  // addTabToPane/splitLeaf silently no-op on an unknown pane id, which used
+  // to strand the tab in store.tabs with no pane rendering it.
+  if (!findLeaf(root, targetPaneId)) return root;
   let layout = removeTab(root, tabId);
-  layout = collapse(layout);
 
   if (position === 'center') {
     // Add to target pane
@@ -161,7 +167,9 @@ export function moveTab(
     layout = splitLeaf(layout, targetPaneId, directionMap[position]!, tabId, positionMap[position]!);
   }
 
-  return layout;
+  // Collapse last, so an emptied source pane disappears without taking the
+  // target with it.
+  return collapse(layout);
 }
 
 // ── Reordering within a strip ──

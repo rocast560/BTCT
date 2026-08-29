@@ -184,7 +184,9 @@ export function figureWidthPt(source: string): number {
     if (parsedWidth !== null && parsedWidth > 0) {
       pageWidth = parsedWidth;
     } else {
-      const paperArg = namedArg(args, 'paper');
+      // `paper` is positional in Typst: `#set page("us-letter")` is the form
+      // the docs show, so accept it next to the named spelling.
+      const paperArg = namedArg(args, 'paper') ?? (/^\s*"([a-z0-9-]+)"/i.exec(args)?.[1] ?? null);
       const paper = paperArg?.replace(/^"|"$/g, '').toLowerCase();
       if (paper && PAPER_WIDTH_PT[paper]) pageWidth = PAPER_WIDTH_PT[paper]!;
     }

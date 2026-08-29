@@ -263,17 +263,24 @@ export function LeftSidebar() {
 
   // ── Resize handle ──
   const isResizing = useRef(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     isResizing.current = true;
     const startX = e.clientX;
     const startWidth = leftSidebarWidth;
+    let latest = startWidth;
+    // Write the width straight to the DOM while dragging (one mutation per
+    // event) and commit to the store on release: a store write per mousemove
+    // re-rendered the whole rail for every pixel.
     const onMove = (ev: MouseEvent) => {
       if (!isResizing.current) return;
-      setLeftSidebarWidth(startWidth + (ev.clientX - startX));
+      latest = Math.max(180, startWidth + (ev.clientX - startX));
+      if (rootRef.current) rootRef.current.style.width = `${latest}px`;
     };
     const onUp = () => {
       isResizing.current = false;
+      setLeftSidebarWidth(latest);
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
@@ -282,7 +289,7 @@ export function LeftSidebar() {
   }, [leftSidebarWidth, setLeftSidebarWidth]);
 
   return (
-    <div data-ui="sidebar" className="relative flex h-full flex-col border-r border-[hsl(var(--border))] bg-[hsl(var(--card))]" style={{ width: leftSidebarWidth }}>
+    <div ref={rootRef} data-ui="sidebar" className="relative flex h-full flex-col border-r border-[hsl(var(--border))] bg-[hsl(var(--card))]" style={{ width: leftSidebarWidth }}>
       {/* Resize handle */}
       <div
         onMouseDown={handleMouseDown}
@@ -291,7 +298,7 @@ export function LeftSidebar() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <img src="/new-logo.png" alt="" className="h-5 w-5 rounded-md object-cover" aria-hidden />
+          <img src="/new-logo-64.png" alt="" className="h-5 w-5 rounded-md object-cover" aria-hidden />
           <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--foreground))]">BTCT</span>
         </div>
         <div className="flex items-center gap-1">
@@ -776,7 +783,7 @@ function PageTreeItem({
             <Pencil size={12} /> Edit Path
           </button>
           <button
-            onClick={() => { setCtxMenu(null); setRenaming(true); }}
+            onClick={() => { setCtxMenu(null); setNameValue(page.title); setRenaming(true); }}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
           >
             <Pencil size={12} /> Rename
@@ -925,7 +932,7 @@ function NarrativeItem({
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
         >
           <button
-            onClick={() => { setCtxMenu(null); setRenaming(true); }}
+            onClick={() => { setCtxMenu(null); setNameValue(graph.name); setRenaming(true); }}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
           >
             <Pencil size={12} /> Rename
@@ -1042,7 +1049,7 @@ function NmapScanItem({
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
         >
           <button
-            onClick={() => { setCtxMenu(null); setRenaming(true); }}
+            onClick={() => { setCtxMenu(null); setNameValue(scan.name); setRenaming(true); }}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
           >
             <Pencil size={12} /> Rename
@@ -1213,7 +1220,7 @@ function AttackChainItem({
             Highlight on Narrative
           </button>
           <button
-            onClick={() => { setCtxMenu(null); setRenaming(true); }}
+            onClick={() => { setCtxMenu(null); setNameValue(chain.name); setRenaming(true); }}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
           >
             <Pencil size={12} /> Rename

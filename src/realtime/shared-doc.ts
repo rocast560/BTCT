@@ -342,6 +342,19 @@ function mirrorTextsToRecords() {
     });
   };
 
+  // Each keystroke used to rewrite the whole record (content markdown
+  // included) straight away, so a title edit re-broadcast the page body per
+  // character; the Y.Text already drives the input, so the JSON mirror can
+  // trail by a beat. One trailing timer per key coalesces a typing burst.
+  const pending = new Map<string, number>();
+  const schedule = (key: string) => {
+    if (pending.has(key)) return;
+    pending.set(key, window.setTimeout(() => {
+      pending.delete(key);
+      writeBack(key);
+    }, 150));
+  };
+
   // observeDeep fires for any nested Y.Text change (insert/delete) AND
   // for additions/removals of Y.Texts in the parent map.
   c.texts.observeDeep((events) => {
@@ -358,7 +371,7 @@ function mirrorTextsToRecords() {
         for (const k of ev.changes.keys.keys()) touched.add(k);
       }
     }
-    for (const key of touched) writeBack(key);
+    for (const key of touched) schedule(key);
   });
 }
 
@@ -371,7 +384,7 @@ function mirrorTextsToRecords() {
  * both create-time pre-seeding (in repos) and the post-sync migration
  * pass below.
  */
-const TEXT_FIELDS_BY_ENTITY: Record<string, { table: TableName; fields: string[] }> = {
+export const TEXT_FIELDS_BY_ENTITY: Record<string, { table: TableName; fields: string[] }> = {
   page:        { table: 'pages',        fields: ['title', 'slug'] },
   node:        { table: 'graphNodes',   fields: ['label'] },
   edge:        { table: 'graphEdges',   fields: ['label'] },
@@ -389,7 +402,7 @@ const TEXT_FIELDS_BY_ENTITY: Record<string, { table: TableName; fields: string[]
  * records created in older releases (when Y.Text fields didn't exist
  * yet) get migrated lazily without requiring a server-side rewrite.
  */
-function seedMissingYTexts(c: SharedDocContext): void {
+export function seedMissingYTexts(c: SharedDocContext): void {
   c.doc.transact(() => {
     for (const [entity, info] of Object.entries(TEXT_FIELDS_BY_ENTITY)) {
       const map = c.tables[info.table];

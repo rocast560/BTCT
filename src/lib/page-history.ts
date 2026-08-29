@@ -27,7 +27,11 @@ export function dayKeyOf(ts: number): string {
 export function dayLabel(ts: number, now: number = Date.now()): string {
   const key = dayKeyOf(ts);
   if (key === dayKeyOf(now)) return 'Today';
-  if (key === dayKeyOf(now - 24 * 60 * 60 * 1000)) return 'Yesterday';
+  // Calendar arithmetic, not "now minus 24 h": the day after a 23-hour DST
+  // day, the first hour of the morning would otherwise skip yesterday.
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (key === dayKeyOf(yesterday.getTime())) return 'Yesterday';
   const d = new Date(ts);
   const sameYear = d.getFullYear() === new Date(now).getFullYear();
   return d.toLocaleDateString(undefined, {
