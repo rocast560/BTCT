@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw, Terminal, HardDrive, Play } from 'lucide-react';
+import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw, Terminal, HardDrive, Play, EyeOff } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   useAuthStore,
@@ -13,6 +13,7 @@ import {
   type BackupEntry,
 } from '@/auth/auth-store';
 import { useAppStore } from '@/stores';
+import { useThemeStore } from '@/stores/theme-store';
 
 /**
  * Admin-only modal panel for managing user accounts. Lists every user, lets
@@ -149,6 +150,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
 
           {/* Scheduled backups to the host folder */}
           <BackupConfigSection />
+
+          {/* Default strength for new blur regions on report screenshots */}
+          <BlurConfigSection />
 
           {/* Create-user form */}
           <form
@@ -967,6 +971,90 @@ function BackupConfigSection() {
 
       {(msg || err) && (
         <div className={`mt-2 text-[10px] ${err ? 'text-[hsl(var(--status-red))]' : 'text-[hsl(var(--status-green))]'}`}>{err || msg}</div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Workspace-wide default strength for new blur (redaction) regions, one
+ * value per style. A user who sets their own default in Edit Profile keeps
+ * it; every other account follows these.
+ */
+function BlurConfigSection() {
+  const blur = useThemeStore((s) => s.blurDefaults);
+  const updateBlurDefaults = useThemeStore((s) => s.updateBlurDefaults);
+  const [gaussian, setGaussian] = useState(1);
+  const [pixelate, setPixelate] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setGaussian(blur.gaussian);
+    setPixelate(blur.pixelate);
+  }, [blur]);
+
+  const dirty = gaussian !== blur.gaussian || pixelate !== blur.pixelate;
+  const save = async () => {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      await updateBlurDefaults({ gaussian, pixelate });
+      setMsg('Blur defaults saved');
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'save failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const row = (label: string, hint: string, value: number, onChange: (n: number) => void) => (
+    <div className="flex items-center gap-3">
+      <span className="w-14 shrink-0 text-[11px] text-white/70" title={hint}>{label}</span>
+      <input
+        type="range"
+        min={0.25}
+        max={3}
+        step={0.05}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="min-w-0 flex-1 accent-[hsl(var(--status-purple))]"
+      />
+      <span className="w-11 shrink-0 text-right font-mono text-[11px] text-white/70">{Math.round(value * 100)}%</span>
+    </div>
+  );
+
+  return (
+    <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
+      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/70">
+        <EyeOff size={12} className="text-[hsl(var(--status-purple))]" /> Blur Defaults
+      </div>
+      <p className="mb-2 text-[10px] text-white/50">
+        Default strength for new redaction regions on report screenshots, per style.
+        Users who set their own default in Edit Profile keep it; everyone else follows these.
+      </p>
+      <div className="space-y-2">
+        {row('Blur', 'Smooth gaussian blur', gaussian, setGaussian)}
+        {row('Pixels', 'Hard mosaic blocks', pixelate, setPixelate)}
+      </div>
+      <div className="mt-2 flex items-center justify-end gap-2">
+        <button
+          onClick={() => { setGaussian(blur.gaussian); setPixelate(blur.pixelate); }}
+          disabled={busy || !dirty}
+          className="rounded-md px-2 py-1 text-[11px] text-white/60 hover:bg-white/10 disabled:opacity-40"
+        >
+          Reset
+        </button>
+        <button
+          onClick={() => void save()}
+          disabled={busy || !dirty}
+          className="rounded-md bg-white/90 px-3 py-1.5 text-xs font-medium text-black hover:bg-white disabled:opacity-40"
+        >
+          Save defaults
+        </button>
+      </div>
+      {(msg || err) && (
+        <div className={`mt-2 text-[11px] ${err ? 'text-[hsl(var(--status-red))]' : 'text-white/60'}`}>{err || msg}</div>
       )}
     </div>
   );

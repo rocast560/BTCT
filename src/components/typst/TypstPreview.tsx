@@ -99,6 +99,26 @@ function textRunAtPoint(
   return candidates;
 }
 
+/** The data-URI href of the rendered image under the pointer, if any. */
+function imageHrefAtPoint(
+  container: HTMLElement,
+  clientX: number,
+  clientY: number,
+): string | null {
+  let best: { href: string; area: number } | null = null;
+  for (const img of Array.from(container.querySelectorAll('svg image'))) {
+    const r = img.getBoundingClientRect();
+    if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) continue;
+    const href = img.getAttribute('href') || img.getAttribute('xlink:href');
+    if (!href) continue;
+    const area = r.width * r.height;
+    // Prefer the smallest hit: a figure nested over a full-page background
+    // image should win over the background.
+    if (!best || area < best.area) best = { href, area };
+  }
+  return best?.href ?? null;
+}
+
 const DEBOUNCE_MS = 350;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
@@ -115,6 +135,7 @@ export const TypstPreview = memo(function TypstPreview({
   source,
   revision = 0,
   onRevealSource,
+  onRevealImage,
 }: {
   source: string;
   revision?: number;
@@ -123,6 +144,11 @@ export const TypstPreview = memo(function TypstPreview({
    * neighbouring runs); the handler takes the first that resolves.
    */
   onRevealSource?: (candidates: SourceCandidate[]) => void;
+  /**
+   * Click-to-asset: fires instead of click-to-source when the click lands
+   * on a rendered image, with that `<image>`'s (data URI) href.
+   */
+  onRevealImage?: (href: string) => void;
 }) {
   const [svg, setSvg] = useState<string>('');
   const [diagnostics, setDiagnostics] = useState<TypstDiagnostic[]>([]);
@@ -173,14 +199,19 @@ export const TypstPreview = memo(function TypstPreview({
   const pageAreaRef = useRef<HTMLDivElement>(null);
 
   const onPageClick = useCallback((e: React.MouseEvent) => {
-    if (!onRevealSource) return;
+    if (!onRevealSource && !onRevealImage) return;
     // Let a text selection drag stay a selection rather than also jumping.
     if (window.getSelection()?.toString()) return;
     const host = pageAreaRef.current;
     if (!host) return;
+    if (onRevealImage) {
+      const href = imageHrefAtPoint(host, e.clientX, e.clientY);
+      if (href) { onRevealImage(href); return; }
+    }
+    if (!onRevealSource) return;
     const candidates = textRunAtPoint(host, e.clientX, e.clientY);
     if (candidates.length > 0) onRevealSource(candidates);
-  }, [onRevealSource]);
+  }, [onRevealSource, onRevealImage]);
 
   const zoomIn = useCallback(() => setZoom((z) => Math.min(MAX_ZOOM, +(z + 0.1).toFixed(2))), []);
   const zoomOut = useCallback(() => setZoom((z) => Math.max(MIN_ZOOM, +(z - 0.1).toFixed(2))), []);

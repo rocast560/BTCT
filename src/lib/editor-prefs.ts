@@ -15,6 +15,8 @@
 // account has saved so a brand-new / never-customized account still works.
 // ─────────────────────────────────────────────────────────────────────────
 
+import { MAX_STRENGTH, MIN_STRENGTH } from './blur-math';
+
 export type KeybindAction =
   | 'bold'
   | 'italic'
@@ -59,6 +61,17 @@ export interface ThemePrefs {
   headings: Partial<Record<HeadingLevel, string>>;
 }
 
+/**
+ * Per-account default strength for new blur (redaction) regions, one value
+ * per style. `null` means "follow the workspace default" (the admin policy,
+ * falling back to 1). Existing regions are never re-interpreted: the default
+ * is stamped onto a region when it is drawn.
+ */
+export interface BlurDefaults {
+  gaussian: number | null;
+  pixelate: number | null;
+}
+
 export interface EditorPrefs {
   /** #RRGGBB base color for code-block syntax highlighting. */
   codeAccent: string;
@@ -68,6 +81,8 @@ export interface EditorPrefs {
   follow: FollowPrefs;
   /** Note heading colours. */
   theme: ThemePrefs;
+  /** Default strength for new blur regions (null = workspace default). */
+  blurDefaults: BlurDefaults;
 }
 
 // GitHub Dark's keyword color. The rest of the code palette is fixed GitHub
@@ -97,11 +112,17 @@ export const DEFAULT_THEME_PREFS: ThemePrefs = Object.freeze({
   headings: Object.freeze({}),
 }) as ThemePrefs;
 
+export const DEFAULT_BLUR_DEFAULTS: BlurDefaults = Object.freeze({
+  gaussian: null,
+  pixelate: null,
+}) as BlurDefaults;
+
 export const DEFAULT_EDITOR_PREFS: EditorPrefs = {
   codeAccent: DEFAULT_CODE_ACCENT,
   keybinds: { ...DEFAULT_KEYBINDS },
   follow: { ...DEFAULT_FOLLOW_PREFS, precisionByUserId: {} },
   theme: { headingColor: null, headings: {} },
+  blurDefaults: { gaussian: null, pixelate: null },
 };
 
 // Human-readable labels + display order for the keybinds dialog.
@@ -192,7 +213,40 @@ export function resolvePrefs(user: MaybeUser | null | undefined): EditorPrefs {
   }
 
   const theme = resolveThemePrefs(stored.theme);
-  return { codeAccent, keybinds, follow, theme };
+  const blurDefaults = resolveBlurDefaults(stored.blurDefaults);
+  return { codeAccent, keybinds, follow, theme, blurDefaults };
+}
+
+/** Validate a stored blurDefaults blob: numbers clamp to range, junk inherits. */
+export function resolveBlurDefaults(raw: unknown): BlurDefaults {
+  const out: BlurDefaults = { gaussian: null, pixelate: null };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const key of ['gaussian', 'pixelate'] as const) {
+    const v = (raw as Record<string, unknown>)[key];
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      out[key] = Math.min(Math.max(v, MIN_STRENGTH), MAX_STRENGTH);
+    }
+  }
+  return out;
+}
+
+/**
+ * The strengths a new blur region starts with: the user's own default per
+ * style, else the admin's workspace default, else 1. Everything clamps to
+ * the supported range and malformed values fall through to the next tier.
+ */
+export function resolveBlurStrengthPolicy(
+  admin: { gaussian?: number; pixelate?: number } | null | undefined,
+  user: BlurDefaults,
+): { gaussian: number; pixelate: number } {
+  const pick = (v: unknown, fallback: number): number =>
+    typeof v === 'number' && Number.isFinite(v)
+      ? Math.min(Math.max(v, MIN_STRENGTH), MAX_STRENGTH)
+      : fallback;
+  return {
+    gaussian: pick(user.gaussian, pick(admin?.gaussian, 1)),
+    pixelate: pick(user.pixelate, pick(admin?.pixelate, 1)),
+  };
 }
 
 // ── Shortcut parsing / matching ──────────────────────────────────────────

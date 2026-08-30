@@ -315,6 +315,14 @@ export async function publishPublicSettings(theme) {
   });
 }
 
+/** Mirror the public blur-defaults policy (same pattern as the theme). */
+export async function publishPublicBlur(blur) {
+  const { doc, tables } = await shared();
+  doc.transact(() => {
+    tables.settingsPublic.set('blur', blur);
+  });
+}
+
 function pruneCommandLogs(map) {
   // Under the cap in total means under the cap for every workspace; skip
   // the full materialize-and-sort on the common (bounded) path.

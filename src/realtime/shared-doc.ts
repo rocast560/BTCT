@@ -50,6 +50,7 @@ export const TABLE_NAMES = [
   'nmapScans',
   'nmapMachines',
   'typstAssets',
+  'assetFolders',
   'commandLogs',
   // Server-written mirror of the public settings (admin theme policy), so
   // clients re-theme live. Read by theme-store via shared-bindings; never

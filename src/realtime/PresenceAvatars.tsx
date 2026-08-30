@@ -69,10 +69,8 @@ export function PresenceAvatars() {
     try {
       await updateProfile({
         prefs: {
-          codeAccent: resolved.codeAccent,
-          keybinds: resolved.keybinds,
+          ...resolved,
           follow: { ...resolved.follow, panePlacement: choice },
-          theme: resolved.theme,
         },
       });
     } catch {

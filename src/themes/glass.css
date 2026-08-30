@@ -790,3 +790,58 @@ html[data-ui-theme="glass"] :is(button, a, summary, [role="button"], [role="tab"
     transform: none !important;
   }
 }
+
+/* ── Typst asset folder tree ──────────────────────────────────────────────
+   Same FolderPalette-style guide lines as the sidebar page tree, on the
+   explicit .atree-* classes (the assets pane lives in the content column,
+   outside the sidebar-scoped token matchers). Geometry matches the sidebar
+   rows (py-1.5, 27px tall). */
+html[data-ui-theme="glass"] .atree-kids {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 10px;
+  margin-top: 2px;
+  padding-left: 9px;
+}
+html[data-ui-theme="glass"] .atree-kids > .atree-item {
+  position: relative;
+}
+html[data-ui-theme="glass"] .atree-kids > .atree-item::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: -3px;
+  width: 14px;
+  height: 17px;
+  border-left: 1px solid var(--g-tree);
+  border-bottom: 1px solid var(--g-tree);
+  border-bottom-left-radius: 5px;
+  pointer-events: none;
+}
+html[data-ui-theme="glass"] .atree-kids > .atree-item:first-child::before {
+  top: -11px;
+  height: 25px;
+}
+html[data-ui-theme="glass"] .atree-kids > .atree-item:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 14px;
+  bottom: -2px;
+  border-left: 1px solid var(--g-tree);
+  pointer-events: none;
+}
+
+/* Preview click-to-reveal: pulse the matched asset card. Box-shadow only,
+   never transform (the reduced-motion rule and the SVG preview both depend
+   on transforms staying untouched). */
+@keyframes g-asset-flash {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0); }
+  30% { box-shadow: 0 0 0 3px hsl(var(--primary) / 0.75); }
+  70% { box-shadow: 0 0 0 3px hsl(var(--primary) / 0.45); }
+}
+html[data-ui-theme="glass"] .asset-flash {
+  animation: g-asset-flash 1.6s ease-out 2;
+}

@@ -32,6 +32,12 @@ export interface PublicThemeSettings {
   themeUpdatedAt?: number;
 }
 
+/** Shape of the blur half of GET /api/settings and of `settingsPublic.blur`. */
+export interface PublicBlurSettings {
+  blurDefaults?: { gaussian?: number; pixelate?: number };
+  blurUpdatedAt?: number;
+}
+
 /** Admin-only patch for POST /api/settings/theme; every field is optional. */
 export interface ThemeUpdate {
   color?: string;
@@ -53,6 +59,13 @@ interface ThemeState {
   // Admin-only: fails with 403 otherwise. Optimistically paints a new
   // accent so the picker feels instant; reverts on server error.
   updateTheme: (patch: ThemeUpdate) => Promise<void>;
+  /** Workspace default strength for new blur regions, per style. */
+  blurDefaults: { gaussian: number; pixelate: number };
+  /** Server stamp of the last blur-defaults change; older payloads are ignored. */
+  blurUpdatedAt: number;
+  applyServerBlur: (data: PublicBlurSettings | null | undefined) => void;
+  /** Admin-only: set the workspace blur defaults. */
+  updateBlurDefaults: (patch: { gaussian?: number; pixelate?: number }) => Promise<void>;
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -63,6 +76,8 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   lock: false,
   updatedAt: 0,
   loaded: false,
+  blurDefaults: { gaussian: 1, pixelate: 1 },
+  blurUpdatedAt: 0,
 
   applyServerTheme: (data) => {
     if (!data || typeof data !== 'object') return;
@@ -83,11 +98,45 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     });
   },
 
+  applyServerBlur: (data) => {
+    if (!data || typeof data !== 'object') return;
+    const raw = Number(data.blurUpdatedAt ?? 0);
+    const stamp = Number.isFinite(raw) ? raw : 0;
+    if (stamp < get().blurUpdatedAt) return; // stale copy of the mirror
+    const clampS = (n: unknown, fallback: number) =>
+      typeof n === 'number' && Number.isFinite(n) ? Math.min(Math.max(n, 0.25), 3) : fallback;
+    const prev = get().blurDefaults;
+    set({
+      blurDefaults: {
+        gaussian: clampS(data.blurDefaults?.gaussian, prev.gaussian),
+        pixelate: clampS(data.blurDefaults?.pixelate, prev.pixelate),
+      },
+      blurUpdatedAt: stamp,
+    });
+  },
+
+  updateBlurDefaults: async (patch) => {
+    const token = useAuthStore.getState().token;
+    const res = await fetch(`${apiUrl()}/api/settings/blur`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(patch),
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string } & PublicBlurSettings;
+    if (!res.ok) throw new Error(data.error || `request failed (${res.status})`);
+    get().applyServerBlur(data);
+  },
+
   loadTheme: async () => {
     try {
       const res = await fetch(`${apiUrl()}/api/settings`);
       if (!res.ok) throw new Error(String(res.status));
-      get().applyServerTheme((await res.json()) as PublicThemeSettings);
+      const data = (await res.json()) as PublicThemeSettings & PublicBlurSettings;
+      get().applyServerTheme(data);
+      get().applyServerBlur(data);
     } catch {
       // Network/server hiccup: fall back to the default so the UI never
       // ends up uncolored, but leave `loaded` false so a later retry can

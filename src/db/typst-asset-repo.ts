@@ -36,6 +36,7 @@ export const typstAssetRepo = {
     width?: number | null;
     height?: number | null;
     fontFamily?: string | null;
+    folderId?: ID | null;
   }): Promise<TypstAsset> {
     const now = Date.now();
     const asset: TypstAsset = {
@@ -50,6 +51,7 @@ export const typstAssetRepo = {
       crop: null,
       blurs: null,
       fontFamily: data.fontFamily ?? null,
+      folderId: data.folderId ?? null,
       createdAt: now,
       updatedAt: now,
     };
@@ -71,6 +73,11 @@ export const typstAssetRepo = {
 
   async rename(id: ID, filename: string): Promise<void> {
     await db.typstAssets.update(id, { filename, updatedAt: Date.now() });
+  },
+
+  /** Move the asset into a folder (null = root). Purely organizational. */
+  async setFolder(id: ID, folderId: ID | null): Promise<void> {
+    await db.typstAssets.update(id, { folderId, updatedAt: Date.now() });
   },
 
   async remove(id: ID): Promise<void> {

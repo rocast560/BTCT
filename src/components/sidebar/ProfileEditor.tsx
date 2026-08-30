@@ -3,12 +3,15 @@ import { X, Download, Upload } from 'lucide-react';
 import { useAuthStore, type AuthUser } from '@/auth/auth-store';
 import {
   resolvePrefs,
+  resolveBlurStrengthPolicy,
   isThemeCustomized,
+  type BlurDefaults,
   type EditorPrefs,
   type FollowPrefs,
   type FollowPrecision,
   type ThemePrefs,
 } from '@/lib/editor-prefs';
+import { MAX_STRENGTH, MIN_STRENGTH } from '@/lib/blur-math';
 import { applyCodeAccent } from '@/lib/code-theme';
 import { applyHeadingColors, resolveEffectiveHeadings } from '@/lib/theme';
 import { useThemeStore } from '@/stores/theme-store';
@@ -33,6 +36,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
   const [keybinds, setKeybinds] = useState(resolved.keybinds);
   const [follow, setFollow] = useState<FollowPrefs>(resolved.follow);
   const [theme, setTheme] = useState<ThemePrefs>(resolved.theme);
+  const [blurDefaults, setBlurDefaults] = useState<BlurDefaults>(resolved.blurDefaults);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -42,6 +46,8 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
   // they are hard-locked (then the picker is shown read-only).
   const adminHeadings = useThemeStore((s) => s.headings);
   const themeLock = useThemeStore((s) => s.lock);
+  // Workspace default blur strengths (admin policy), for hints + fallback.
+  const adminBlur = useThemeStore((s) => s.blurDefaults);
 
   // Online teammates plus anyone with an existing precision override, so
   // saved overrides for offline users remain editable.
@@ -90,7 +96,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
       format: 'btct-prefs',
       version: 1,
       exportedAt: new Date().toISOString(),
-      prefs: { codeAccent, keybinds, follow, theme },
+      prefs: { codeAccent, keybinds, follow, theme, blurDefaults },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -118,6 +124,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
       applyCodeAccent(next.codeAccent);
       setKeybinds(next.keybinds);
       setFollow(next.follow);
+      setBlurDefaults(next.blurDefaults);
       handleThemeChange(next.theme);
       setError(null);
       setNotice(`Loaded ${file.name}. Review, then Save to apply.`);
@@ -131,7 +138,8 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
     codeAccent.toLowerCase() !== resolved.codeAccent.toLowerCase() ||
     JSON.stringify(keybinds) !== JSON.stringify(resolved.keybinds) ||
     JSON.stringify(follow) !== JSON.stringify(resolved.follow) ||
-    JSON.stringify(theme) !== JSON.stringify(resolved.theme);
+    JSON.stringify(theme) !== JSON.stringify(resolved.theme) ||
+    JSON.stringify(blurDefaults) !== JSON.stringify(resolved.blurDefaults);
 
   const handleSave = async () => {
     if (!HEX_RE.test(color)) {
@@ -145,7 +153,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await updateProfile({ color, prefs: { codeAccent, keybinds, follow, theme } });
+      await updateProfile({ color, prefs: { codeAccent, keybinds, follow, theme, blurDefaults } });
       saved.current = true;
       onClose();
     } catch (err) {
@@ -271,6 +279,63 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
               onChange={handleThemeChange}
               disabled={themeLock}
             />
+          </div>
+
+          {/* Default strength for new blur (redaction) regions on report
+              screenshots. Null = follow the workspace default. */}
+          <div>
+            <label className="mb-1 block text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+              Redaction Defaults
+            </label>
+            <div className="space-y-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] p-2.5">
+              {([['gaussian', 'Blur'], ['pixelate', 'Pixels']] as const).map(([styleKey, label]) => {
+                const own = blurDefaults[styleKey];
+                const adminVal = resolveBlurStrengthPolicy(adminBlur, { gaussian: null, pixelate: null })[styleKey];
+                return (
+                  <div key={styleKey} className="flex items-center gap-2">
+                    <span className="w-12 shrink-0 text-[11px] text-[hsl(var(--muted-foreground))]">{label}</span>
+                    {own === null ? (
+                      <>
+                        <span className="min-w-0 flex-1 truncate text-[10px] text-[hsl(var(--muted-foreground))]">
+                          Workspace default ({Math.round(adminVal * 100)}%)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setBlurDefaults((b) => ({ ...b, [styleKey]: adminVal }))}
+                          className="shrink-0 rounded-md border border-[hsl(var(--border))] px-2 py-0.5 text-[10px] hover:bg-[hsl(var(--accent))]"
+                        >
+                          Customize
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="range"
+                          min={MIN_STRENGTH}
+                          max={MAX_STRENGTH}
+                          step={0.05}
+                          value={own}
+                          onChange={(e) => setBlurDefaults((b) => ({ ...b, [styleKey]: Number(e.target.value) }))}
+                          className="min-w-0 flex-1 accent-[hsl(var(--status-purple))]"
+                        />
+                        <span className="w-10 shrink-0 text-right font-mono text-[10px]">{Math.round(own * 100)}%</span>
+                        <button
+                          type="button"
+                          title="Follow the workspace default again"
+                          onClick={() => setBlurDefaults((b) => ({ ...b, [styleKey]: null }))}
+                          className="shrink-0 rounded-md border border-[hsl(var(--border))] px-2 py-0.5 text-[10px] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]"
+                        >
+                          Default
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              <p className="text-[9px] leading-relaxed text-[hsl(var(--muted-foreground))]">
+                Applied to newly drawn redaction regions in the screenshot editor; existing regions keep their strength.
+              </p>
+            </div>
           </div>
 
           {/* Following: how precisely to mirror a teammate when you follow

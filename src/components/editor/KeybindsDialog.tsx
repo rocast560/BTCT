@@ -59,7 +59,7 @@ export function KeybindsDialog({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await updateProfile({ prefs: { codeAccent: resolved.codeAccent, keybinds, follow: resolved.follow, theme: resolved.theme } });
+      await updateProfile({ prefs: { ...resolved, keybinds } });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'save failed');

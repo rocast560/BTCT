@@ -28,6 +28,7 @@ import {
   typstErrorMessage,
 } from '@/lib/typst-compiler';
 import { assetPath, fetchAssetBytes, resolveAssetBytes } from '@/lib/typst-assets';
+import { matchAssetByHref } from '@/lib/asset-folders';
 import { PLACEHOLDER_HELPER } from '@/lib/typst-placeholders';
 import { findSourceRange, type SourceRange } from '@/lib/typst-source-map';
 import {
@@ -189,6 +190,10 @@ function useTypstAssetSync(workspaceId: string): number {
 
 function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
   const ytext = useTypstSource(workspaceId);
+  const typstAssets = useAppStore((s) => s.typstAssets);
+  // Ref mirror so the preview's click callback stays stable across renders.
+  const typstAssetsRef = useRef(typstAssets);
+  typstAssetsRef.current = typstAssets;
   const [source, setSource] = useState('');
   const [layout, setLayout] = useState<TypstLayout>(loadTypstLayout);
   const { showEditor, showAssets } = layout;
@@ -291,6 +296,35 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
     }
     if (hit) revealRange(hit.from, hit.to);
   }, [revealRange]);
+
+  // Assets panel: full-tab mode, and click-to-reveal from the preview
+  // (clicking a rendered figure selects + flashes its asset card).
+  const [assetsMax, setAssetsMax] = useState(false);
+  const [assetReveal, setAssetReveal] = useState<{ id: string; nonce: number } | null>(null);
+  const toggleAssetsMax = useCallback(() => setAssetsMax((m) => !m), []);
+  const hideAssets = useCallback(() => {
+    setAssetsMax(false);
+    setLayout((prev) => {
+      const merged = { ...prev, showAssets: false };
+      saveTypstLayout(merged);
+      return merged;
+    });
+  }, []);
+  const revealImage = useCallback((href: string) => {
+    void (async () => {
+      const images = typstAssetsRef.current.filter((a) => a.kind === 'image');
+      const match = await matchAssetByHref(href, images, resolveAssetBytes);
+      if (!match) return;
+      if (!visibleRef.current.assets) {
+        setLayout((prev) => {
+          const merged = { ...prev, showAssets: true };
+          saveTypstLayout(merged);
+          return merged;
+        });
+      }
+      setAssetReveal({ id: match.id, nonce: Date.now() });
+    })();
+  }, []);
 
   // Whole-document find & replace panel (lib/typst-search). Ctrl/⌘+F inside the
   // editor and the header's Find button both route here; opening it reveals the
@@ -525,7 +559,7 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
           `contain: layout paint` on each pane keeps a width change from
           relayouting or repainting the other two: the preview's SVG in
           particular can be a very large subtree. */}
-      <div ref={containerRef} className="flex min-h-0 flex-1">
+      <div ref={containerRef} className="relative flex min-h-0 flex-1">
         {showEditor && (
           <>
             <div
@@ -553,10 +587,10 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
         )}
 
         <div className="min-w-0 flex-1 overflow-hidden" style={{ contain: 'layout paint' }}>
-          <TypstPreview source={source} revision={assetRevision} onRevealSource={revealSource} />
+          <TypstPreview source={source} revision={assetRevision} onRevealSource={revealSource} onRevealImage={revealImage} />
         </div>
 
-        {showAssets && (
+        {showAssets && !assetsMax && (
           <>
             <PaneDivider onPointerDown={startResize('assets')} onDoubleClick={resetPane('assets')} />
             <div
@@ -564,9 +598,31 @@ function TypstWorkspaceView({ workspaceId }: { workspaceId: string }) {
               className="min-w-0 shrink-0 overflow-hidden"
               style={{ width: `${layout.assets}px`, contain: 'layout paint' }}
             >
-              <TypstAssetsPanel source={source} onSourceChange={applySource} />
+              <TypstAssetsPanel
+                source={source}
+                onSourceChange={applySource}
+                fullscreen={false}
+                onToggleFullscreen={toggleAssetsMax}
+                onHide={hideAssets}
+                reveal={assetReveal}
+              />
             </div>
           </>
+        )}
+
+        {/* Full-tab asset browser: an overlay, so the editor stays mounted
+            and its collab binding (and every remote cursor) survives. */}
+        {showAssets && assetsMax && (
+          <div className="absolute inset-0 z-20 bg-[hsl(var(--card))]">
+            <TypstAssetsPanel
+              source={source}
+              onSourceChange={applySource}
+              fullscreen
+              onToggleFullscreen={toggleAssetsMax}
+              onHide={hideAssets}
+              reveal={assetReveal}
+            />
+          </div>
         )}
       </div>
     </div>

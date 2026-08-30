@@ -51,6 +51,9 @@ import {
 } from '@/lib/typst-geometry';
 import { findScreenshotSlots, inspectHelper, type ScreenshotSlot } from '@/lib/typst-placeholders';
 import { FigureViewport } from './FigureViewport';
+import { useAuthStore } from '@/auth/auth-store';
+import { useThemeStore } from '@/stores/theme-store';
+import { resolveBlurStrengthPolicy, resolvePrefs } from '@/lib/editor-prefs';
 
 /** Height presets, chosen so the resulting box shapes span the useful range. */
 const HEIGHT_PRESETS: { label: string; inches: number }[] = [
@@ -215,10 +218,17 @@ export function PlaceScreenshotDialog({
   })();
 
   // The style/strength controls edit the selected region when there is one,
-  // and otherwise set what the next drawn region gets.
+  // and otherwise set what the next drawn region gets. New regions start at
+  // the account's default strength (or the admin's workspace default).
+  const adminBlur = useThemeStore((s) => s.blurDefaults);
+  const authUser = useAuthStore((s) => s.user);
+  const defaultStrengths = useMemo(
+    () => resolveBlurStrengthPolicy(adminBlur, resolvePrefs(authUser).blurDefaults),
+    [adminBlur, authUser],
+  );
   const [selectedBlur, setSelectedBlur] = useState<number | null>(null);
   const [blurStyle, setBlurStyle] = useState<BlurStyle>('gaussian');
-  const [blurStrength, setBlurStrength] = useState(1);
+  const [blurStrength, setBlurStrength] = useState(() => defaultStrengths.gaussian);
 
   const patchSelected = useCallback((patch: Partial<BlurRegion>) => {
     if (selectedBlur === null) return;
@@ -227,8 +237,11 @@ export function PlaceScreenshotDialog({
 
   const applyBlurStyle = useCallback((style: BlurStyle) => {
     setBlurStyle(style);
+    // With no region selected the controls set up the NEXT region, so
+    // switching style loads that style's default strength.
+    if (selectedBlur === null) setBlurStrength(defaultStrengths[style]);
     patchSelected({ style });
-  }, [patchSelected]);
+  }, [patchSelected, selectedBlur, defaultStrengths]);
 
   const applyBlurStrength = useCallback((strength: number) => {
     setBlurStrength(strength);

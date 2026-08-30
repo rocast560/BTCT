@@ -203,6 +203,23 @@ export interface TypstAsset {
   blurs?: BlurRegion[] | null;
   /** Family name parsed from the font file: what you pass to `#set text(font:)`. */
   fontFamily?: string | null;
+  /** Folder this asset sits in (`assetFolders` id), or null/absent for the root. */
+  folderId?: ID | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * A folder in the Typst assets panel's hierarchy. Organizational only: the
+ * asset's compiler path stays the flat `/assets/<filename>`, so folder
+ * operations never touch a document. Plain LWW JSON, no Y.Text fields
+ * (renames go through a dialog, like `typstAssets`).
+ */
+export interface AssetFolder {
+  id: ID;
+  workspaceId: ID;
+  name: string;
+  parentId: ID | null;
   createdAt: number;
   updatedAt: number;
 }

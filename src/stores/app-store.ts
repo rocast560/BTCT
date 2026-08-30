@@ -1,7 +1,9 @@
 import { create } from 'zustand';
-import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, TypstAssetKind, CropRect, BlurRegion, CommandLogEntry } from '@/types';
+import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, AssetFolder, TypstAssetKind, CropRect, BlurRegion, CommandLogEntry } from '@/types';
 import { sharedTransact, getSharedDoc } from '@/realtime/shared-doc';
-import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo, typstAssetRepo, commandLogRepo } from '@/db';
+import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo, typstAssetRepo, commandLogRepo } from '@/db';
+import { assetFolderRepo } from '@/db/asset-folder-repo';
+import { isDescendantFolder } from '@/lib/asset-folders';
 import type { LogAuthor, LogDelta } from '@/db/changelog-repo';
 import { db } from '@/db/database';
 import { useAuthStore } from '@/auth/auth-store';
@@ -202,7 +204,15 @@ interface AppState {
   // Typst assets (report screenshots + custom fonts)
   typstAssets: TypstAsset[];
   loadTypstAssets: () => Promise<void>;
-  addTypstAsset: (file: File, kind: TypstAssetKind) => Promise<TypstAsset>;
+  addTypstAsset: (file: File, kind: TypstAssetKind, folderId?: ID | null) => Promise<TypstAsset>;
+  moveTypstAssetToFolder: (assetId: ID, folderId: ID | null) => Promise<void>;
+  // Asset folders: the Typst assets panel's hierarchy (organizational only).
+  assetFolders: AssetFolder[];
+  loadAssetFolders: () => Promise<void>;
+  createAssetFolder: (name: string, parentId?: ID | null) => Promise<AssetFolder>;
+  renameAssetFolder: (id: ID, name: string) => Promise<void>;
+  moveAssetFolder: (id: ID, parentId: ID | null) => Promise<void>;
+  deleteAssetFolder: (id: ID) => Promise<void>;
   setTypstAssetCrop: (id: ID, crop: CropRect | null, blurs?: BlurRegion[] | null) => Promise<void>;
   /** Rename an asset's file stem. Returns the resulting filename. */
   renameTypstAsset: (id: ID, stem: string) => Promise<string>;
@@ -269,13 +279,14 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   setActiveWorkspace: (id) => {
-    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], graphs: [], graphNodes: [], graphEdges: [], attackChains: [], nmapScans: [], nmapMachines: [], typstAssets: [], commandLogs: [] });
+    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], graphs: [], graphNodes: [], graphEdges: [], attackChains: [], nmapScans: [], nmapMachines: [], typstAssets: [], assetFolders: [], commandLogs: [] });
     // Reload workspace-scoped lists for the newly-active workspace so stale
     // entries from the previous workspace don't appear before the per-view
     // useEffects fire (and so newly-created scans never inherit the prior
     // workspace's list in state).
     void get().loadNmapScans();
     void get().loadTypstAssets();
+    void get().loadAssetFolders();
     void get().loadCommandLogs();
   },
 
@@ -1148,6 +1159,77 @@ export const useAppStore = create<AppState>((set, get) => {
     set({ typstAssets: await typstAssetRepo.getByWorkspace(wsId) });
   },
 
+  moveTypstAssetToFolder: async (assetId: ID, folderId: ID | null) => {
+    const asset = get().typstAssets.find((a) => a.id === assetId);
+    if (!asset || (asset.folderId ?? null) === folderId) return;
+    await typstAssetRepo.setFolder(assetId, folderId);
+    set((s) => ({
+      typstAssets: s.typstAssets.map((a) => (a.id === assetId ? { ...a, folderId } : a)),
+    }));
+    const dest = folderId
+      ? `"${get().assetFolders.find((f) => f.id === folderId)?.name ?? 'folder'}"`
+      : 'the root';
+    log('update', 'page', assetId, `Moved Typst asset "${asset.filename}" to ${dest}`);
+  },
+
+  // Asset folders: the Typst assets panel's hierarchy. Organizational only,
+  // so nothing here ever rewrites a document (see lib/asset-folders.ts).
+  assetFolders: [],
+  loadAssetFolders: async () => {
+    const wsId = get().activeWorkspaceId;
+    if (!wsId) return;
+    set({ assetFolders: await assetFolderRepo.getByWorkspace(wsId) });
+  },
+  createAssetFolder: async (name: string, parentId?: ID | null) => {
+    const wsId = get().activeWorkspaceId;
+    if (!wsId) throw new Error('No active workspace');
+    const folder = await assetFolderRepo.create({ workspaceId: wsId, name, parentId: parentId ?? null });
+    set((s) => ({ assetFolders: [...s.assetFolders, folder] }));
+    log('create', 'page', folder.id, `Created asset folder "${folder.name}"`);
+    return folder;
+  },
+  renameAssetFolder: async (id: ID, name: string) => {
+    const prev = get().assetFolders.find((f) => f.id === id);
+    const trimmed = name.trim();
+    if (!prev || !trimmed || prev.name === trimmed) return;
+    await assetFolderRepo.rename(id, trimmed);
+    set((s) => ({
+      assetFolders: s.assetFolders.map((f) => (f.id === id ? { ...f, name: trimmed } : f)),
+    }));
+    log('update', 'page', id, `Renamed asset folder "${prev.name}" to "${trimmed}"`, {
+      field: 'name', prevValue: encodeValue(prev.name), newValue: encodeValue(trimmed),
+    });
+  },
+  moveAssetFolder: async (id: ID, parentId: ID | null) => {
+    const folders = get().assetFolders;
+    const folder = folders.find((f) => f.id === id);
+    if (!folder || (folder.parentId ?? null) === parentId) return;
+    // Cycle guard: never move a folder into itself or its own subtree.
+    if (parentId && isDescendantFolder(folders, parentId, id)) return;
+    await assetFolderRepo.move(id, parentId);
+    set((s) => ({
+      assetFolders: s.assetFolders.map((f) => (f.id === id ? { ...f, parentId } : f)),
+    }));
+    log('update', 'page', id, `Moved asset folder "${folder.name}"`);
+  },
+  deleteAssetFolder: async (id: ID) => {
+    const folders = get().assetFolders;
+    const target = folders.find((f) => f.id === id);
+    if (!target) return;
+    const parent = target.parentId ?? null;
+    // Contents move up a level: deleting a folder never deletes assets.
+    for (const child of folders.filter((f) => (f.parentId ?? null) === id)) {
+      await assetFolderRepo.move(child.id, parent);
+    }
+    for (const a of get().typstAssets.filter((x) => (x.folderId ?? null) === id)) {
+      await typstAssetRepo.setFolder(a.id, parent);
+    }
+    await assetFolderRepo.remove(id);
+    await get().loadAssetFolders();
+    await get().loadTypstAssets();
+    log('delete', 'page', id, `Deleted asset folder "${target.name}" (contents moved up)`);
+  },
+
   // Command log: the shared-doc live window. The full archive is fetched over
   // REST by the view; this loader keeps the store in sync as agents ship
   // commands (wired in shared-bindings.ts). Read-only: clients never write.
@@ -1158,7 +1240,7 @@ export const useAppStore = create<AppState>((set, get) => {
     set({ commandLogs: await commandLogRepo.getByWorkspace(wsId) });
   },
 
-  addTypstAsset: async (file: File, kind: TypstAssetKind) => {
+  addTypstAsset: async (file: File, kind: TypstAssetKind, folderId?: ID | null) => {
     const wsId = get().activeWorkspaceId;
     if (!wsId) throw new Error('No active workspace');
     const { uploadAsset, readImageSize, readFontFamily } = await import('@/lib/typst-assets');
@@ -1193,6 +1275,7 @@ export const useAppStore = create<AppState>((set, get) => {
       width,
       height,
       fontFamily,
+      folderId: folderId ?? null,
     });
     set((s) => ({ typstAssets: [...s.typstAssets, asset] }));
     log('create', 'page', asset.id, `Added Typst ${kind} "${asset.filename}"`);

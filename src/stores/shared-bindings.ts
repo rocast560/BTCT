@@ -11,7 +11,7 @@
  */
 import { subscribeTable } from '@/realtime/shared-doc';
 import { useAppStore } from './app-store';
-import { useThemeStore, type PublicThemeSettings } from './theme-store';
+import { useThemeStore, type PublicBlurSettings, type PublicThemeSettings } from './theme-store';
 
 let bound = false;
 
@@ -39,14 +39,19 @@ export function bindSharedSubscriptions(): () => void {
   unsubs.push(subscribeTable('nmapScans',    debounce(() => { void s().loadNmapScans().then(() => s().reconcileTabs()); })));
   unsubs.push(subscribeTable('attackChains', debounce(() => { void s().loadAttackChains(); })));
   unsubs.push(subscribeTable('typstAssets',  debounce(() => { void s().loadTypstAssets(); })));
+  unsubs.push(subscribeTable('assetFolders', debounce(() => { void s().loadAssetFolders(); })));
   unsubs.push(subscribeTable('commandLogs',  debounce(() => { void s().loadCommandLogs(); })));
 
   // Admin theme policy, mirrored into the doc by the server on every save
   // (LWW JSON): re-theme live. The store drops payloads older than the one
   // it already holds, so a stale IndexedDB replay can't undo a REST seed.
   unsubs.push(subscribeTable('settingsPublic', (e) => {
-    if (!e.keys.has('theme')) return;
-    useThemeStore.getState().applyServerTheme(e.current('theme') as PublicThemeSettings | undefined);
+    if (e.keys.has('theme')) {
+      useThemeStore.getState().applyServerTheme(e.current('theme') as PublicThemeSettings | undefined);
+    }
+    if (e.keys.has('blur')) {
+      useThemeStore.getState().applyServerBlur(e.current('blur') as PublicBlurSettings | undefined);
+    }
   }));
 
   // For graph nodes/edges + nmap machines we re-run the corresponding

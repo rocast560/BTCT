@@ -27,7 +27,7 @@ import {
 } from './db.mjs';
 import { getAiConfig, setAiConfig, testAiConnection, handleAiChat } from './ai.mjs';
 import { getMcpConfig, setMcpConfig, regenerateMcpToken, handleMcp } from './mcp.mjs';
-import { publishPublicSettings } from './yjs-data.mjs';
+import { publishPublicBlur, publishPublicSettings } from './yjs-data.mjs';
 import {
   getBackupConfig, setBackupConfig, regenerateBackupToken, runBackupNow,
   listBackups, deleteBackup, backupStatus, matchesBackupToken, startBackupScheduler,
@@ -98,6 +98,32 @@ function normalizeThemePrefs(t) {
 
 // The public (unauthenticated) view of the theme: what GET /api/settings
 // returns and what the live mirror carries.
+const BLUR_STRENGTH_MIN = 0.25;
+const BLUR_STRENGTH_MAX = 3;
+
+function clampBlurStrength(v, fallback) {
+  return typeof v === 'number' && Number.isFinite(v)
+    ? Math.min(Math.max(v, BLUR_STRENGTH_MIN), BLUR_STRENGTH_MAX)
+    : fallback;
+}
+
+// Workspace default strength for new blur (redaction) regions, per style.
+// A user's own prefs.blurDefaults wins over this; it is only the fallback.
+function publicBlurSettings() {
+  let blurDefaults = { gaussian: 1, pixelate: 1 };
+  try {
+    const raw = getSetting('blur_defaults');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      blurDefaults = {
+        gaussian: clampBlurStrength(parsed?.gaussian, 1),
+        pixelate: clampBlurStrength(parsed?.pixelate, 1),
+      };
+    }
+  } catch { /* malformed row: fall back to 1x */ }
+  return { blurDefaults, blurUpdatedAt: Number(getSetting('blur_updated_at') || 0) };
+}
+
 function publicThemeSettings() {
   let themeHeadings = { headingColor: null, headings: {} };
   try {
@@ -109,6 +135,7 @@ function publicThemeSettings() {
     themeHeadings,
     themeLock: getSetting('theme_lock') === '1',
     themeUpdatedAt: Number(getSetting('theme_updated_at') || 0),
+    ...publicBlurSettings(),
   };
 }
 
@@ -434,6 +461,21 @@ const httpServer = http.createServer(async (req, res) => {
             !(typeof prefs.uiTheme === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(prefs.uiTheme))) {
           return sendJson(res, 400, { error: 'prefs.uiTheme must be a short lowercase slug' });
         }
+        // Per-account default strength for new blur regions: {gaussian, pixelate},
+        // each null (inherit the workspace default) or a number in 0.25..3.
+        if (prefs.blurDefaults !== undefined) {
+          const b = prefs.blurDefaults;
+          if (typeof b !== 'object' || b === null || Array.isArray(b)) {
+            return sendJson(res, 400, { error: 'prefs.blurDefaults must be an object' });
+          }
+          for (const key of ['gaussian', 'pixelate']) {
+            const v = b[key];
+            if (v !== undefined && v !== null &&
+                !(typeof v === 'number' && Number.isFinite(v) && v >= 0.25 && v <= 3)) {
+              return sendJson(res, 400, { error: `prefs.blurDefaults.${key} must be null or a number between 0.25 and 3` });
+            }
+          }
+        }
         updateUserPrefs(user.id, JSON.stringify(prefs));
       }
       const fresh = getUserById(user.id);
@@ -476,6 +518,29 @@ const httpServer = http.createServer(async (req, res) => {
       const pub = publicThemeSettings();
       publishPublicSettings(pub).catch((e) => console.warn('[theme] live mirror failed:', e?.message || e));
       return sendJson(res, 200, pub);
+    }
+
+    // Admin-only: workspace default strength for new blur regions
+    // ({gaussian?, pixelate?}, each 0.25..3). Mirrored into the shared doc
+    // (settingsPublic.blur) so connected clients follow without a reload.
+    if (req.method === 'POST' && req.url === '/api/settings/blur') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      const body = await readJsonBody(req, 4 * 1024);
+      const next = { ...publicBlurSettings().blurDefaults };
+      for (const key of ['gaussian', 'pixelate']) {
+        if (body[key] === undefined) continue;
+        if (!(typeof body[key] === 'number' && Number.isFinite(body[key]) &&
+              body[key] >= BLUR_STRENGTH_MIN && body[key] <= BLUR_STRENGTH_MAX)) {
+          return sendJson(res, 400, { error: `${key} must be a number between 0.25 and 3` });
+        }
+        next[key] = body[key];
+      }
+      setSetting('blur_defaults', JSON.stringify(next));
+      setSetting('blur_updated_at', String(Date.now()));
+      const pubBlur = publicBlurSettings();
+      publishPublicBlur(pubBlur).catch((e) => console.warn('[blur] live mirror failed:', e?.message || e));
+      return sendJson(res, 200, pubBlur);
     }
 
     // ── AI assistant (Claude) ──────────────────────────────────────────

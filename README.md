@@ -141,6 +141,21 @@ rendered entirely in the browser** (no calls to typst.app or any remote service)
   hide a pane entirely. Widths and visibility persist per browser, and both
   rails re-fit themselves if the window gets too narrow to hold them. Zoom the
   preview in/out.
+- **Asset folders**: the assets rail organizes screenshots and fonts into a
+  folder tree (report section, then a folder per finding, images inside), with
+  the same chevrons and guide lines as the page tree. Drag a card onto a folder
+  (or drop OS files straight onto one) to file it, drag folders into folders to
+  nest them, and click a folder to browse its contents with a breadcrumb.
+  Folders are organizational only: the Typst path stays `/assets/<name>`, so
+  re-organizing never breaks a reference, and deleting a folder just moves its
+  contents up a level. The rail's header buttons expand it over the whole tab
+  (a full asset browser) or hide it, and **clicking a rendered figure in the
+  preview jumps to that screenshot in the rail**, selecting its folder and
+  flashing the card.
+- **Redaction defaults**: an admin sets the workspace default strength for new
+  blur/pixelate regions (**Admin panel → Blur Defaults**); each account can
+  override it in **Edit Profile → Redaction Defaults**. The default is stamped
+  onto a region when it is drawn, so existing redactions never change.
 - **Local WebAssembly compiler**: bundled [`typst.ts`](https://github.com/Myriad-Dreamin/typst.ts)
   (compiler + renderer wasm) ships with the app, and the default Typst font set
   is embedded in the compiler, so it renders **fully offline / air-gapped**, with no
@@ -787,7 +802,9 @@ custom plugins layered on:
   customised) → admin defaults → inherit. Pure; tested in
   `src/test/theme-prefs.test.ts`. `src/stores/theme-store.ts` holds the admin
   policy, seeded by `GET /api/settings` and then followed live through the
-  server-written `settingsPublic.theme` map.
+  server-written `settingsPublic.theme` map, plus the workspace blur-strength
+  defaults (`settingsPublic.blur`), resolved per account by
+  `resolveBlurStrengthPolicy` in [src/lib/editor-prefs.ts](src/lib/editor-prefs.ts).
 - [src/themes/registry.ts](src/themes/registry.ts) + [src/themes/glass.css](src/themes/glass.css):
   the Glass look (see [Interface themes](#interface-themes)).
 - [src/lib/editor-keybinds.ts](src/lib/editor-keybinds.ts):
@@ -888,11 +905,12 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/healthz` | none | Liveness probe (`{ ok: true }`) |
-| `GET` | `/api/settings` | none | Public theme: `themeColor`, `themeHeadings`, `themeLock`, `themeUpdatedAt` (so login paints correctly) |
+| `GET` | `/api/settings` | none | Public theme + blur defaults: `themeColor`, `themeHeadings`, `themeLock`, `themeUpdatedAt`, `blurDefaults`, `blurUpdatedAt` (so login paints correctly) |
 | `POST` | `/api/settings/theme` | admin | Set any of `color`, `headings`, `lock`; the result is mirrored into the shared doc (`settingsPublic.theme`) |
+| `POST` | `/api/settings/blur` | admin | Set the workspace default blur strengths (`gaussian`, `pixelate`, each 0.25..3); mirrored into `settingsPublic.blur` |
 | `POST` | `/api/login` | none | Authenticate → `{ token, user }` |
 | `GET` | `/api/me` | yes | Current user |
-| `POST` | `/api/me/profile` | yes | Update own `color` and/or `prefs` (`codeAccent`, `keybinds`, `follow`, `theme`; a legacy `uiTheme` slug is accepted and ignored) |
+| `POST` | `/api/me/profile` | yes | Update own `color` and/or `prefs` (`codeAccent`, `keybinds`, `follow`, `theme`, `blurDefaults`; a legacy `uiTheme` slug is accepted and ignored) |
 | `GET` | `/api/admin/users` | admin | List users |
 | `POST` | `/api/admin/users` | admin | Create user (username 3–32, password ≥8) |
 | `DELETE` | `/api/admin/users/:id` | admin | Delete user (not self / not last admin) |
@@ -1097,7 +1115,10 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
 10. **Typst assets have no `Y.Text` fields, deliberately.** Filenames, crop
    rects, and blur regions are last-writer-wins JSON: concurrent
    character-by-character editing of a filename isn't a workflow worth
-   supporting, so invariant 1 doesn't apply to `typstAssets`.
+   supporting, so invariant 1 doesn't apply to `typstAssets`, nor to
+   `assetFolders` (the assets rail's folder tree): folders are organizational
+   only and never change an asset's `/assets/<name>` path, so nothing there
+   rewrites a document.
 11. **Preview and PDF must compile the same virtual path.** Both go through
    `/main.typ` in [typst-compiler.ts](src/lib/typst-compiler.ts). If they
    diverge, relative `#image(…)` paths resolve differently and PDF export
@@ -1136,7 +1157,8 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    The admin policy reaches clients by REST seed (`GET /api/settings`) and then
    the server-written `settingsPublic.theme` map in the shared doc, stamped with
    `themeUpdatedAt` so a stale IndexedDB replay never beats a newer value. Never
-   put anything secret in `settingsPublic`: the whole doc reaches every user.
+   put anything secret in `settingsPublic`: the whole doc reaches every user
+   (it carries only the theme policy and the blur defaults).
 20. **Never copy the live SQLite file or the LevelDB directory.** A WAL-mode
    database copied mid-transaction and an open LevelDB copied mid-compaction
    are both corrupt. Read through `server/data-export.mjs` (`VACUUM INTO`,
