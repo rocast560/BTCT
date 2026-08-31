@@ -315,6 +315,26 @@ export async function publishPublicSettings(theme) {
   });
 }
 
+/** Asset ids whose shared record was retired (soft-deleted) before `cutoffMs`. */
+export async function collectRetiredAssets(cutoffMs) {
+  const { doc } = await shared();
+  // Read the map directly (typstAssets isn't in the server's TABLE_NAMES).
+  const assets = doc.getMap('typstAssets');
+  const ids = [];
+  assets.forEach((rec, id) => {
+    if (rec && typeof rec.deletedAt === 'number' && rec.deletedAt > 0 && rec.deletedAt < cutoffMs) ids.push(id);
+  });
+  return ids;
+}
+
+/** Remove asset metadata records from the shared doc (after their bytes are gone). */
+export async function removeAssetRecords(ids) {
+  if (!ids.length) return;
+  const { doc } = await shared();
+  const assets = doc.getMap('typstAssets');
+  doc.transact(() => { for (const id of ids) assets.delete(id); });
+}
+
 /** Mirror the public blur-defaults policy (same pattern as the theme). */
 export async function publishPublicBlur(blur) {
   const { doc, tables } = await shared();

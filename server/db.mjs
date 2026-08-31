@@ -485,6 +485,20 @@ export function deletePageVersion(pageId, id) {
   db.query(`DELETE FROM page_versions WHERE page_id = ? AND id = ?`).run(pageId, id);
 }
 
+// Retention: bulk-delete page versions by age or an explicit time range.
+export function countPageVersionsBefore(cutoffMs) {
+  return Number(db.query(`SELECT COUNT(*) AS n FROM page_versions WHERE created_at < ?`).get(cutoffMs)?.n || 0);
+}
+export function deletePageVersionsBefore(cutoffMs) {
+  return db.query(`DELETE FROM page_versions WHERE created_at < ?`).run(cutoffMs).changes;
+}
+export function deletePageVersionsInRange(afterMs, beforeMs) {
+  return db.query(`DELETE FROM page_versions WHERE created_at >= ? AND created_at <= ?`).run(afterMs, beforeMs).changes;
+}
+export function listAllAssets() {
+  return db.query(`SELECT * FROM assets`).all().map(rowToAsset);
+}
+
 export function renamePageVersion(pageId, id, name, createdBy) {
   db.query(`UPDATE page_versions SET name = ?, created_by = COALESCE(?, created_by) WHERE page_id = ? AND id = ?`)
     .run(name, createdBy ?? null, pageId, id);

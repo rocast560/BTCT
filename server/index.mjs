@@ -49,6 +49,9 @@ import {
   handleAssetDelete,
 } from './assets.mjs';
 import {
+  getRetentionConfig, setRetentionConfig, retentionStatus, pruneNow, pruneHistoryRange, startRetentionScheduler,
+} from './retention.mjs';
+import {
   trackPageDoc,
   handleVersionList,
   handleVersionCreate,
@@ -723,6 +726,36 @@ const httpServer = http.createServer(async (req, res) => {
     // Config and the inventory are admin-only. Status and "run now" also
     // accept the static backup token so a host scheduler (Task Scheduler,
     // cron, systemd) can drive them without an admin session.
+    // ── Data retention (admin only) ─────────────────────────────────
+    if (req.method === 'GET' && req.url === '/api/retention/config') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      return sendJson(res, 200, retentionStatus());
+    }
+    if (req.method === 'POST' && req.url === '/api/retention/config') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      const body = await readJsonBody(req, 4 * 1024);
+      if (body.days !== undefined && !(Number.isFinite(Number(body.days)) && Number(body.days) >= 0)) {
+        return sendJson(res, 400, { error: 'days must be a non-negative number (0 = off)' });
+      }
+      setRetentionConfig({ days: body.days });
+      return sendJson(res, 200, retentionStatus());
+    }
+    if (req.method === 'POST' && req.url === '/api/retention/run') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      return sendJson(res, 200, await pruneNow());
+    }
+    if (req.method === 'POST' && req.url === '/api/retention/history-range') {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      const body = await readJsonBody(req, 4 * 1024);
+      const after = Number(body.after) || 0;
+      const before = Number(body.before) || Date.now();
+      return sendJson(res, 200, pruneHistoryRange(after, before));
+    }
+
     if (req.method === 'GET' && req.url === '/api/backup/config') {
       const gate = requireAdmin(req);
       if (gate.error) return sendJson(res, gate.status, { error: gate.error });
@@ -966,4 +999,5 @@ httpServer.listen(PORT, HOST, () => {
   // Scheduled backups (server/backup.mjs). Persisted last-run means an
   // overdue backup fires right after a restart instead of a full interval later.
   startBackupScheduler();
+startRetentionScheduler();
 });

@@ -205,6 +205,8 @@ export interface TypstAsset {
   fontFamily?: string | null;
   /** Folder this asset sits in (`assetFolders` id), or null/absent for the root. */
   folderId?: ID | null;
+  /** Set when the asset was retired (removed from a note): hidden from the manager, bytes kept until the retention window prunes it. */
+  deletedAt?: number | null;
   createdAt: number;
   updatedAt: number;
 }

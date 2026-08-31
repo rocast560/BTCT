@@ -70,6 +70,7 @@ COPY server/backup.mjs        /app/server/backup.mjs
 COPY server/restore.mjs       /app/server/restore.mjs
 COPY server/history.mjs       /app/server/history.mjs
 COPY server/history-diff.mjs  /app/server/history-diff.mjs
+COPY server/retention.mjs     /app/server/retention.mjs
 
 # Copy the static client build.
 COPY --from=client-build /app/dist /app/dist

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw, Terminal, HardDrive, Play, EyeOff } from 'lucide-react';
+import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw, Terminal, HardDrive, Play, EyeOff, Timer } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   useAuthStore,
@@ -11,6 +11,7 @@ import {
   type BackupConfigInput,
   type BackupStatus,
   type BackupEntry,
+  type RetentionStatus,
 } from '@/auth/auth-store';
 import { useAppStore } from '@/stores';
 import { useThemeStore } from '@/stores/theme-store';
@@ -153,6 +154,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
 
           {/* Default strength for new blur regions on report screenshots */}
           <BlurConfigSection />
+
+          {/* Data retention: auto-prune history + images, and range deletion */}
+          <RetentionConfigSection />
 
           {/* Create-user form */}
           <form
@@ -1056,6 +1060,119 @@ function BlurConfigSection() {
       {(msg || err) && (
         <div className={`mt-2 text-[11px] ${err ? 'text-[hsl(var(--status-red))]' : 'text-white/60'}`}>{err || msg}</div>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Data retention: auto-prune old page-version history and retired images after
+ * a configurable number of days (OFF by default, so nothing is deleted until
+ * an admin opts in), plus a one-off "delete edit history in a date range".
+ */
+function RetentionConfigSection() {
+  const getCfg = useAuthStore((s) => s.retentionGetConfig);
+  const saveCfg = useAuthStore((s) => s.retentionSaveConfig);
+  const run = useAuthStore((s) => s.retentionRun);
+  const pruneRange = useAuthStore((s) => s.retentionPruneHistoryRange);
+
+  const [cfg, setCfg] = useState<RetentionStatus | null>(null);
+  const [days, setDays] = useState('0');
+  const [after, setAfter] = useState('');
+  const [before, setBefore] = useState('');
+  const [confirmRange, setConfirmRange] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const refresh = () => { void getCfg().then((c) => { setCfg(c); setDays(String(c.days)); }).catch(() => {}); };
+  useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const saveDays = async () => {
+    const n = Number(days);
+    if (!Number.isFinite(n) || n < 0) { setErr('Days must be 0 (off) or a positive number.'); return; }
+    setBusy(true); setErr(null); setMsg(null);
+    try { const c = await saveCfg({ days: Math.floor(n) }); setCfg(c); setMsg(n === 0 ? 'Retention off (data kept forever)' : `Auto-prune after ${Math.floor(n)} days`); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'save failed'); }
+    finally { setBusy(false); }
+  };
+  const runNow = async () => {
+    setBusy(true); setErr(null); setMsg(null);
+    try { const res = await run(); setMsg(res.ran ? `Pruned ${res.versions} version(s) and ${res.assets} image(s)` : 'Retention is off'); refresh(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'prune failed'); }
+    finally { setBusy(false); }
+  };
+  const doRange = async () => {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const a = after ? new Date(after).getTime() : 0;
+      const b = before ? new Date(before).getTime() : Date.now();
+      const res = await pruneRange(a, b);
+      setMsg(`Deleted ${res.deleted} history version(s) in range`);
+      refresh();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'delete failed'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
+      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/70">
+        <Timer size={12} className="text-[hsl(var(--status-amber))]" /> Data Retention
+      </div>
+      <p className="mb-2 text-[10px] text-white/50">
+        Automatically delete page edit-history and images that were removed from notes after a set number of days.
+        Off by default, so nothing is ever deleted until you set a number here. The timer survives restarts: an
+        overdue prune runs right after the container comes back up.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1.5 text-[11px] text-white/70">
+          Delete after
+          <input
+            type="number"
+            min={0}
+            value={days}
+            onChange={(e) => setDays(e.target.value)}
+            className="w-16 rounded-md border border-white/15 bg-black/30 px-1.5 py-0.5 text-[11px] text-white/80 outline-none focus:border-[hsl(var(--primary))]"
+          />
+          days {Number(days) === 0 && <span className="text-white/40">(off)</span>}
+        </label>
+        <button onClick={() => void saveDays()} disabled={busy} className="rounded-md bg-white/90 px-3 py-1 text-[11px] font-medium text-black hover:bg-white disabled:opacity-40">Save</button>
+        <button onClick={() => void runNow()} disabled={busy || !cfg || cfg.days === 0} className="rounded-md border border-white/15 px-2.5 py-1 text-[11px] text-white/70 hover:bg-white/10 disabled:opacity-40">Prune now</button>
+      </div>
+
+      {cfg && (
+        <div className="mt-2 text-[10px] text-white/50">
+          {cfg.days > 0
+            ? <>Auto-prune on. {cfg.dueVersionCount} history version{cfg.dueVersionCount === 1 ? '' : 's'} are past the window now.{cfg.lastPruned ? ` Last prune removed ${cfg.lastPruned.versions} version(s) and ${cfg.lastPruned.assets} image(s).` : ''}</>
+            : 'Auto-prune off: history and images are kept forever.'}
+        </div>
+      )}
+
+      <div className="mt-3 rounded-md border border-white/10 bg-black/20 p-2">
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-white/60">Delete edit history in a date range</div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/70">
+          <label className="flex items-center gap-1">from <input type="date" value={after} onChange={(e) => setAfter(e.target.value)} className="rounded-md border border-white/15 bg-black/30 px-1.5 py-0.5 text-[11px] text-white/80 outline-none" /></label>
+          <label className="flex items-center gap-1">to <input type="date" value={before} onChange={(e) => setBefore(e.target.value)} className="rounded-md border border-white/15 bg-black/30 px-1.5 py-0.5 text-[11px] text-white/80 outline-none" /></label>
+          <button onClick={() => setConfirmRange(true)} disabled={busy} className="flex items-center gap-1 rounded-md border border-[hsl(var(--status-red))]/50 bg-[hsl(var(--status-red))]/10 px-2 py-1 text-[11px] text-[hsl(var(--status-red))] hover:bg-[hsl(var(--status-red))]/20 disabled:opacity-40">
+            <Trash2 size={11} /> Delete history
+          </button>
+        </div>
+        <p className="mt-1 text-[9px] text-white/40">Empty "to" means up to now; empty "from" means from the beginning. This permanently deletes page versions created in the range.</p>
+      </div>
+
+      {confirmRange && (
+        <ConfirmDialog
+          title="Delete edit history"
+          message={`Permanently delete all page history versions ${after ? `from ${after}` : 'from the beginning'} ${before ? `to ${before}` : 'up to now'}? This cannot be undone.`}
+          confirmLabel="Delete history"
+          destructive
+          onCancel={() => setConfirmRange(false)}
+          onConfirm={() => { setConfirmRange(false); void doRange(); }}
+        />
+      )}
+
+      {(msg || err) && <div className={`mt-2 text-[11px] ${err ? 'text-[hsl(var(--status-red))]' : 'text-white/60'}`}>{err || msg}</div>}
     </div>
   );
 }

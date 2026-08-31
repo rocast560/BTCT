@@ -466,22 +466,23 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
     if (selectedFolder && !folders.some((f) => f.id === selectedFolder)) setSelectedFolder(null);
   }, [folders, selectedFolder]);
 
+  const live = useMemo(() => assets.filter((a) => !a.deletedAt), [assets]);
   const images = useMemo(
-    () => assetsInFolder(assets.filter((a) => a.kind === 'image'), selectedFolder),
-    [assets, selectedFolder],
+    () => assetsInFolder(live.filter((a) => a.kind === 'image'), selectedFolder),
+    [live, selectedFolder],
   );
   const fonts = useMemo(
-    () => assetsInFolder(assets.filter((a) => a.kind === 'font'), selectedFolder),
-    [assets, selectedFolder],
+    () => assetsInFolder(live.filter((a) => a.kind === 'font'), selectedFolder),
+    [live, selectedFolder],
   );
   const counts = useMemo(() => {
     const map = new Map<string, number>();
-    for (const a of assets) {
+    for (const a of live) {
       const key = a.folderId ?? '';
       map.set(key, (map.get(key) ?? 0) + 1);
     }
     return map;
-  }, [assets]);
+  }, [live]);
   const rootFolders = useMemo(() => childFolders(folders, null), [folders]);
   const trail = useMemo(() => folderTrail(folders, selectedFolder), [folders, selectedFolder]);
 

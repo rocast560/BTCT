@@ -218,6 +218,7 @@ interface AppState {
   /** Rename an asset's file stem. Returns the resulting filename. */
   renameTypstAsset: (id: ID, stem: string) => Promise<string>;
   deleteTypstAsset: (id: ID) => Promise<void>;
+  retireTypstAsset: (id: ID) => Promise<void>;
 
   // Command log (team pentest command activity: ingested server-side, read-only here)
   commandLogs: CommandLogEntry[];
@@ -1380,6 +1381,14 @@ export const useAppStore = create<AppState>((set, get) => {
       newValue: encodeValue(filename),
     });
     return filename;
+  },
+  retireTypstAsset: async (id: ID) => {
+    const asset = get().typstAssets.find((a) => a.id === id);
+    if (!asset || asset.deletedAt) return;
+    const now = Date.now();
+    await typstAssetRepo.retire(id);
+    set((s) => ({ typstAssets: s.typstAssets.map((a) => (a.id === id ? { ...a, deletedAt: now } : a)) }));
+    log('delete', 'page', id, `Removed image "${asset.filename}" (kept for the history retention window)`);
   },
   deleteTypstAsset: async (id: ID) => {
     const asset = get().typstAssets.find((a) => a.id === id);

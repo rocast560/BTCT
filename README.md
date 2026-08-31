@@ -127,8 +127,16 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   the original bytes are never overwritten, so opening the image again (in the
   note or the manager) lets you adjust or remove the blur and get the original
   back. The note shows the redacted version live. Delete the image from the note
-  and its asset is removed from the Assets Manager and storage too; deleting an
-  asset from the Assets Manager asks for confirmation first.
+  and its asset is removed from the Assets Manager too; the image is then kept
+  only for the history retention window and pruned after that. Deleting an asset
+  from the Assets Manager (an explicit delete) asks for confirmation and removes
+  it immediately.
+- **Data retention (admin)**: **Admin panel → Data Retention** sets how many
+  days page edit-history and removed images are kept before they are permanently
+  deleted (off by default, so nothing is auto-deleted until you choose a number).
+  The timer is persisted, so an overdue prune runs right after the container
+  restarts, even if it was down past the deadline. There is also a **"delete
+  edit history in a date range"** button for a one-off purge.
 - **Keyboard shortcuts reference**: open **Shortcuts** (Tools sidebar, or the
   command palette) for a grouped cheat-sheet (getting around, text editor,
   blocks, code blocks, images, Typst); the editor rows show your current

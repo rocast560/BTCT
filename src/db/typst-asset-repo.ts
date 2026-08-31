@@ -80,6 +80,11 @@ export const typstAssetRepo = {
     await db.typstAssets.update(id, { folderId, updatedAt: Date.now() });
   },
 
+  /** Soft-delete: hide from the manager but keep the bytes for the retention window. */
+  async retire(id: ID): Promise<void> {
+    await db.typstAssets.update(id, { deletedAt: Date.now(), updatedAt: Date.now() });
+  },
+
   async remove(id: ID): Promise<void> {
     await db.typstAssets.delete(id);
   },

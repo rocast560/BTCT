@@ -32,6 +32,13 @@ export const WS_URL =
 const TOKEN_KEY = 'btct.auth.token';
 const USER_KEY = 'btct.auth.user';
 
+export interface RetentionStatus {
+  days: number;
+  lastRunAt: number | null;
+  lastPruned: { ran: boolean; days: number; versions: number; assets: number; at: number } | null;
+  dueVersionCount: number;
+}
+
 export interface AuthUser {
   id: number;
   username: string;
@@ -277,6 +284,10 @@ interface AuthState {
   backupRegenerateToken: () => Promise<{ token: string }>;
   backupStatus: () => Promise<BackupStatus>;
   backupRun: () => Promise<BackupRunResult>;
+  retentionGetConfig: () => Promise<RetentionStatus>;
+  retentionSaveConfig: (patch: { days: number }) => Promise<RetentionStatus>;
+  retentionRun: () => Promise<{ ran: boolean; days: number; versions: number; assets: number }>;
+  retentionPruneHistoryRange: (after: number, before: number) => Promise<{ deleted: number }>;
   backupList: () => Promise<BackupEntry[]>;
   backupDelete: (name: string) => Promise<void>;
 }
@@ -461,6 +472,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   backupRegenerateToken: async () => postJson<{ token: string }>('/api/backup/token', {}, get().token),
   backupStatus: async () => getJson<BackupStatus>('/api/backup/status', get().token),
   backupRun: async () => postJson<BackupRunResult>('/api/backup/run', {}, get().token),
+  retentionGetConfig: async () => getJson<RetentionStatus>('/api/retention/config', get().token),
+  retentionSaveConfig: async (patch) => postJson<RetentionStatus>('/api/retention/config', patch, get().token),
+  retentionRun: async () => postJson<{ ran: boolean; days: number; versions: number; assets: number }>('/api/retention/run', {}, get().token),
+  retentionPruneHistoryRange: async (after, before) => postJson<{ deleted: number }>('/api/retention/history-range', { after, before }, get().token),
   backupList: async () => (await getJson<{ backups: BackupEntry[] }>('/api/backup/list', get().token)).backups,
   backupDelete: async (name) => {
     await deleteJson<{ ok: boolean }>(`/api/backup/archives/${encodeURIComponent(name)}`, get().token);

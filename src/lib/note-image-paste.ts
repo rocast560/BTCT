@@ -124,15 +124,11 @@ function collectAssetImageIds(doc: ProseNode): Set<string> {
 
 /**
  * When an `asset_image` node is removed from a note (and no other image in the
- * same note still references that asset), delete the underlying shared asset:
- * its record, its bytes on disk, and its entry in the Assets Manager. The blur
- * / crop metadata goes with it. Fires on both local and remote deletions, so
- * every client drops the asset from its store; the server delete is idempotent
- * (a second one 404s and is ignored).
- *
- * Note: this permanently removes the shared asset, so undo restores the node
- * but not the image; and if the same asset was referenced in the Typst report,
- * that reference is emptied too.
+ * same note still references that asset), RETIRE the underlying asset: it is
+ * hidden from the Assets Manager but its bytes are kept, so any page-history
+ * version still shows it. The retention job (server/retention.mjs) permanently
+ * deletes retired assets once they are past the admin's retention window.
+ * Fires on both local and remote deletions, so every client hides it.
  */
 export const noteImageCleanupPlugin = $prose(() =>
   new Plugin({
@@ -143,7 +139,7 @@ export const noteImageCleanupPlugin = $prose(() =>
       const after = collectAssetImageIds(newState.doc);
       for (const id of before) {
         if (!after.has(id)) {
-          queueMicrotask(() => { void useAppStore.getState().deleteTypstAsset(id).catch(() => undefined); });
+          queueMicrotask(() => { void useAppStore.getState().retireTypstAsset(id).catch(() => undefined); });
         }
       }
       return null;
