@@ -37,7 +37,7 @@ import { createCodeBlockInputRule } from '@milkdown/preset-commonmark';
 import { blockSelectPlugin } from '@/lib/block-select';
 import { imageResizePlugin, imageResizableSchema, imageBlockResizableSchema } from '@/lib/image-resize';
 import { assetImageSchema, assetImageView } from '@/lib/asset-image';
-import { noteImagePastePlugin, noteImageContextPlugin } from '@/lib/note-image-paste';
+import { noteImagePastePlugin, noteImageContextPlugin, noteImageCleanupPlugin } from '@/lib/note-image-paste';
 import {
   DEFAULT_HEADER_LABELS,
   insertTable,
@@ -496,6 +496,7 @@ function MarkdownEditor({
       .use(assetImageView)
       .use(noteImagePastePlugin)
       .use(noteImageContextPlugin)
+      .use(noteImageCleanupPlugin)
       .use(tableHeaderStatePlugin)
       .use(collab)
       .config((ctx) => {

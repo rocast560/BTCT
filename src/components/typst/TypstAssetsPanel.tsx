@@ -456,6 +456,7 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
   const [expanded, setExpanded] = useState<Set<ID>>(new Set());
   const [renamingId, setRenamingId] = useState<ID | null>(null);
   const [pendingDelete, setPendingDelete] = useState<AssetFolder | null>(null);
+  const [pendingDeleteAsset, setPendingDeleteAsset] = useState<TypstAsset | null>(null);
   const [flashId, setFlashId] = useState<ID | null>(null);
   const cardEls = useRef(new Map<ID, HTMLDivElement>());
 
@@ -617,10 +618,8 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
   // Stable per-card handlers. Defined once for the whole grid so the memoized
   // cards actually skip re-rendering when the source changes.
   const openAsset = useCallback((a: TypstAsset) => setPlacing(a), []);
-  const removeAsset = useCallback(
-    (a: TypstAsset) => { void deleteTypstAsset(a.id); },
-    [deleteTypstAsset],
-  );
+  // Deleting an asset removes its bytes permanently, so confirm first.
+  const removeAsset = useCallback((a: TypstAsset) => setPendingDeleteAsset(a), []);
 
   const insertSnippet = useCallback((text: string) => {
     if (!insertAtTypstCursor(text)) {
@@ -937,6 +936,23 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
             Drop to add{trail.length > 0 ? ` to "${trail[trail.length - 1]!.name}"` : ''}
           </span>
         </div>
+      )}
+
+      {pendingDeleteAsset && (
+        <Portal>
+          <ConfirmDialog
+            title="Delete asset"
+            message={`Delete "${pendingDeleteAsset.filename}"? This permanently removes the file and cannot be undone. Any document that references it will lose the image.`}
+            confirmLabel="Delete"
+            destructive
+            onCancel={() => setPendingDeleteAsset(null)}
+            onConfirm={() => {
+              const a = pendingDeleteAsset;
+              setPendingDeleteAsset(null);
+              void deleteTypstAsset(a.id);
+            }}
+          />
+        </Portal>
       )}
 
       {pendingDelete && (

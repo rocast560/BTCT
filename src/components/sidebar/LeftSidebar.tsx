@@ -29,6 +29,7 @@ import {
   Sparkles,
   Terminal,
   Images,
+  Keyboard,
 } from 'lucide-react';
 import type { Page, Graph, NmapScan, AttackChain } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -258,6 +259,10 @@ export function LeftSidebar() {
     openTab({ id: uuidv4(), kind: 'assets', entityId: 'assets', title: 'Assets' });
   };
 
+  const openShortcuts = () => {
+    openTab({ id: uuidv4(), kind: 'shortcuts', entityId: 'shortcuts', title: 'Shortcuts' });
+  };
+
   const openChain = async (chain: AttackChain) => {
     // Left-click opens (or lazily creates) the chain's writeup page so the
     // user can document the attack steps. Highlighting on the graph is now
@@ -415,6 +420,13 @@ export function LeftSidebar() {
               >
                 <Images size={12} className="text-[hsl(var(--status-amber))]" />
                 <span className="truncate">Assets</span>
+              </button>
+              <button
+                onClick={openShortcuts}
+                className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--accent))]"
+              >
+                <Keyboard size={12} className="text-[hsl(var(--muted-foreground))]" />
+                <span className="truncate">Shortcuts</span>
               </button>
             </div>
           )}

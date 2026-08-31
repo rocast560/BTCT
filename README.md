@@ -126,7 +126,13 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   the report uses, or **Open in Assets Manager**. The blur is non-destructive:
   the original bytes are never overwritten, so opening the image again (in the
   note or the manager) lets you adjust or remove the blur and get the original
-  back. The note shows the redacted version live.
+  back. The note shows the redacted version live. Delete the image from the note
+  and its asset is removed from the Assets Manager and storage too; deleting an
+  asset from the Assets Manager asks for confirmation first.
+- **Keyboard shortcuts reference**: open **Shortcuts** (Tools sidebar, or the
+  command palette) for a grouped cheat-sheet (getting around, text editor,
+  blocks, code blocks, images, Typst); the editor rows show your current
+  bindings.
 - **Notion-style block selection**: tap **Esc** to leave text editing and
   select the block the caret is in. Then **↑/↓** to move the selection,
   **Shift+↑/↓** to multi-select, **Ctrl/⌘+Shift+↑/↓** to move the selected

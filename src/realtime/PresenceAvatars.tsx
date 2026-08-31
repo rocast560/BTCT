@@ -29,6 +29,7 @@ const KIND_LABEL: Record<TabKind, string> = {
   cmdlog: 'Command Log',
   history: 'History',
   assets: 'Assets',
+  shortcuts: 'Shortcuts',
 };
 
 function whereLabel(peer: PeerPresence): string {

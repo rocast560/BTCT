@@ -10,6 +10,7 @@
 import { Plugin } from '@milkdown/prose/state';
 import { NodeSelection } from '@milkdown/prose/state';
 import type { EditorView } from '@milkdown/prose/view';
+import type { Node as ProseNode } from '@milkdown/prose/model';
 import { editorViewCtx } from '@milkdown/core';
 import { $prose } from '@milkdown/utils';
 import { useAppStore } from '@/stores';
@@ -108,6 +109,44 @@ export const noteImageContextPlugin = $prose(() =>
           return true;
         },
       },
+    },
+  }),
+);
+
+/** All asset ids referenced by `asset_image` nodes in a document. */
+function collectAssetImageIds(doc: ProseNode): Set<string> {
+  const ids = new Set<string>();
+  doc.descendants((n) => {
+    if (n.type.name === 'asset_image' && n.attrs.assetId) ids.add(n.attrs.assetId as string);
+  });
+  return ids;
+}
+
+/**
+ * When an `asset_image` node is removed from a note (and no other image in the
+ * same note still references that asset), delete the underlying shared asset:
+ * its record, its bytes on disk, and its entry in the Assets Manager. The blur
+ * / crop metadata goes with it. Fires on both local and remote deletions, so
+ * every client drops the asset from its store; the server delete is idempotent
+ * (a second one 404s and is ignored).
+ *
+ * Note: this permanently removes the shared asset, so undo restores the node
+ * but not the image; and if the same asset was referenced in the Typst report,
+ * that reference is emptied too.
+ */
+export const noteImageCleanupPlugin = $prose(() =>
+  new Plugin({
+    appendTransaction(trs, oldState, newState) {
+      if (!trs.some((t) => t.docChanged)) return null;
+      const before = collectAssetImageIds(oldState.doc);
+      if (before.size === 0) return null;
+      const after = collectAssetImageIds(newState.doc);
+      for (const id of before) {
+        if (!after.has(id)) {
+          queueMicrotask(() => { void useAppStore.getState().deleteTypstAsset(id).catch(() => undefined); });
+        }
+      }
+      return null;
     },
   }),
 );
