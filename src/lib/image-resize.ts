@@ -29,7 +29,7 @@ import { NodeSelection, Plugin, PluginKey } from '@milkdown/prose/state';
 import { Decoration, DecorationSet, type EditorView } from '@milkdown/prose/view';
 
 /** The image node types we make resizable: inline images and Crepe's image block. */
-const IMAGE_TYPES = new Set(['image', 'image-block']);
+const IMAGE_TYPES = new Set(['image', 'image-block', 'asset_image']);
 
 /** Smallest and how-close-to-the-corner a grab counts, in CSS pixels. */
 export const MIN_IMAGE_WIDTH = 48;

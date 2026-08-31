@@ -119,6 +119,14 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   bottom-right corner to shrink (or grow) it. Works for both inline images and
   pasted / dropped picture blocks. The size is saved with the note and survives
   reload; other operators see it live.
+- **Paste an image = a shared asset you can redact**: paste or drop an image
+  into a note and it is uploaded to the same asset store as the report, so it
+  shows up in the **Assets Manager**. Right-click it for **Blur / edit image**
+  (or select it and press **Ctrl/⌘+Shift+B**) to open the same crop/blur editor
+  the report uses, or **Open in Assets Manager**. The blur is non-destructive:
+  the original bytes are never overwritten, so opening the image again (in the
+  note or the manager) lets you adjust or remove the blur and get the original
+  back. The note shows the redacted version live.
 - **Notion-style block selection**: tap **Esc** to leave text editing and
   select the block the caret is in. Then **↑/↓** to move the selection,
   **Shift+↑/↓** to multi-select, **Ctrl/⌘+Shift+↑/↓** to move the selected

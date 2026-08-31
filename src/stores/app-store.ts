@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, AssetFolder, CustomTimelineEvent, NodeType, TypstAssetKind, CropRect, BlurRegion, CommandLogEntry } from '@/types';
 import { sharedTransact, getSharedDoc } from '@/realtime/shared-doc';
-import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo, typstAssetRepo, commandLogRepo } from '@/db';
-import { assetFolderRepo } from '@/db/asset-folder-repo';
+import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo, typstAssetRepo, commandLogRepo } from '@/db';
+import { assetFolderRepo } from '@/db/asset-folder-repo';
 import { timelineEventRepo } from '@/db/timeline-event-repo';
 import { isDescendantFolder } from '@/lib/asset-folders';
 import type { LogAuthor, LogDelta } from '@/db/changelog-repo';
@@ -229,6 +229,12 @@ interface AppState {
   deleteTimelineEvent: (id: ID) => Promise<void>;
   quickAddOpen: boolean;
   setQuickAddOpen: (open: boolean) => void;
+  // Note-image blur/crop editor: the asset id currently being edited (from a
+  // note image), and the right-click menu over a note image.
+  editingAssetId: ID | null;
+  setEditingAssetId: (id: ID | null) => void;
+  imageMenu: { x: number; y: number; assetId: ID } | null;
+  setImageMenu: (menu: { x: number; y: number; assetId: ID } | null) => void;
 
   // Database
   deleteDatabase: () => Promise<void>;
@@ -1253,6 +1259,10 @@ export const useAppStore = create<AppState>((set, get) => {
   timelineEvents: [],
   quickAddOpen: false,
   setQuickAddOpen: (open) => set({ quickAddOpen: open }),
+  editingAssetId: null,
+  setEditingAssetId: (id) => set({ editingAssetId: id }),
+  imageMenu: null,
+  setImageMenu: (menu) => set({ imageMenu: menu }),
   loadTimelineEvents: async () => {
     const wsId = get().activeWorkspaceId;
     if (!wsId) return;

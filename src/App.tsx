@@ -7,6 +7,8 @@ import { TabBar } from '@/components/ui/TabBar';
 import { SplitContainer } from '@/components/ui/SplitContainer';
 import { CommandPalette } from '@/components/ui/CommandPalette';
 import { QuickAddEvent } from '@/components/findings/QuickAddEvent';
+import { AssetImageEditor } from '@/components/editor/AssetImageEditor';
+import { blurSelectedImage } from '@/lib/note-image-paste';
 import { seedDemoWorkspace } from '@/db/seed';
 import { useAuthStore } from '@/auth/auth-store';
 import { useThemeStore } from '@/stores/theme-store';
@@ -204,6 +206,17 @@ function AuthedApp() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  // Blur/crop the selected note image (default Ctrl/Cmd+Shift+B).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const shortcut = resolvePrefs(useAuthStore.getState().user).keybinds.blurImage;
+      if (!matchShortcut(e, shortcut)) return;
+      if (blurSelectedImage()) e.preventDefault();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   // Claude assistant shortcut: Ctrl/⌘+Shift+A opens/focuses the Claude tab.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -364,6 +377,7 @@ function AuthedApp() {
       {rightSidebarOpen && <RightSidebar />}
       <CommandPalette />
       <QuickAddEvent />
+      <AssetImageEditor />
       <PresenceAvatars />
     </div>
   );

@@ -36,6 +36,8 @@ import { editorViewCtx } from '@milkdown/core';
 import { createCodeBlockInputRule } from '@milkdown/preset-commonmark';
 import { blockSelectPlugin } from '@/lib/block-select';
 import { imageResizePlugin, imageResizableSchema, imageBlockResizableSchema } from '@/lib/image-resize';
+import { assetImageSchema, assetImageView } from '@/lib/asset-image';
+import { noteImagePastePlugin, noteImageContextPlugin } from '@/lib/note-image-paste';
 import {
   DEFAULT_HEADER_LABELS,
   insertTable,
@@ -487,6 +489,13 @@ function MarkdownEditor({
       .use(imageResizableSchema)
       .use(imageBlockResizableSchema)
       .use(imageResizePlugin)
+      // Asset-backed images: paste/drop uploads to the shared asset store and
+      // inserts an asset_image node (blurrable non-destructively). See
+      // lib/asset-image.ts + lib/note-image-paste.ts.
+      .use(assetImageSchema)
+      .use(assetImageView)
+      .use(noteImagePastePlugin)
+      .use(noteImageContextPlugin)
       .use(tableHeaderStatePlugin)
       .use(collab)
       .config((ctx) => {

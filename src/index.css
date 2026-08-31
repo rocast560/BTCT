@@ -708,6 +708,11 @@ button:focus-visible {
 .milkdown-host .ProseMirror span.pm-image { display: inline-block; line-height: 0; }
 .milkdown-host .ProseMirror .pm-image.pm-img-sized { max-width: 100%; }
 .milkdown-host .ProseMirror span.pm-image.pm-img-sized img { width: 100%; height: auto; }
+/* Asset-backed note images (asset_image node): block-level, rendered from the
+   shared asset's resolved (cropped/blurred) bytes. */
+.milkdown-host .ProseMirror .asset-image { display: block; max-width: 100%; margin: 0.35rem 0; line-height: 0; }
+.milkdown-host .ProseMirror .asset-image img { display: block; max-width: 100%; height: auto; border-radius: var(--radius-sm); }
+.milkdown-host .ProseMirror .asset-image.pm-img-sized img { width: 100%; }
 .milkdown-host .ProseMirror .milkdown-image-block.pm-img-sized .image-wrapper,
 .milkdown-host .ProseMirror .milkdown-image-block.pm-img-sized img {
   width: 100% !important;
