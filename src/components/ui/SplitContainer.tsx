@@ -11,6 +11,7 @@ const TypstView = lazy(() => import('@/components/typst/TypstView').then((m) => 
 const AiAssistant = lazy(() => import('@/components/ai/AiAssistant').then((m) => ({ default: m.AiAssistant })));
 const CommandLogView = lazy(() => import('@/components/cmdlog/CommandLogView').then((m) => ({ default: m.CommandLogView })));
 const HistoryView = lazy(() => import('@/components/history/HistoryView').then((m) => ({ default: m.HistoryView })));
+const AssetsManager = lazy(() => import('@/components/typst/AssetsManager').then((m) => ({ default: m.AssetsManager })));
 import { FileText, Network, Radar, Monitor, X, Bug, Clock, FileType2, Sparkles, Terminal, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -271,6 +272,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
         {activeTab?.kind === 'ai' && <AiAssistant />}
         {activeTab?.kind === 'cmdlog' && <CommandLogView />}
         {activeTab?.kind === 'history' && <HistoryView pageId={activeTab.entityId} />}
+        {activeTab?.kind === 'assets' && <AssetsManager />}
         {!activeTab && (
           <div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">
             Drop a tab here

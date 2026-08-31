@@ -412,6 +412,7 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
   onToggleFullscreen,
   onHide,
   reveal,
+  standalone = false,
 }: {
   /** Live Typst source: the figure slots are read out of it. */
   source: string;
@@ -424,6 +425,13 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
   onHide: () => void;
   /** Click-to-reveal from the preview: select + flash this asset. */
   reveal?: { id: ID; nonce: number } | null;
+  /**
+   * Standalone Assets Manager mode (its own tab, opened while taking notes):
+   * always the wide two-column layout, no fullscreen/hide buttons, and the
+   * image editor opens in crop+blur-only mode (no Typst figure placement).
+   * Shares the same asset + folder state as the report.
+   */
+  standalone?: boolean;
 }) {
   const assets = useAppStore((s) => s.typstAssets);
   const folders = useAppStore((s) => s.assetFolders);
@@ -711,6 +719,8 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
   // collaborator cropping the same image, say).
   const placingLive = placing ? assets.find((a) => a.id === placing.id) ?? null : null;
 
+  // Standalone always uses the wide (side-by-side) layout of the full-tab mode.
+  const wide = fullscreen || standalone;
   const rootCount = counts.get('') ?? 0;
   const acceptsRowDrag = (e: React.DragEvent) =>
     e.dataTransfer.types.includes(ASSET_DRAG) ||
@@ -749,20 +759,24 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
           {busy ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
           Add
         </button>
-        <button
-          onClick={onToggleFullscreen}
-          title={fullscreen ? 'Exit full screen' : 'Expand the asset browser over the whole tab'}
-          className="rounded p-1 hover:bg-[hsl(var(--accent))]"
-        >
-          {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-        </button>
-        <button
-          onClick={onHide}
-          title="Hide the assets panel"
-          className="rounded p-1 hover:bg-[hsl(var(--accent))]"
-        >
-          <PanelRightClose size={12} />
-        </button>
+        {!standalone && (
+          <>
+            <button
+              onClick={onToggleFullscreen}
+              title={fullscreen ? 'Exit full screen' : 'Expand the asset browser over the whole tab'}
+              className="rounded p-1 hover:bg-[hsl(var(--accent))]"
+            >
+              {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+            </button>
+            <button
+              onClick={onHide}
+              title="Hide the assets panel"
+              className="rounded p-1 hover:bg-[hsl(var(--accent))]"
+            >
+              <PanelRightClose size={12} />
+            </button>
+          </>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -786,10 +800,10 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
         </div>
       )}
 
-      <div className={`min-h-0 flex-1 ${fullscreen ? 'flex' : 'flex flex-col'} overflow-hidden`}>
+      <div className={`min-h-0 flex-1 ${wide ? 'flex' : 'flex flex-col'} overflow-hidden`}>
         {/* Folder tree */}
         <div className={`atree shrink-0 overflow-y-auto p-2 ${
-          fullscreen
+          wide
             ? 'w-64 border-r border-[hsl(var(--border))]'
             : 'max-h-[45%] border-b border-[hsl(var(--border))]'
         }`}>
@@ -874,8 +888,8 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
           </div>
           {images.length > 0 ? (
             <div
-              className={`mb-3 grid gap-1.5 ${fullscreen ? '' : 'grid-cols-2'}`}
-              style={fullscreen ? { gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' } : undefined}
+              className={`mb-3 grid gap-1.5 ${wide ? '' : 'grid-cols-2'}`}
+              style={wide ? { gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' } : undefined}
             >
               {images.map((a) => (
                 <ImageCard
@@ -903,7 +917,7 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
             <FileType size={10} /> Fonts
           </div>
           {fonts.length > 0 ? (
-            <div className={`flex flex-col gap-1 ${fullscreen ? 'max-w-md' : ''}`}>
+            <div className={`flex flex-col gap-1 ${wide ? 'max-w-md' : ''}`}>
               {fonts.map((a) => (
                 <FontRow key={a.id} asset={a} onInsert={insertFont} onDelete={removeAsset} onDragStartAsset={onDragStartAsset} />
               ))}
@@ -948,6 +962,7 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
           <PlaceScreenshotDialog
             asset={placingLive}
             source={source}
+            hidePlacement={standalone}
             onApply={(crop, blurs, slot, heightPt) =>
               applyPlacement(crop, blurs, slot, assetPath(placingLive), heightPt)}
             onUnplace={(crop, blurs, slot) => applyPlacement(crop, blurs, slot, null, null)}

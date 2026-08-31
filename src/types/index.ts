@@ -246,7 +246,7 @@ export interface CustomTimelineEvent {
 }
 
 // ---- UI State Types ----
-export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline' | 'typst' | 'ai' | 'cmdlog' | 'history';
+export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline' | 'typst' | 'ai' | 'cmdlog' | 'history' | 'assets';
 
 export interface TabItem {
   id: string;

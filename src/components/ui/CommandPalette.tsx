@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { Command } from 'cmdk';
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { FileText, FileType2, Network, Plus, Settings, Users, Sparkles, Terminal } from 'lucide-react';
+import { FileText, FileType2, Network, Plus, Settings, Users, Sparkles, Terminal, Images } from 'lucide-react';
 
 export function CommandPalette() {
   const {
@@ -100,6 +100,12 @@ export function CommandPalette() {
                 className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
               >
                 <Terminal size={14} /> Open Command Log
+              </Command.Item>
+              <Command.Item
+                onSelect={() => { openTab({ id: uuidv4(), kind: 'assets', entityId: 'assets', title: 'Assets' }); setCommandPaletteOpen(false); }}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
+              >
+                <Images size={14} /> Open Assets Manager
               </Command.Item>
               <Command.Item
                 onSelect={() => { setFollowPanelOpen(true); setCommandPaletteOpen(false); }}

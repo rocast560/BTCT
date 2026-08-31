@@ -175,6 +175,15 @@ rendered entirely in the browser** (no calls to typst.app or any remote service)
   blur/pixelate regions (**Admin panel → Blur Defaults**); each account can
   override it in **Edit Profile → Redaction Defaults**. The default is stamped
   onto a region when it is drawn, so existing redactions never change.
+- **Assets Manager (standalone)**: open **Assets** from the sidebar or the
+  command palette (also `Ctrl/⌘+K` → *Open Assets Manager*) to get the report's
+  folder browser and the same non-destructive crop/blur image editor in its own
+  tab, so you can organize screenshots and redact them **while you take notes**.
+  It shares one state with the Typst report: a folder you make, an image you
+  drop, a crop or a blur here is the same object the report sees. Blurring is
+  non-destructive: the original bytes are never overwritten, so opening the
+  image again (here or in the report) lets you adjust or remove the blur and get
+  the original back at any time.
 - **Local WebAssembly compiler**: bundled [`typst.ts`](https://github.com/Myriad-Dreamin/typst.ts)
   (compiler + renderer wasm) ships with the app, and the default Typst font set
   is embedded in the compiler, so it renders **fully offline / air-gapped**, with no

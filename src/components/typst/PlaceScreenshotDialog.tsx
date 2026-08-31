@@ -137,6 +137,7 @@ export function PlaceScreenshotDialog({
   onAddSlot,
   onRename,
   onClose,
+  hidePlacement = false,
 }: {
   asset: TypstAsset;
   /** Current Typst source: the figure slots and page geometry come from it. */
@@ -158,6 +159,12 @@ export function PlaceScreenshotDialog({
   /** Rename the asset's file stem, repointing any document references. */
   onRename: (stem: string) => void;
   onClose: () => void;
+  /**
+   * Standalone (notes / Assets Manager) mode: hide the Typst figure-slot
+   * picker and the place/unplace controls, leaving only the crop + blur
+   * editor. The framing is still saved non-destructively via "Save".
+   */
+  hidePlacement?: boolean;
 }) {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
@@ -460,7 +467,7 @@ export function PlaceScreenshotDialog({
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <Crop size={14} className="shrink-0 text-[hsl(var(--status-purple))]" />
             <span className="shrink-0 text-[11px] font-bold uppercase tracking-widest">
-              Place screenshot
+              {hidePlacement ? 'Edit image' : 'Place screenshot'}
             </span>
             <span className="shrink-0 text-[hsl(var(--muted-foreground))]">·</span>
             <AssetNameField asset={asset} onRename={onRename} />
@@ -610,7 +617,8 @@ export function PlaceScreenshotDialog({
             </div>
           </div>
 
-          {/* Figure slot picker + height */}
+          {/* Figure slot picker + height (Typst report only) */}
+          {!hidePlacement && (
           <div className="flex w-72 shrink-0 flex-col border-l border-[hsl(var(--border))]">
             <div className="flex items-center gap-1.5 border-b border-[hsl(var(--border))] px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
               <MapPin size={11} /> Figure location
@@ -757,6 +765,7 @@ export function PlaceScreenshotDialog({
               )}
             </div>
           </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -778,7 +787,7 @@ export function PlaceScreenshotDialog({
             >
               <RotateCcw size={12} /> Reset
             </button>
-            {currentSlotIndex !== -1 && (
+            {!hidePlacement && currentSlotIndex !== -1 && (
               <button
                 onClick={() => onUnplace(cropValue, blursValue, slots[currentSlotIndex]!)}
                 title="Remove this image from its figure (the empty slot stays)"
@@ -788,21 +797,33 @@ export function PlaceScreenshotDialog({
               </button>
             )}
             <div className="mx-1 h-4 w-px bg-[hsl(var(--border))]" />
-            <button
-              onClick={() => onApply(cropValue, blursValue, null, null)}
-              title="Save the framing without changing where the image sits"
-              className="rounded-md px-2.5 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))]"
-            >
-              Save framing
-            </button>
-            <button
-              onClick={place}
-              disabled={!targetSlot}
-              title={targetSlot ? 'Place into the selected figure' : 'Select a figure location first'}
-              className="rounded-md bg-[hsl(var(--primary))] px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-[hsl(var(--primary-foreground))] hover:opacity-90 disabled:opacity-40"
-            >
-              Place in figure
-            </button>
+            {hidePlacement ? (
+              <button
+                onClick={() => onApply(cropValue, blursValue, null, null)}
+                title="Save the crop and blur (the original image is never changed)"
+                className="rounded-md bg-[hsl(var(--primary))] px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-[hsl(var(--primary-foreground))] hover:opacity-90"
+              >
+                Save
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => onApply(cropValue, blursValue, null, null)}
+                  title="Save the framing without changing where the image sits"
+                  className="rounded-md px-2.5 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))]"
+                >
+                  Save framing
+                </button>
+                <button
+                  onClick={place}
+                  disabled={!targetSlot}
+                  title={targetSlot ? 'Place into the selected figure' : 'Select a figure location first'}
+                  className="rounded-md bg-[hsl(var(--primary))] px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-[hsl(var(--primary-foreground))] hover:opacity-90 disabled:opacity-40"
+                >
+                  Place in figure
+                </button>
+              </>
+            )}
           </div>
         </div>
 
