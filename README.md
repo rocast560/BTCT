@@ -106,8 +106,10 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   an already-linked selection to unlink it.
 - **Code blocks**: full syntax highlighting via CodeMirror using the **GitHub
   Dark** palette. Click the language button to pick a language; or press
-  **Ctrl+Shift+L** inside a block to jump to the picker and **arrow-key** through
-  it (Enter selects, Esc closes). New code blocks default to `shell`, whether
+  **Ctrl+Shift+L** to jump to the picker, either with the caret inside the block
+  or with the block selected. Type to filter, press **Enter** to drop to the
+  closest match, then **arrow-key** through the list and Enter to set it (Esc
+  closes). New code blocks default to `shell`, whether
   they come from `/code` or from typing ``` and pressing Enter; type a language
   after the fence (```py) to keep it.
 - **Terminal palettes**: `shell`/`bash` and `powershell` blocks are highlighted
@@ -657,8 +659,8 @@ panel).
 | Editor / Block mode | `Mod+Shift+↑`/`↓` | Move the current / selected block up / down |
 | Block mode | `↑`/`↓`, `Shift+↑`/`↓` | Move / extend the block selection |
 | Block mode | `Mod+D`, `Backspace`/`Delete`, `Enter`, `Esc`/click | Duplicate / delete / edit / exit |
-| Code block | `Mod+Shift+L` ⚙ | Focus language picker |
-| Language picker | `↑`/`↓`, `Enter`, `Esc` | Navigate / select / close |
+| Code block / Block mode | `Mod+Shift+L` ⚙ | Focus the language picker (works with the block selected too) |
+| Language picker | type, `Enter`, `↑`/`↓`, `Esc` | Filter, Enter drops to the closest match, arrows choose, Enter sets, Esc closes |
 | Typst preview | click | Select the matching editable text in the source |
 | Typst editor | `Mod+F` | Whole-document find & replace (`Enter`/`Shift+Enter` = next/previous match) |
 | Typst editor | `Esc` | Close the search panel |
@@ -863,7 +865,9 @@ custom plugins layered on:
   and so bypassed that default for a bare fence; `PageEditor` `remove()`s the
   preset's rule because input rules are first-match-wins), `userKeybindsPlugin`
   (runs *before* commonmark's keymap so rebinds win; also implements
-  backtick-wrap), and `focusLanguageKeymap` + `installLanguagePickerNav()` for the
+  backtick-wrap, and mirrors the language-picker shortcut so it also opens when a
+  code block is selected), and `focusLanguageKeymap` (the caret-in-block path) +
+  `installLanguagePickerNav()` (`closestMatchIndex` picks the Enter target) for the
   language picker.
 - [src/lib/editor-prefs.ts](src/lib/editor-prefs.ts): `EditorPrefs` shape,
   defaults, and the `parseShortcut`/`matchShortcut`/`shortcutFromEvent` helpers.

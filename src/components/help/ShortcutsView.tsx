@@ -71,7 +71,7 @@ export function ShortcutsView() {
     {
       title: 'Code blocks',
       rows: [
-        { keys: bound('focusLanguage'), label: 'Focus the language picker: type to search, ↑/↓ to choose, Enter to set' },
+        { keys: bound('focusLanguage'), label: 'Focus the language picker (inside a block or with it selected): type to search, Enter drops to the closest match, ↑/↓ to choose, Enter to set' },
         { keys: '``` + Enter', label: 'New code block (defaults to shell; type a language after the fence)' },
       ],
     },
