@@ -130,6 +130,12 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   **Copy** (or cut) a selected block and it goes to the clipboard as both rich
   content and markdown, so pasting it into another note, a terminal or a chat
   keeps a code block as a fenced code box rather than dropping the fences.
+- **Quick-add timeline event**: press **Ctrl/⌘+Shift+E** anywhere to open a
+  keyboard-driven popup: **↑/↓** move between fields, **←/→** pick the type
+  (host / service / credential / pivot / finding), **Enter** advances,
+  **Ctrl/⌘+Enter** saves, **Esc** closes. The event lands on the Attack Timeline
+  at the date/time you set, flagged “added by <you>”, and can be removed there.
+  The keybind is rebindable in the Keybinds dialog.
 - **Per-account personalization**: each account can rebind the editor shortcuts
   (Keybinds dialog, which also lists the built-in block shortcuts) and choose a
   **code accent** color that retints code-block keywords. Both follow your

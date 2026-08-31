@@ -40,6 +40,7 @@ export function bindSharedSubscriptions(): () => void {
   unsubs.push(subscribeTable('attackChains', debounce(() => { void s().loadAttackChains(); })));
   unsubs.push(subscribeTable('typstAssets',  debounce(() => { void s().loadTypstAssets(); })));
   unsubs.push(subscribeTable('assetFolders', debounce(() => { void s().loadAssetFolders(); })));
+  unsubs.push(subscribeTable('timelineEvents', debounce(() => { void s().loadTimelineEvents(); })));
   unsubs.push(subscribeTable('commandLogs',  debounce(() => { void s().loadCommandLogs(); })));
 
   // Admin theme policy, mirrored into the doc by the server on every save

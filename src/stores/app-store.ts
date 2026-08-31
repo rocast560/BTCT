@@ -1,8 +1,9 @@
 import { create } from 'zustand';
-import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, AssetFolder, TypstAssetKind, CropRect, BlurRegion, CommandLogEntry } from '@/types';
+import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, AssetFolder, CustomTimelineEvent, NodeType, TypstAssetKind, CropRect, BlurRegion, CommandLogEntry } from '@/types';
 import { sharedTransact, getSharedDoc } from '@/realtime/shared-doc';
 import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo, typstAssetRepo, commandLogRepo } from '@/db';
-import { assetFolderRepo } from '@/db/asset-folder-repo';
+import { assetFolderRepo } from '@/db/asset-folder-repo';
+import { timelineEventRepo } from '@/db/timeline-event-repo';
 import { isDescendantFolder } from '@/lib/asset-folders';
 import type { LogAuthor, LogDelta } from '@/db/changelog-repo';
 import { db } from '@/db/database';
@@ -221,6 +222,13 @@ interface AppState {
   // Command log (team pentest command activity: ingested server-side, read-only here)
   commandLogs: CommandLogEntry[];
   loadCommandLogs: () => Promise<void>;
+  // User-added Attack Timeline events (quick-add).
+  timelineEvents: CustomTimelineEvent[];
+  loadTimelineEvents: () => Promise<void>;
+  createTimelineEvent: (data: { kind: NodeType; title: string; details: string; timestamp: number; createdBy: number | null; createdByName: string }) => Promise<CustomTimelineEvent>;
+  deleteTimelineEvent: (id: ID) => Promise<void>;
+  quickAddOpen: boolean;
+  setQuickAddOpen: (open: boolean) => void;
 
   // Database
   deleteDatabase: () => Promise<void>;
@@ -279,7 +287,7 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   setActiveWorkspace: (id) => {
-    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], graphs: [], graphNodes: [], graphEdges: [], attackChains: [], nmapScans: [], nmapMachines: [], typstAssets: [], assetFolders: [], commandLogs: [] });
+    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], graphs: [], graphNodes: [], graphEdges: [], attackChains: [], nmapScans: [], nmapMachines: [], typstAssets: [], assetFolders: [], commandLogs: [], timelineEvents: [] });
     // Reload workspace-scoped lists for the newly-active workspace so stale
     // entries from the previous workspace don't appear before the per-view
     // useEffects fire (and so newly-created scans never inherit the prior
@@ -287,6 +295,7 @@ export const useAppStore = create<AppState>((set, get) => {
     void get().loadNmapScans();
     void get().loadTypstAssets();
     void get().loadAssetFolders();
+    void get().loadTimelineEvents();
     void get().loadCommandLogs();
   },
 
@@ -1238,6 +1247,30 @@ export const useAppStore = create<AppState>((set, get) => {
     const wsId = get().activeWorkspaceId;
     if (!wsId) return;
     set({ commandLogs: await commandLogRepo.getByWorkspace(wsId) });
+  },
+
+  // Quick-add timeline events.
+  timelineEvents: [],
+  quickAddOpen: false,
+  setQuickAddOpen: (open) => set({ quickAddOpen: open }),
+  loadTimelineEvents: async () => {
+    const wsId = get().activeWorkspaceId;
+    if (!wsId) return;
+    set({ timelineEvents: await timelineEventRepo.getByWorkspace(wsId) });
+  },
+  createTimelineEvent: async (data) => {
+    const wsId = get().activeWorkspaceId;
+    if (!wsId) throw new Error('No active workspace');
+    const event = await timelineEventRepo.create({ workspaceId: wsId, ...data });
+    set((s) => ({ timelineEvents: [...s.timelineEvents, event] }));
+    log('create', 'page', event.id, `Added timeline event "${event.title}" (${event.kind}) by ${event.createdByName}`);
+    return event;
+  },
+  deleteTimelineEvent: async (id) => {
+    const ev = get().timelineEvents.find((e) => e.id === id);
+    await timelineEventRepo.remove(id);
+    set((s) => ({ timelineEvents: s.timelineEvents.filter((e) => e.id !== id) }));
+    if (ev) log('delete', 'page', id, `Removed timeline event "${ev.title}"`);
   },
 
   addTypstAsset: async (file: File, kind: TypstAssetKind, folderId?: ID | null) => {

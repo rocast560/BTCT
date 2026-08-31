@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '@/stores';
-import type { GraphNode, GraphEdge, HostData, CredentialData, ServiceData, FindingData, PivotData } from '@/types';
+import type { GraphNode, GraphEdge, HostData, CredentialData, ServiceData, FindingData, PivotData, CustomTimelineEvent } from '@/types';
 import {
   ChevronDown,
   ChevronRight,
@@ -13,6 +13,8 @@ import {
   Clock,
   Copy,
   Check,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { graphNodeRepo } from '@/db/graph-node-repo';
@@ -42,6 +44,27 @@ interface TimelineEvent {
   graphName: string;
   graphId: string;
   details: string;
+  /** Set when this is a user quick-added event (not derived from a graph node). */
+  custom?: { eventId: string; addedByName: string };
+}
+
+const CUSTOM_GRAPH_ID = '__events__';
+
+/** Build a synthetic GraphNode from a user-added timeline event so the existing
+ *  grouping / rendering can treat it like any other event. */
+function customEventToNode(e: CustomTimelineEvent): GraphNode {
+  return {
+    id: `evt-${e.id}`,
+    graphId: CUSTOM_GRAPH_ID,
+    type: e.kind,
+    label: e.title,
+    position: { x: 0, y: 0 },
+    data: {} as GraphNode['data'],
+    linkedPageId: '',
+    discoveredAt: e.timestamp,
+    createdAt: e.createdAt,
+    updatedAt: e.updatedAt,
+  };
 }
 
 const DAY_MS = 86400000;
@@ -123,6 +146,9 @@ export function AttackTimeline() {
   const graphs = useAppStore((s) => s.graphs);
   const openTab = useAppStore((s) => s.openTab);
   const setPendingFocusNodeId = useAppStore((s) => s.setPendingFocusNodeId);
+  const customEvents = useAppStore((s) => s.timelineEvents);
+  const deleteTimelineEvent = useAppStore((s) => s.deleteTimelineEvent);
+  const setQuickAddOpen = useAppStore((s) => s.setQuickAddOpen);
   const [allNodes, setAllNodes] = useState<GraphNode[]>([]);
   const [allEdges, setAllEdges] = useState<GraphEdge[]>([]);
   const [loading, setLoading] = useState(true);
@@ -201,13 +227,33 @@ export function AttackTimeline() {
       arr.push(ev);
       byDay.set(d, arr);
     }
+    // User quick-added events (not tied to a narrative). Filtered by type;
+    // shown only under "All narratives" since they belong to no graph.
+    if (graphFilter === 'all') {
+      for (const ce of customEvents) {
+        if (!typeFilter.has(ce.kind as TypeKey)) continue;
+        const node = customEventToNode(ce);
+        const ev: TimelineEvent = {
+          node,
+          graphId: node.graphId,
+          graphName: 'Manual event',
+          details: ce.details,
+          custom: { eventId: ce.id, addedByName: ce.createdByName },
+        };
+        const d = startOfDay(ce.timestamp);
+        const arr = byDay.get(d) ?? [];
+        arr.push(ev);
+        byDay.set(d, arr);
+      }
+    }
     const result = Array.from(byDay.entries())
       .map(([dayTs, events]) => ({ dayTs, events: events.sort((a, b) => a.node.discoveredAt - b.node.discoveredAt) }))
       .sort((a, b) => a.dayTs - b.dayTs);
     return result;
-  }, [filtered, graphName]);
+  }, [filtered, graphName, customEvents, typeFilter, graphFilter]);
 
   const totalDays = grouped.length;
+  const totalEvents = useMemo(() => grouped.reduce((n, g) => n + g.events.length, 0), [grouped]);
 
   const toggleDay = (dayTs: number) => {
     setCollapsed((prev) => {
@@ -267,17 +313,26 @@ export function AttackTimeline() {
             </h1>
             <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">
               Chronological, indented view of all graph nodes across every attack narrative: use this to write the narrative section of your report.
-              {' · '}{filtered.length} event{filtered.length !== 1 ? 's' : ''}{totalDays > 0 ? ` · ${totalDays} day${totalDays !== 1 ? 's' : ''} (${span}d span)` : ''}
+              {' · '}{totalEvents} event{totalEvents !== 1 ? 's' : ''}{totalDays > 0 ? ` · ${totalDays} day${totalDays !== 1 ? 's' : ''} (${span}d span)` : ''}
             </p>
           </div>
-          <button
-            onClick={() => void copyMarkdown()}
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-[11px] hover:bg-[hsl(var(--accent))]"
-            title="Copy timeline as Markdown outline"
-          >
-            {copied ? <Check size={12} className="text-[hsl(var(--status-green))]" /> : <Copy size={12} />}
-            {copied ? 'Copied' : 'Copy as Markdown'}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => setQuickAddOpen(true)}
+              className="flex items-center gap-1.5 rounded-full border border-[hsl(var(--primary))]/50 bg-[hsl(var(--primary))]/15 px-3 py-1.5 text-[11px] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/25"
+              title="Add a custom event (Ctrl/⌘+Shift+E)"
+            >
+              <Plus size={12} /> Add event
+            </button>
+            <button
+              onClick={() => void copyMarkdown()}
+              className="flex items-center gap-1.5 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-[11px] hover:bg-[hsl(var(--accent))]"
+              title="Copy timeline as Markdown outline"
+            >
+              {copied ? <Check size={12} className="text-[hsl(var(--status-green))]" /> : <Copy size={12} />}
+              {copied ? 'Copied' : 'Copy as Markdown'}
+            </button>
+          </div>
         </div>
 
         {/* Filters */}
@@ -357,8 +412,8 @@ export function AttackTimeline() {
                       {events.map((ev) => {
                         const s = typeStyles[ev.node.type as TypeKey];
                         const Icon = s.Icon;
-                        const fd = ev.node.type === 'finding' ? (ev.node.data as FindingData) : null;
-                        const edges = edgesByGraph.get(ev.graphId) ?? [];
+                        const fd = !ev.custom && ev.node.type === 'finding' ? (ev.node.data as FindingData) : null;
+                        const edges = ev.custom ? [] : (edgesByGraph.get(ev.graphId) ?? []);
                         const incoming = edges.filter((e) => e.targetNodeId === ev.node.id);
                         return (
                           <div key={ev.node.id} className="grid grid-cols-[70px_110px_1fr_150px_30px] items-start gap-2 px-3 py-2 text-xs hover:bg-[hsl(var(--accent))]/30">
@@ -370,15 +425,20 @@ export function AttackTimeline() {
                               </span>
                             </div>
                             <div className="min-w-0">
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
                                 <span className="font-semibold">{ev.node.label}</span>
                                 {fd && (
                                   <span className={cn('rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide', severityStyles[fd.severity])}>
                                     {fd.severity}{fd.cvss ? ` ${fd.cvss.toFixed(1)}` : ''}
                                   </span>
                                 )}
+                                {ev.custom && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--primary))]/15 px-2 py-0.5 text-[9px] font-semibold text-[hsl(var(--primary))]">
+                                    added by {ev.custom.addedByName}
+                                  </span>
+                                )}
                               </div>
-                              {ev.details && ev.node.type !== 'finding' && (
+                              {ev.details && (ev.custom || ev.node.type !== 'finding') && (
                                 <div className="mt-0.5 truncate text-[10px] text-[hsl(var(--muted-foreground))]">{ev.details}</div>
                               )}
                               {fd && fd.title && (
@@ -401,16 +461,26 @@ export function AttackTimeline() {
                               )}
                             </div>
                             <div className="truncate text-[10px] text-[hsl(var(--muted-foreground))]">{ev.graphName}</div>
-                            <button
-                              onClick={(e) => {
-                                if (e.shiftKey) focusNodeOnGraph(ev.node, ev.graphId, ev.graphName);
-                                else openNodePage(ev.node);
-                              }}
-                              className="justify-self-end rounded-md p-1 hover:bg-[hsl(var(--accent))]"
-                              title="Click: open node page · Shift+Click: jump to node on attack narrative"
-                            >
-                              <ExternalLink size={11} className="text-[hsl(var(--muted-foreground))]" />
-                            </button>
+                            {ev.custom ? (
+                              <button
+                                onClick={() => { const id = ev.custom!.eventId; void deleteTimelineEvent(id); }}
+                                className="justify-self-end rounded-md p-1 hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--status-red))]"
+                                title="Remove this event"
+                              >
+                                <Trash2 size={11} className="text-[hsl(var(--muted-foreground))]" />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  if (e.shiftKey) focusNodeOnGraph(ev.node, ev.graphId, ev.graphName);
+                                  else openNodePage(ev.node);
+                                }}
+                                className="justify-self-end rounded-md p-1 hover:bg-[hsl(var(--accent))]"
+                                title="Click: open node page · Shift+Click: jump to node on attack narrative"
+                              >
+                                <ExternalLink size={11} className="text-[hsl(var(--muted-foreground))]" />
+                              </button>
+                            )}
                           </div>
                         );
                       })}

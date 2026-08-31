@@ -26,7 +26,9 @@ export type KeybindAction =
   | 'highlight'
   | 'focusLanguage'
   // Global (non-editor) shortcut: open the "active users / follow" window.
-  | 'openFollowPanel';
+  | 'openFollowPanel'
+  // Global shortcut: quick-add a custom Attack Timeline event.
+  | 'quickAddEvent';
 
 /** How precisely to mirror a teammate when following them. */
 export type FollowPrecision = 'precise' | 'view';
@@ -99,6 +101,7 @@ export const DEFAULT_KEYBINDS: Record<KeybindAction, string> = {
   highlight: 'Mod-Shift-h',
   focusLanguage: 'Mod-Shift-l',
   openFollowPanel: 'Mod-Shift-u',
+  quickAddEvent: 'Mod-Shift-e',
 };
 
 export const DEFAULT_FOLLOW_PREFS: FollowPrefs = {
@@ -135,6 +138,7 @@ export const KEYBIND_ACTIONS: ReadonlyArray<{ id: KeybindAction; label: string }
   { id: 'highlight', label: 'Highlight (last color)' },
   { id: 'focusLanguage', label: 'Focus code language' },
   { id: 'openFollowPanel', label: 'Active users / follow' },
+  { id: 'quickAddEvent', label: 'Quick-add timeline event' },
 ];
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;

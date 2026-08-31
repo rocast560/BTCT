@@ -51,6 +51,7 @@ export const TABLE_NAMES = [
   'nmapMachines',
   'typstAssets',
   'assetFolders',
+  'timelineEvents',
   'commandLogs',
   // Server-written mirror of the public settings (admin theme policy), so
   // clients re-theme live. Read by theme-store via shared-bindings; never

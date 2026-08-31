@@ -224,6 +224,27 @@ export interface AssetFolder {
   updatedAt: number;
 }
 
+/**
+ * A user-added Attack Timeline event (quick-add, Ctrl/Cmd+Shift+E). Typed like
+ * a graph node (host/service/credential/pivot/finding) and timestamped to the
+ * moment the user chose; carries who added it so the timeline can attribute it.
+ * Plain LWW JSON, no Y.Text fields (like typstAssets).
+ */
+export interface CustomTimelineEvent {
+  id: ID;
+  workspaceId: ID;
+  kind: NodeType;
+  title: string;
+  details: string;
+  /** User-chosen event time (epoch ms) that places it on the timeline. */
+  timestamp: number;
+  /** Account id that added it (null if unknown), and the name shown. */
+  createdBy: number | null;
+  createdByName: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ---- UI State Types ----
 export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline' | 'typst' | 'ai' | 'cmdlog' | 'history';
 

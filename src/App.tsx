@@ -6,6 +6,7 @@ import { RightSidebar } from '@/components/sidebar/RightSidebar';
 import { TabBar } from '@/components/ui/TabBar';
 import { SplitContainer } from '@/components/ui/SplitContainer';
 import { CommandPalette } from '@/components/ui/CommandPalette';
+import { QuickAddEvent } from '@/components/findings/QuickAddEvent';
 import { seedDemoWorkspace } from '@/db/seed';
 import { useAuthStore } from '@/auth/auth-store';
 import { useThemeStore } from '@/stores/theme-store';
@@ -189,6 +190,20 @@ function AuthedApp() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  // Global "quick-add timeline event" shortcut (default Ctrl/⌘+Shift+E),
+  // user-configurable and read live from account prefs.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const shortcut = resolvePrefs(useAuthStore.getState().user).keybinds.quickAddEvent;
+      if (!matchShortcut(e, shortcut)) return;
+      e.preventDefault();
+      const st = useAppStore.getState();
+      st.setQuickAddOpen(!st.quickAddOpen);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   // Claude assistant shortcut: Ctrl/⌘+Shift+A opens/focuses the Claude tab.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -348,6 +363,7 @@ function AuthedApp() {
       </div>
       {rightSidebarOpen && <RightSidebar />}
       <CommandPalette />
+      <QuickAddEvent />
       <PresenceAvatars />
     </div>
   );
