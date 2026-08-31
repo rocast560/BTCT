@@ -35,6 +35,12 @@ const themedHighlightStyle = HighlightStyle.define([
   { tag: [t.typeName, t.className, t.namespace, t.tagName, t.standard(t.name)], class: 'cm-tok-type' },
   { tag: [t.operator, t.derefOperator, t.compareOperator, t.logicOperator, t.arithmeticOperator], class: 'cm-tok-operator' },
   { tag: [t.variableName, t.propertyName, t.attributeName, t.definition(t.variableName)], class: 'cm-tok-variable' },
+  // `builtin` is the token the shell and PowerShell legacy modes tag their
+  // commands / cmdlets with (StreamLanguage maps it to variableName.standard).
+  // It has its own CSS var so a terminal palette can paint commands like a
+  // real prompt; the default var falls back to the identifier colour, so no
+  // other language changes look.
+  { tag: [t.standard(t.variableName)], class: 'cm-tok-builtin' },
 ]);
 
 // basicSetup already registers `defaultHighlightStyle`; appended extensions
@@ -65,10 +71,25 @@ const SHELL_ALIASES = new Set([
   'shell', 'bash', 'sh', 'zsh', 'ksh', 'console', 'shell-session', 'shellscript',
 ]);
 
-function canonicalLanguage(raw: unknown): string {
+// Every spelling of PowerShell folds to `powershell` so the terminal palette
+// (keyed on the `data-language` attribute) applies whether the block was
+// opened from the picker ("PowerShell") or a ```ps1 / ```pwsh fence.
+const POWERSHELL_ALIASES = new Set([
+  'powershell', 'pwsh', 'posh', 'ps', 'ps1', 'psm1', 'psd1',
+]);
+
+/**
+ * Canonical `data-language` value for a code block. Shell/bash aliases fold to
+ * `shell` and PowerShell aliases to `powershell` so the terminal palettes in
+ * index.css only need one selector each; everything else keeps its lowercased
+ * name. Exported so the highlighting and the CSS agree on the same key.
+ */
+export function canonicalLanguage(raw: unknown): string {
   const lang = String(raw ?? '').trim().toLowerCase();
   if (!lang) return '';
-  return SHELL_ALIASES.has(lang) ? 'shell' : lang;
+  if (SHELL_ALIASES.has(lang)) return 'shell';
+  if (POWERSHELL_ALIASES.has(lang)) return 'powershell';
+  return lang;
 }
 
 /**

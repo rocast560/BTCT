@@ -56,6 +56,7 @@
   --code-type:     #ffa657; /* type (orange)    */
   --code-operator: #c9d1d9;
   --code-variable: #c9d1d9;
+  --code-builtin:  var(--code-fg); /* shell/PS commands; neutral by default */
   --code-comment:  #8b949e; /* comment (gray)   */
 }
 
@@ -563,12 +564,37 @@ button:focus-visible {
 .milkdown-host .milkdown-code-block .cm-tok-type     { color: var(--code-type); }
 .milkdown-host .milkdown-code-block .cm-tok-operator { color: var(--code-operator); }
 .milkdown-host .milkdown-code-block .cm-tok-variable { color: var(--code-variable); }
+.milkdown-host .milkdown-code-block .cm-tok-builtin  { color: var(--code-builtin); }
 .milkdown-host .milkdown-code-block .cm-tok-comment  { color: var(--code-comment); font-style: italic; }
 
-/* Shell / bash blocks use the same neutral grey GitHub-Dark palette as every
-   other language (driven by the --code-* vars above) rather than a green
-   terminal look, which keeps code boxes consistent with the rest of the app. No
-   `data-language="shell"` overrides are needed; the general token rules apply. */
+/* Terminal palettes for shell and PowerShell. The blocks get a `data-language`
+   attribute from codeLanguageAttrPlugin (canonicalLanguage folds every shell /
+   PowerShell alias to one of these two keys). Overriding the `--code-*` vars on
+   the block element re-tints just these languages: the vars are inherited, so
+   the nearer block value wins over the :root defaults and even the account
+   accent, giving commands / variables / strings the colours a real terminal
+   uses without touching any other language. */
+.milkdown-host .milkdown-code-block[data-language="shell"] {
+  --code-builtin:  #7ee787; /* commands (ls, grep, sudo): green   */
+  --code-keyword:  #ff7b72; /* if / for / then / done:     red    */
+  --code-string:   #e3b341; /* "quoted strings":           yellow */
+  --code-variable: #56d4dd; /* $VAR / ${VAR}:              cyan   */
+  --code-number:   #79c0ff;
+  --code-operator: #d2a8ff; /* | > && redirections:        purple */
+  --code-function: #d2a8ff;
+  --code-type:     #ffa657;
+}
+.milkdown-host .milkdown-code-block[data-language="powershell"] {
+  --code-builtin:  #dcdcaa; /* cmdlets (Get-Item, Write-Host): yellow    */
+  --code-keyword:  #569cd6; /* param / function / if / foreach: blue     */
+  --code-variable: #9cdcfe; /* $variables:                     light blue*/
+  --code-string:   #ce9178; /* "strings":                      rose      */
+  --code-number:   #b5cea8; /* numbers:                        light green*/
+  --code-operator: #d4d4d4;
+  --code-function: #dcdcaa;
+  --code-type:     #4ec9b0; /* [Type] accelerators:            teal      */
+  --code-comment:  #6a9955; /* # comments:                     green     */
+}
 
 /* Shiki-highlighted code blocks in the Claude assistant chat. Keep the github-
    dark theme's token colors but drop them onto a neutral grey surface with
@@ -672,6 +698,33 @@ button:focus-visible {
   height: auto;
   border-radius: var(--radius-sm);
 }
+
+/* Drag-to-resize images (see lib/image-resize.ts). Every image node carries
+   the `pm-image` class; once it has a stored width the node view element gets
+   an inline `width` and the inner <img> fills it, so dragging the corner
+   shrinks the picture. */
+.milkdown-host .ProseMirror .pm-image { display: inline-block; line-height: 0; }
+.milkdown-host .ProseMirror .pm-image.pm-img-sized { max-width: 100%; }
+.milkdown-host .ProseMirror .pm-image.pm-img-sized img { width: 100%; height: auto; }
+/* Handle: a small square at the bottom-right corner of the selected image.
+   Purely visual (pointer-events: none) - the drag is hit-tested by coordinate
+   in the plugin, so the handle never has to be clicked precisely. */
+.milkdown-host .ProseMirror .pm-image.ProseMirror-selectednode { position: relative; }
+.milkdown-host .ProseMirror .pm-image.ProseMirror-selectednode::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid hsl(var(--primary));
+  border-radius: 3px;
+  background: hsl(var(--background));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+/* Widen the grab zone: the bottom-right corner shows the resize cursor. */
+.milkdown-host .ProseMirror .pm-image.ProseMirror-selectednode { cursor: nwse-resize; }
 .milkdown-host .ProseMirror ul[data-task-list] li,
 .milkdown-host .ProseMirror li[data-task-list-item] { list-style: none; }
 

@@ -68,7 +68,8 @@ crisp version is [`blog/media/btct-demo.mp4`](blog/media/btct-demo.mp4) at
 ### Pages & the markdown editor
 
 Pages are Notion-style documents with a title, an editable `/slug` path, tags,
-and an optional icon. They live in a nestable tree (drag a page onto another to
+and an optional icon. Right-click a page for **New note inside** (a child page under it), plus rename,
+edit path, move to root and delete. They live in a nestable tree (drag a page onto another to
 re-parent it; a cycle guard stops you dropping a parent into its own child).
 
 The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
@@ -109,6 +110,14 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   it (Enter selects, Esc closes). New code blocks default to `shell`, whether
   they come from `/code` or from typing ``` and pressing Enter; type a language
   after the fence (```py) to keep it.
+- **Terminal palettes**: `shell`/`bash` and `powershell` blocks are highlighted
+  like a real terminal, with the command itself coloured (green for shell,
+  yellow for PowerShell cmdlets), variables in cyan/blue, strings, keywords and
+  comments each in their own colour. Every alias folds in, so ```bash, ```sh,
+  ```ps1 and ```pwsh all get the right look; other languages keep GitHub Dark.
+- **Resize images**: click an image to select it, then drag the handle at its
+  bottom-right corner to shrink (or grow) it. The size is saved with the note
+  and survives reload; other operators see it live.
 - **Notion-style block selection**: tap **Esc** to leave text editing and
   select the block the caret is in. Then **↑/↓** to move the selection,
   **Shift+↑/↓** to multi-select, **Ctrl/⌘+Shift+↑/↓** to move the selected
@@ -117,6 +126,9 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   **Esc/click** to exit. While still editing text, **Ctrl/⌘+A** ladders the
   Notion way (select the block's text, then the block, then every block), and
   **Ctrl/⌘+Shift+↑/↓** moves the current block without selecting it first.
+  **Copy** (or cut) a selected block and it goes to the clipboard as both rich
+  content and markdown, so pasting it into another note, a terminal or a chat
+  keeps a code block as a fenced code box rather than dropping the fences.
 - **Per-account personalization**: each account can rebind the editor shortcuts
   (Keybinds dialog, which also lists the built-in block shortcuts) and choose a
   **code accent** color that retints code-block keywords. Both follow your

@@ -57,9 +57,10 @@ import {
   type EditorState,
   type Transaction,
 } from '@milkdown/prose/state';
-import type { Node as ProseNode } from '@milkdown/prose/model';
+import type { Node as ProseNode, Slice } from '@milkdown/prose/model';
 import { Decoration, DecorationSet, type EditorView } from '@milkdown/prose/view';
 import { $prose } from '@milkdown/utils';
+import { serializerCtx } from '@milkdown/core';
 
 interface BlockSelState {
   active: boolean;
@@ -204,10 +205,89 @@ export function selectBlockAt(view: EditorView, pos: number): boolean {
 }
 
 /**
+ * Serialize the top-level blocks `lo..hi` to markdown, wrapping them in a
+ * throwaway doc node so a fenced code block keeps its ``` fences. Returns null
+ * on any failure so callers fall back to ProseMirror's plain-text extraction.
+ */
+function blocksToMarkdown(
+  view: EditorView,
+  from: number,
+  to: number,
+  serialize: (node: ProseNode) => string,
+): string | null {
+  try {
+    const slice = view.state.doc.slice(from, to);
+    const docNode = view.state.schema.topNodeType.create(null, slice.content);
+    const md = serialize(docNode);
+    return typeof md === 'string' ? md.replace(/\s+$/, '') : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write the selected block(s) to the clipboard as BOTH rich HTML (so a paste
+ * back into this or another rich editor re-creates the block, code box and
+ * all) and markdown text (so a paste into a terminal, chat or plain editor
+ * keeps the ``` fences instead of dropping the code out of its box).
+ *
+ * Needed because block-selection lives in this plugin's own state, not
+ * ProseMirror's: the real selection is a collapsed caret, so the browser's
+ * native copy would grab nothing. We build the slice from the selected block
+ * range and populate the clipboard ourselves.
+ */
+function copySelectedBlocks(
+  view: EditorView,
+  s: BlockSelState,
+  event: ClipboardEvent,
+  cut: boolean,
+  serialize?: (node: ProseNode) => string,
+): boolean {
+  const data = event.clipboardData;
+  if (!data) return false;
+  const blocks = topBlocks(view.state.doc);
+  const lo = Math.min(s.anchor, s.head);
+  const hi = Math.max(s.anchor, s.head);
+  if (lo < 0 || hi >= blocks.length) return false;
+  const from = blocks[lo]!.from;
+  const to = blocks[hi]!.to;
+  const slice = view.state.doc.slice(from, to);
+  const { dom, text } = view.serializeForClipboard(slice);
+  const markdown = serialize ? blocksToMarkdown(view, from, to, serialize) : null;
+
+  event.preventDefault();
+  data.clearData();
+  data.setData('text/html', dom.innerHTML);
+  data.setData('text/plain', markdown ?? text);
+
+  if (cut) {
+    const tr = view.state.tr.delete(from, to).setMeta(KEY, INACTIVE);
+    if (tr.doc.childCount === 0) {
+      const para = view.state.schema.nodes.paragraph?.createAndFill();
+      if (para) tr.insert(0, para);
+    }
+    tr.setSelection(Selection.near(tr.doc.resolve(Math.min(from, tr.doc.content.size))));
+    view.dispatch(tr.scrollIntoView());
+    view.focus();
+  }
+  return true;
+}
+
+export interface BlockSelectOptions {
+  /**
+   * Milkdown markdown serializer (`ctx.get(serializerCtx)`). When present, a
+   * copy that includes a code block emits fenced markdown as the plain-text
+   * flavour so the code box survives a paste into an external app.
+   */
+  serialize?: (node: ProseNode) => string;
+}
+
+/**
  * Build the raw ProseMirror plugin. Exported (separately from the Milkdown
  * `$prose` wrapper) so it can be mounted on a bare EditorView in tests.
  */
-export function createBlockSelectProsePlugin(): Plugin<BlockSelState> {
+export function createBlockSelectProsePlugin(opts: BlockSelectOptions = {}): Plugin<BlockSelState> {
+  const { serialize } = opts;
   return new Plugin<BlockSelState>({
     key: KEY,
     state: {
@@ -254,6 +334,30 @@ export function createBlockSelectProsePlugin(): Plugin<BlockSelState> {
           return false;
         },
       },
+
+      // Plain-text flavour of any copy that includes a code block: emit fenced
+      // markdown so pasting into a terminal / chat keeps the code box, instead
+      // of ProseMirror's default that drops the fences. Non-code copies fall
+      // through to the default text extraction unchanged. (Block-selection
+      // copies are handled directly in `view()` and never reach here.)
+      clipboardTextSerializer: (slice: Slice) => {
+        const fallback = () => slice.content.textBetween(0, slice.content.size, '\n\n');
+        if (!serialize) return fallback();
+        let hasCode = false;
+        slice.content.descendants((n) => {
+          if (n.type.name === 'code_block') hasCode = true;
+        });
+        if (!hasCode) return fallback();
+        try {
+          const first = slice.content.firstChild;
+          if (!first) return fallback();
+          const docNode = first.type.schema.topNodeType.create(null, slice.content);
+          const md = serialize(docNode).replace(/\s+$/, '');
+          return md || fallback();
+        } catch {
+          return fallback();
+        }
+      },
     },
 
     // Capture-phase keyboard handling: beats every bubble-phase handler.
@@ -263,6 +367,21 @@ export function createBlockSelectProsePlugin(): Plugin<BlockSelState> {
       const claimPrimary = () => { primaryView = view; };
       claimPrimary();
       view.dom.addEventListener('focusin', claimPrimary);
+
+      // Copy / cut while a block (or a run of blocks) is selected. Capture
+      // phase so we populate the clipboard before ProseMirror's own handler,
+      // which would otherwise copy the collapsed caret (i.e. nothing).
+      const onClip = (cut: boolean) => (event: ClipboardEvent) => {
+        const s = KEY.getState(view.state);
+        if (!s?.active) return;
+        if (copySelectedBlocks(view, s, event, cut, serialize)) {
+          event.stopImmediatePropagation();
+        }
+      };
+      const onCopy = onClip(false);
+      const onCut = onClip(true);
+      view.dom.addEventListener('copy', onCopy, true);
+      view.dom.addEventListener('cut', onCut, true);
 
       const onKeyDown = (event: KeyboardEvent) => {
         // Keystrokes inside a code block belong to CodeMirror (and the
@@ -531,6 +650,8 @@ export function createBlockSelectProsePlugin(): Plugin<BlockSelState> {
         destroy() {
           document.removeEventListener('keydown', onKeyDown, true);
           view.dom.removeEventListener('focusin', claimPrimary);
+          view.dom.removeEventListener('copy', onCopy, true);
+          view.dom.removeEventListener('cut', onCut, true);
           if (primaryView === view) primaryView = null;
         },
       };
@@ -538,4 +659,10 @@ export function createBlockSelectProsePlugin(): Plugin<BlockSelState> {
   });
 }
 
-export const blockSelectPlugin = $prose(() => createBlockSelectProsePlugin());
+export const blockSelectPlugin = $prose((ctx) =>
+  createBlockSelectProsePlugin({
+    // Read the serializer lazily at copy time (it exists once the editor is
+    // created); a bare-view test harness mounts the plugin without it.
+    serialize: (node) => ctx.get(serializerCtx)(node),
+  }),
+);

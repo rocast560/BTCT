@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Network,
   Plus,
+  FilePlus,
   Search,
   PanelLeftClose,
   Sun,
@@ -192,6 +193,15 @@ export function LeftSidebar() {
   const handleCreatePage = async () => {
     if (!activeWorkspaceId) return;
     const page = await createPage(null, 'Untitled');
+    openTab({ id: uuidv4(), kind: 'page', entityId: page.id, title: page.title });
+  };
+
+  // Right-click a page → "New note inside": a child page under it. Expand the
+  // parent so the new note is visible, then open it for editing.
+  const handleCreateChildPage = async (parentId: string) => {
+    if (!activeWorkspaceId) return;
+    const page = await createPage(parentId, 'Untitled');
+    expandPage(parentId);
     openTab({ id: uuidv4(), kind: 'page', entityId: page.id, title: page.title });
   };
 
@@ -411,6 +421,7 @@ export function LeftSidebar() {
                   pages={pages}
                   openPage={openPage}
                   deletePage={deletePage}
+                  createChildPage={handleCreateChildPage}
                   depth={0}
                   expandedPages={expandedPages}
                   toggleExpanded={togglePageExpanded}
@@ -595,6 +606,7 @@ function PageTreeItem({
   pages,
   openPage,
   deletePage,
+  createChildPage,
   depth,
   expandedPages,
   toggleExpanded,
@@ -604,6 +616,7 @@ function PageTreeItem({
   pages: Page[];
   openPage: (p: Page) => void;
   deletePage: (id: string) => Promise<void>;
+  createChildPage: (parentId: string) => void | Promise<void>;
   depth: number;
   expandedPages: Set<string>;
   toggleExpanded: (id: string) => void;
@@ -789,6 +802,12 @@ function PageTreeItem({
             <Pencil size={12} /> Rename
           </button>
           <button
+            onClick={() => { setCtxMenu(null); void createChildPage(page.id); }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
+          >
+            <FilePlus size={12} /> New note inside
+          </button>
+          <button
             onClick={() => { setCtxMenu(null); openPage(page); }}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
           >
@@ -824,6 +843,7 @@ function PageTreeItem({
               pages={pages}
               openPage={openPage}
               deletePage={deletePage}
+              createChildPage={createChildPage}
               depth={depth + 1}
               expandedPages={expandedPages}
               toggleExpanded={toggleExpanded}
