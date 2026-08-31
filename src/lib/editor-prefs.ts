@@ -101,10 +101,21 @@ export const DEFAULT_KEYBINDS: Record<KeybindAction, string> = {
   inlineCode: 'Mod-e',
   link: 'Mod-Shift-k',
   highlight: 'Mod-Shift-h',
-  focusLanguage: 'Mod-Shift-l',
+  // Not Mod-Shift-l: that is the default auto-fill hotkey for Bitwarden and
+  // LastPass, which swallow it before the page ever sees the keydown, so the
+  // picker looked dead even with the caret inside a code block. Mod-Shift-y is
+  // free in the major browsers and those managers. See RETIRED_KEYBINDS below.
+  focusLanguage: 'Mod-Shift-y',
   openFollowPanel: 'Mod-Shift-u',
   quickAddEvent: 'Mod-Shift-e',
   blurImage: 'Mod-Shift-b',
+};
+
+// Defaults we have moved away from. `resolvePrefs` treats a stored binding that
+// still equals one of these as "never customised" and re-points it at the
+// current default, so a profile saved under the old default follows the change.
+export const RETIRED_KEYBINDS: Partial<Record<KeybindAction, string>> = {
+  focusLanguage: 'Mod-Shift-l',
 };
 
 export const DEFAULT_FOLLOW_PREFS: FollowPrefs = {
@@ -197,6 +208,13 @@ export function resolvePrefs(user: MaybeUser | null | undefined): EditorPrefs {
       const v = (storedKb as Record<string, unknown>)[id];
       if (typeof v === 'string' && v.trim()) keybinds[id] = v;
     }
+  }
+  // Migrate retired defaults. The keybinds dialog and profile editor both save
+  // the whole map, so a profile saved before a default changed still pins the
+  // old value; move those onto the current default. focusLanguage left
+  // Mod-Shift-l because password managers (Bitwarden/LastPass) auto-fill on it.
+  for (const [id, retired] of Object.entries(RETIRED_KEYBINDS) as [KeybindAction, string][]) {
+    if (keybinds[id] === retired) keybinds[id] = DEFAULT_KEYBINDS[id];
   }
 
   const follow: FollowPrefs = {

@@ -50,6 +50,23 @@ describe('resolvePrefs', () => {
     expect(resolvePrefs(null).keybinds.openFollowPanel).toBe(DEFAULT_KEYBINDS.openFollowPanel);
   });
 
+  it('defaults the language picker off the password-manager hotkey (not Mod-Shift-l)', () => {
+    expect(DEFAULT_KEYBINDS.focusLanguage).toBe('Mod-Shift-y');
+    expect(resolvePrefs(null).keybinds.focusLanguage).toBe('Mod-Shift-y');
+  });
+
+  it('migrates a profile that pinned the retired Mod-Shift-l language shortcut', () => {
+    // A profile saved before the change persists the whole map, so it still
+    // carries the old Mod-Shift-l; resolvePrefs re-points it at the new default.
+    const prefs = resolvePrefs({ prefs: { keybinds: { focusLanguage: 'Mod-Shift-l' } as never } });
+    expect(prefs.keybinds.focusLanguage).toBe(DEFAULT_KEYBINDS.focusLanguage);
+  });
+
+  it('keeps a language shortcut the user deliberately rebound to something else', () => {
+    const prefs = resolvePrefs({ prefs: { keybinds: { focusLanguage: 'Mod-Alt-l' } as never } });
+    expect(prefs.keybinds.focusLanguage).toBe('Mod-Alt-l');
+  });
+
   it('defaults follow prefs to precise / no overrides / unset placement', () => {
     const follow = resolvePrefs(null).follow;
     expect(follow.defaultPrecision).toBe('precise');
