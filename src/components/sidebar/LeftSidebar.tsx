@@ -120,6 +120,7 @@ export function LeftSidebar() {
     setPendingHighlightChainId: s.setPendingHighlightChainId,
   })));
 
+  const [toolsExpanded, setToolsExpanded] = useState(true);
   const [pagesExpanded, setPagesExpanded] = useState(true);
   const [narrativesExpanded, setNarrativesExpanded] = useState(true);
   const [nmapExpanded, setNmapExpanded] = useState(true);
@@ -360,29 +361,18 @@ export function LeftSidebar() {
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto px-1">
-        {/* Pages section */}
+        {/* Tools section: the dedicated tool tabs, grouped on their own. */}
         <div className="py-1">
-          <div
-            className={cn(
-              'flex w-full items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2 transition-colors',
-              rootDropOver && 'bg-[hsl(var(--primary))]/15',
-            )}
-            onDragOver={handleRootDragOver}
-            onDragLeave={() => setRootDropOver(false)}
-            onDrop={handleRootDrop}
-          >
+          <div className="flex w-full items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2">
             <button
-              onClick={() => setPagesExpanded(!pagesExpanded)}
+              onClick={() => setToolsExpanded(!toolsExpanded)}
               className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--foreground))]"
             >
-              Pages
-              <ChevronRight size={10} className={cn('transition-transform duration-150', pagesExpanded && 'rotate-90')} />
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); void handleCreatePage(); }} className="p-0.5 hover:bg-[hsl(var(--accent))] text-[hsl(var(--muted-foreground))]">
-              <Plus size={12} />
+              Tools
+              <ChevronRight size={10} className={cn('transition-transform duration-150', toolsExpanded && 'rotate-90')} />
             </button>
           </div>
-          {pagesExpanded && (
+          {toolsExpanded && (
             <div className="flex flex-col gap-1 px-2 pt-1">
               <button
                 onClick={openFindings}
@@ -426,6 +416,34 @@ export function LeftSidebar() {
                 <Images size={12} className="text-[hsl(var(--status-amber))]" />
                 <span className="truncate">Assets</span>
               </button>
+            </div>
+          )}
+        </div>
+
+        {/* Notes section: the actual note pages. */}
+        <div className="py-1">
+          <div
+            className={cn(
+              'flex w-full items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2 transition-colors',
+              rootDropOver && 'bg-[hsl(var(--primary))]/15',
+            )}
+            onDragOver={handleRootDragOver}
+            onDragLeave={() => setRootDropOver(false)}
+            onDrop={handleRootDrop}
+          >
+            <button
+              onClick={() => setPagesExpanded(!pagesExpanded)}
+              className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--foreground))]"
+            >
+              Notes
+              <ChevronRight size={10} className={cn('transition-transform duration-150', pagesExpanded && 'rotate-90')} />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); void handleCreatePage(); }} className="p-0.5 hover:bg-[hsl(var(--accent))] text-[hsl(var(--muted-foreground))]">
+              <Plus size={12} />
+            </button>
+          </div>
+          {pagesExpanded && (
+            <div className="flex flex-col gap-1 px-2 pt-1">
               {rootPages.map((page) => (
                 <PageTreeItem
                   key={page.id}
@@ -441,7 +459,7 @@ export function LeftSidebar() {
                 />
               ))}
               {rootPages.length === 0 && (
-                <span className="px-2 py-1 text-xs text-[hsl(var(--muted-foreground))]">No pages yet</span>
+                <span className="px-2 py-1 text-xs text-[hsl(var(--muted-foreground))]">No notes yet</span>
               )}
             </div>
           )}
