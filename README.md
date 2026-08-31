@@ -115,9 +115,10 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   yellow for PowerShell cmdlets), variables in cyan/blue, strings, keywords and
   comments each in their own colour. Every alias folds in, so ```bash, ```sh,
   ```ps1 and ```pwsh all get the right look; other languages keep GitHub Dark.
-- **Resize images**: click an image to select it, then drag the handle at its
-  bottom-right corner to shrink (or grow) it. The size is saved with the note
-  and survives reload; other operators see it live.
+- **Resize images**: hover or click an image and drag the handle at its
+  bottom-right corner to shrink (or grow) it. Works for both inline images and
+  pasted / dropped picture blocks. The size is saved with the note and survives
+  reload; other operators see it live.
 - **Notion-style block selection**: tap **Esc** to leave text editing and
   select the block the caret is in. Then **↑/↓** to move the selection,
   **Shift+↑/↓** to multi-select, **Ctrl/⌘+Shift+↑/↓** to move the selected

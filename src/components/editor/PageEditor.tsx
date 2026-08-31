@@ -35,7 +35,7 @@ import { TURN_INTO_ITEMS, turnIntoBlock, type TurnIntoTarget } from '@/lib/turn-
 import { editorViewCtx } from '@milkdown/core';
 import { createCodeBlockInputRule } from '@milkdown/preset-commonmark';
 import { blockSelectPlugin } from '@/lib/block-select';
-import { imageResizePlugin, imageResizableSchema } from '@/lib/image-resize';
+import { imageResizePlugin, imageResizableSchema, imageBlockResizableSchema } from '@/lib/image-resize';
 import {
   DEFAULT_HEADER_LABELS,
   insertTable,
@@ -481,9 +481,11 @@ function MarkdownEditor({
       .use(userKeybindsPlugin)
       .use(blockSelectPlugin)
       .use(codeLanguageAttrPlugin)
-      // Drag-to-resize images: a `width` attr on the image node plus a corner
-      // handle that writes it (see lib/image-resize.ts).
+      // Drag-to-resize images: a `width` attr on both the inline image and
+      // Crepe's image block, plus a corner handle that writes it (see
+      // lib/image-resize.ts).
       .use(imageResizableSchema)
+      .use(imageBlockResizableSchema)
       .use(imageResizePlugin)
       .use(tableHeaderStatePlugin)
       .use(collab)

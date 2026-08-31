@@ -23,9 +23,13 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import { imageAttr, imageSchema } from '@milkdown/preset-commonmark';
+import { imageBlockSchema } from '@milkdown/kit/component/image-block';
 import { $prose } from '@milkdown/utils';
 import { NodeSelection, Plugin, PluginKey } from '@milkdown/prose/state';
 import { Decoration, DecorationSet, type EditorView } from '@milkdown/prose/view';
+
+/** The image node types we make resizable: inline images and Crepe's image block. */
+const IMAGE_TYPES = new Set(['image', 'image-block']);
 
 /** Smallest and how-close-to-the-corner a grab counts, in CSS pixels. */
 export const MIN_IMAGE_WIDTH = 48;
@@ -89,6 +93,24 @@ export const imageResizableSchema = imageSchema.extendSchema((prev) => (ctx) => 
   };
 });
 
+// Crepe renders pasted / dropped images as a block node (`image-block`, a Vue
+// component). Add ONLY a `width` attr so the corner handle can size it; the
+// node's own `parseDOM` / `toDOM` / markdown runners and its Vue node view are
+// left exactly as Crepe defined them (overriding them broke the component's
+// rendering). The width lives in the page Y.Doc and is painted onto the node
+// view element by the decoration below; index.css overrides the component's
+// fixed inline height so the picture scales with the width.
+export const imageBlockResizableSchema = imageBlockSchema.extendSchema((prev) => (ctx) => {
+  const base = prev(ctx);
+  return {
+    ...base,
+    attrs: {
+      ...base.attrs,
+      width: { default: null },
+    },
+  };
+});
+
 // ── Plugin: the resize handle + drag ──────────────────────────────────────
 
 const KEY = new PluginKey('image-resize');
@@ -101,16 +123,28 @@ interface Drag {
   dom: HTMLElement;
 }
 
-/** The node view element for the image at `pos`, if it is rendered. */
-function imageDom(view: EditorView, pos: number): HTMLElement | null {
-  const dom = view.nodeDOM(pos);
-  return dom instanceof HTMLElement ? dom : null;
-}
-
 /** The rendered <img> inside an image node's element (or the element itself). */
 function innerImg(el: HTMLElement): HTMLImageElement | null {
   if (el instanceof HTMLImageElement) return el;
   return el.querySelector('img');
+}
+
+/**
+ * The doc position of the image node whose node view element is `host`.
+ * Matched by DOM identity, so it works for both the inline image and Crepe's
+ * Vue-rendered image block without depending on the selection.
+ */
+function findImagePos(view: EditorView, host: HTMLElement): number {
+  let found = -1;
+  view.state.doc.descendants((node, pos) => {
+    if (found !== -1) return false;
+    if (IMAGE_TYPES.has(node.type.name) && view.nodeDOM(pos) === host) {
+      found = pos;
+      return false;
+    }
+    return true;
+  });
+  return found;
 }
 
 export function createImageResizeProsePlugin(): Plugin {
@@ -123,7 +157,7 @@ export function createImageResizeProsePlugin(): Plugin {
       decorations(state) {
         const decos: Decoration[] = [];
         state.doc.descendants((node, pos) => {
-          if (node.type.name !== 'image') return;
+          if (!IMAGE_TYPES.has(node.type.name)) return;
           const width = (node.attrs as { width?: number | null }).width;
           const cls = width ? 'pm-image pm-img-sized' : 'pm-image';
           const attrs: Record<string, string> = { class: cls };
@@ -139,28 +173,36 @@ export function createImageResizeProsePlugin(): Plugin {
 
       const onPointerDown = (event: PointerEvent) => {
         if (event.button !== 0 || drag) return;
-        const sel = view.state.selection;
-        if (!(sel instanceof NodeSelection) || sel.node.type.name !== 'image') return;
-        const dom = imageDom(view, sel.from);
-        const img = dom && innerImg(dom);
-        if (!dom || !img) return;
+        // The image node view element under the pointer (tagged `pm-image` by
+        // the decoration above). Works for the inline image and the block
+        // image alike, selected or not.
+        const host = (event.target as HTMLElement)?.closest?.('.pm-image') as HTMLElement | null;
+        const img = host && innerImg(host);
+        if (!host || !img) return;
 
         // Only a grab that starts near the bottom-right corner resizes; a
-        // click elsewhere on the image keeps selecting / dragging it.
+        // click elsewhere on the image keeps selecting / editing it.
         const rect = img.getBoundingClientRect();
         const nearCorner =
           event.clientX >= rect.right - HANDLE_HIT && event.clientX <= rect.right + 6 &&
           event.clientY >= rect.bottom - HANDLE_HIT && event.clientY <= rect.bottom + 6;
         if (!nearCorner) return;
 
-        const column = (dom.parentElement?.clientWidth ?? view.dom.clientWidth) || rect.width;
+        const pos = findImagePos(view, host);
+        if (pos < 0) return;
+
+        const column = (host.parentElement?.clientWidth ?? view.dom.clientWidth) || rect.width;
         drag = {
-          pos: sel.from,
+          pos,
           startX: event.clientX,
           startWidth: rect.width,
           maxWidth: column,
-          dom,
+          dom: host,
         };
+        // Select the node so the handle stays visible during the drag.
+        try {
+          view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
+        } catch { /* some node views manage their own selection */ }
         event.preventDefault();
         event.stopPropagation();
         try { (event.target as Element).setPointerCapture?.(event.pointerId); } catch { /* ignore */ }

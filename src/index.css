@@ -699,21 +699,32 @@ button:focus-visible {
   border-radius: var(--radius-sm);
 }
 
-/* Drag-to-resize images (see lib/image-resize.ts). Every image node carries
-   the `pm-image` class; once it has a stored width the node view element gets
-   an inline `width` and the inner <img> fills it, so dragging the corner
-   shrinks the picture. */
-.milkdown-host .ProseMirror .pm-image { display: inline-block; line-height: 0; }
+/* Drag-to-resize images (see lib/image-resize.ts). Every image node (the
+   inline image and Crepe's `.milkdown-image-block`) carries the `pm-image`
+   class; once it has a stored width the node view element gets an inline
+   `width` and the inner <img> fills it, so dragging the corner shrinks the
+   picture. The block image's Vue view sets a fixed inline height, so we force
+   it back to auto here to keep the aspect ratio while width drives the size. */
+.milkdown-host .ProseMirror span.pm-image { display: inline-block; line-height: 0; }
 .milkdown-host .ProseMirror .pm-image.pm-img-sized { max-width: 100%; }
-.milkdown-host .ProseMirror .pm-image.pm-img-sized img { width: 100%; height: auto; }
-/* Handle: a small square at the bottom-right corner of the selected image.
-   Purely visual (pointer-events: none) - the drag is hit-tested by coordinate
-   in the plugin, so the handle never has to be clicked precisely. */
-.milkdown-host .ProseMirror .pm-image.ProseMirror-selectednode { position: relative; }
+.milkdown-host .ProseMirror span.pm-image.pm-img-sized img { width: 100%; height: auto; }
+.milkdown-host .ProseMirror .milkdown-image-block.pm-img-sized .image-wrapper,
+.milkdown-host .ProseMirror .milkdown-image-block.pm-img-sized img {
+  width: 100% !important;
+  height: auto !important;
+}
+/* Handle: a small square at the bottom-right corner. Shown when the image is
+   selected or hovered so the affordance is always discoverable. Purely visual
+   (pointer-events: none) - the drag is hit-tested by coordinate in the plugin,
+   so the handle never has to be clicked precisely. */
+.milkdown-host .ProseMirror .pm-image { position: relative; }
+.milkdown-host .ProseMirror .pm-image:hover,
+.milkdown-host .ProseMirror .pm-image.ProseMirror-selectednode { cursor: nwse-resize; }
+.milkdown-host .ProseMirror .pm-image:hover::after,
 .milkdown-host .ProseMirror .pm-image.ProseMirror-selectednode::after {
   content: "";
   position: absolute;
-  right: -4px;
+  right: 2px;
   bottom: 2px;
   width: 12px;
   height: 12px;
@@ -722,9 +733,8 @@ button:focus-visible {
   background: hsl(var(--background));
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   pointer-events: none;
+  z-index: 2;
 }
-/* Widen the grab zone: the bottom-right corner shows the resize cursor. */
-.milkdown-host .ProseMirror .pm-image.ProseMirror-selectednode { cursor: nwse-resize; }
 .milkdown-host .ProseMirror ul[data-task-list] li,
 .milkdown-host .ProseMirror li[data-task-list-item] { list-style: none; }
 
