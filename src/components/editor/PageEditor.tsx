@@ -674,6 +674,9 @@ function readActiveFormats(editor: Editor): ActiveFormats {
 
 function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<Editor | null> }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  // Hide the text-format popup while the image right-click menu or the
+  // crop/blur editor is open: it's for text, not for an image selection.
+  const imageEditorOpen = useAppStore((s) => !!s.editingAssetId || !!s.imageMenu);
   const [active, setActive] = useState<ActiveFormats>(EMPTY_ACTIVE);
   const [openMenu, setOpenMenu] = useState<'turninto' | 'highlight' | null>(null);
   const [keybindsOpen, setKeybindsOpen] = useState(false);
@@ -772,7 +775,7 @@ function FloatingFormatPanel({ editorRef }: { editorRef: React.MutableRefObject<
 
   return (
     <>
-      {pos && createPortal(
+      {pos && !imageEditorOpen && createPortal(
     <div
       ref={panelRef}
       className="fixed z-[60] flex items-center gap-0.5 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-1 shadow-xl animate-[hl-toolbar-in_0.08s_ease-out]"

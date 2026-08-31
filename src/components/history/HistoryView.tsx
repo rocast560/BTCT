@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { EditorState } from '@milkdown/prose/state';
 import { EditorView } from '@milkdown/prose/view';
-import type { Schema } from '@milkdown/prose/model';
+import type { Schema, Node as PmNode } from '@milkdown/prose/model';
 import { ySyncPlugin, ySyncPluginKey, yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
 import { Crepe } from '@milkdown/crepe';
 import { schemaCtx } from '@milkdown/core';
@@ -24,7 +24,9 @@ import { History, RotateCcw, Tag, Trash2, Check, X, Eye, EyeOff, Save } from 'lu
 import { useAppStore } from '@/stores';
 import { useAuthStore } from '@/auth/auth-store';
 import { highlightPlugin } from '@/lib/highlight-plugin';
-import { withYChange } from '@/lib/history-schema';
+import { withYChange, ychangeDomAttrs } from '@/lib/history-schema';
+import { assetImageSchema } from '@/lib/asset-image';
+import { resolveAssetBytes, fetchAssetBytes } from '@/lib/typst-assets';
 import { cn } from '@/lib/utils';
 import {
   filterVersions,
@@ -62,6 +64,9 @@ function viewerSchema(): Promise<Schema> {
       const root = document.createElement('div');
       const crepe = new Crepe({ root, defaultValue: '' });
       crepe.editor.use(highlightPlugin);
+      // Include the note-image node so a version that has images can be built
+      // and rendered (a nodeView below resolves the actual picture).
+      crepe.editor.use(assetImageSchema);
       await crepe.create();
       headless = crepe;
       return withYChange(crepe.editor.ctx.get(schemaCtx));
@@ -102,6 +107,39 @@ function sameList(a: VersionListResponse, b: VersionListResponse): boolean {
     && JSON.stringify(a.users) === JSON.stringify(b.users);
 }
 
+// Node views for the read-only version viewer: render `asset_image` nodes as
+// the actual (cropped/blurred) picture so a version you're about to restore
+// shows what it was. Retired assets still resolve while their bytes survive
+// the retention window; once pruned, a placeholder is shown.
+const historyNodeViews = {
+  asset_image: (node: PmNode) => {
+    const dom = document.createElement('div');
+    dom.className = 'pm-image asset-image asset-image-history';
+    const ych = ychangeDomAttrs((node.attrs as { ychange?: Parameters<typeof ychangeDomAttrs>[0] }).ychange ?? null);
+    for (const [k, v] of Object.entries(ych)) dom.setAttribute(k, v);
+    const img = document.createElement('img');
+    img.alt = (node.attrs.alt as string) || '';
+    dom.appendChild(img);
+
+    let objUrl: string | null = null;
+    const assetId = node.attrs.assetId as string;
+    const asset = useAppStore.getState().typstAssets.find((a) => a.id === assetId);
+    const bytes = asset ? resolveAssetBytes(asset) : fetchAssetBytes(assetId);
+    void bytes
+      .then((b) => {
+        objUrl = URL.createObjectURL(new Blob([b.slice().buffer as ArrayBuffer], { type: 'image/png' }));
+        img.src = objUrl;
+      })
+      .catch(() => { img.alt = 'image no longer available'; dom.classList.add('asset-image-missing'); });
+
+    return {
+      dom,
+      ignoreMutation: () => true,
+      destroy: () => { if (objUrl) URL.revokeObjectURL(objUrl); },
+    };
+  },
+};
+
 // ── The read-only rendering surface ──────────────────────────────────────
 function VersionViewer({
   schema,
@@ -138,6 +176,7 @@ function VersionViewer({
         view = new EditorView(el, {
           state: EditorState.create({ schema, plugins: [plugin] }),
           editable: () => false,
+          nodeViews: historyNodeViews,
         });
         const snapshot = selection.snapshot ? Y.decodeSnapshot(selection.snapshot) : Y.snapshot(doc);
         const prevSnapshot = selection.showChanges
@@ -154,6 +193,7 @@ function VersionViewer({
         view = new EditorView(el, {
           state: EditorState.create({ schema, doc: node }),
           editable: () => false,
+          nodeViews: historyNodeViews,
         });
       }
     } catch (err) {

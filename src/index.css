@@ -713,6 +713,15 @@ button:focus-visible {
 .milkdown-host .ProseMirror .asset-image { display: block; max-width: 100%; margin: 0.35rem 0; line-height: 0; }
 .milkdown-host .ProseMirror .asset-image img { display: block; max-width: 100%; height: auto; border-radius: var(--radius-sm); }
 .milkdown-host .ProseMirror .asset-image.pm-img-sized img { width: 100%; }
+/* History viewer: an image whose bytes were pruned past the retention window. */
+.milkdown-host .ProseMirror .asset-image-missing {
+  display: flex; min-height: 56px; align-items: center; justify-content: center;
+  border: 1px dashed hsl(var(--border)); border-radius: var(--radius-sm);
+}
+.milkdown-host .ProseMirror .asset-image-missing img { display: none; }
+.milkdown-host .ProseMirror .asset-image-missing::after {
+  content: "image no longer available"; font-size: 11px; color: hsl(var(--muted-foreground));
+}
 .milkdown-host .ProseMirror .milkdown-image-block.pm-img-sized .image-wrapper,
 .milkdown-host .ProseMirror .milkdown-image-block.pm-img-sized img {
   width: 100% !important;
