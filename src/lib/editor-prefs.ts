@@ -101,11 +101,13 @@ export const DEFAULT_KEYBINDS: Record<KeybindAction, string> = {
   inlineCode: 'Mod-e',
   link: 'Mod-Shift-k',
   highlight: 'Mod-Shift-h',
-  // Not Mod-Shift-l: that is the default auto-fill hotkey for Bitwarden and
-  // LastPass, which swallow it before the page ever sees the keydown, so the
-  // picker looked dead even with the caret inside a code block. Mod-Shift-y is
-  // free in the major browsers and those managers. See RETIRED_KEYBINDS below.
-  focusLanguage: 'Mod-Shift-y',
+  // Not a Ctrl/Cmd+Shift+letter combo: that space is crowded by browser,
+  // extension and password-manager shortcuts (Bitwarden/LastPass auto-fill on
+  // Ctrl+Shift+L, and Ctrl+Shift+Y was intercepted too), which swallow the
+  // keydown before the page sees it, so the picker looked dead even with the
+  // caret inside a code block. Mod-/ sits outside all of that. See
+  // RETIRED_KEYBINDS below.
+  focusLanguage: 'Mod-/',
   openFollowPanel: 'Mod-Shift-u',
   quickAddEvent: 'Mod-Shift-e',
   blurImage: 'Mod-Shift-b',
@@ -113,9 +115,11 @@ export const DEFAULT_KEYBINDS: Record<KeybindAction, string> = {
 
 // Defaults we have moved away from. `resolvePrefs` treats a stored binding that
 // still equals one of these as "never customised" and re-points it at the
-// current default, so a profile saved under the old default follows the change.
-export const RETIRED_KEYBINDS: Partial<Record<KeybindAction, string>> = {
-  focusLanguage: 'Mod-Shift-l',
+// current default, so a profile saved under an old default follows the change.
+// focusLanguage went Mod-Shift-l -> Mod-Shift-y -> Mod-/ (both earlier keys were
+// eaten by browser / password-manager shortcuts before the page saw them).
+export const RETIRED_KEYBINDS: Partial<Record<KeybindAction, string[]>> = {
+  focusLanguage: ['Mod-Shift-l', 'Mod-Shift-y'],
 };
 
 export const DEFAULT_FOLLOW_PREFS: FollowPrefs = {
@@ -213,8 +217,8 @@ export function resolvePrefs(user: MaybeUser | null | undefined): EditorPrefs {
   // the whole map, so a profile saved before a default changed still pins the
   // old value; move those onto the current default. focusLanguage left
   // Mod-Shift-l because password managers (Bitwarden/LastPass) auto-fill on it.
-  for (const [id, retired] of Object.entries(RETIRED_KEYBINDS) as [KeybindAction, string][]) {
-    if (keybinds[id] === retired) keybinds[id] = DEFAULT_KEYBINDS[id];
+  for (const [id, retired] of Object.entries(RETIRED_KEYBINDS) as [KeybindAction, string[]][]) {
+    if (retired.includes(keybinds[id])) keybinds[id] = DEFAULT_KEYBINDS[id];
   }
 
   const follow: FollowPrefs = {

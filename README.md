@@ -106,7 +106,7 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   an already-linked selection to unlink it.
 - **Code blocks**: full syntax highlighting via CodeMirror using the **GitHub
   Dark** palette. Click the language button to pick a language; or press
-  **Ctrl+Shift+Y** to jump to the picker, either with the caret inside the block
+  **Ctrl+/** (Cmd+/) to jump to the picker, either with the caret inside the block
   or with the block selected. Type to filter, press **Enter** to drop to the
   closest match, then **arrow-key** through the list and Enter to set it (Esc
   closes). New code blocks default to `shell`, whether
@@ -659,7 +659,7 @@ panel).
 | Editor / Block mode | `Mod+Shift+↑`/`↓` | Move the current / selected block up / down |
 | Block mode | `↑`/`↓`, `Shift+↑`/`↓` | Move / extend the block selection |
 | Block mode | `Mod+D`, `Backspace`/`Delete`, `Enter`, `Esc`/click | Duplicate / delete / edit / exit |
-| Code block / Block mode | `Mod+Shift+Y` ⚙ | Focus the language picker (works with the block selected too) |
+| Code block / Block mode | `Mod+/` ⚙ | Focus the language picker (works with the block selected too) |
 | Language picker | type, `Enter`, `↑`/`↓`, `Esc` | Filter, Enter drops to the closest match, arrows choose, Enter sets, Esc closes |
 | Typst preview | click | Select the matching editable text in the source |
 | Typst editor | `Mod+F` | Whole-document find & replace (`Enter`/`Shift+Enter` = next/previous match) |
