@@ -71,9 +71,22 @@ COPY server/restore.mjs       /app/server/restore.mjs
 COPY server/history.mjs       /app/server/history.mjs
 COPY server/history-diff.mjs  /app/server/history-diff.mjs
 COPY server/retention.mjs     /app/server/retention.mjs
+COPY server/webrecon.mjs       /app/server/webrecon.mjs
+COPY server/webrecon-scope.mjs /app/server/webrecon-scope.mjs
+
+# The standalone web-recon agent, spawned by the "Scan now" button (Linux only).
+COPY webrecon-agent/ /app/webrecon-agent/
 
 # Copy the static client build.
 COPY --from=client-build /app/dist /app/dist
+
+# Python 3 for the web-recon agent (the built-in scanner is stdlib-only, so
+# no pip packages). The full Kali toolchain (subfinder, httpx, nuclei, ...) is
+# intentionally NOT bundled; the agent auto-uses whatever is installed, so a
+# Kali operator runs the same script on their box for the richer toolset.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Persistent volume for SQLite + Yjs + assets, and the backup folder the
 # compose file bind-mounts from the host (created here so a run without the

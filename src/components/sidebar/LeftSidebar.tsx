@@ -9,6 +9,7 @@ import { ThemePicker } from '@/components/sidebar/ThemePicker';
 import {
   ChevronRight,
   Network,
+  Globe,
   Plus,
   FilePlus,
   Search,
@@ -31,7 +32,7 @@ import {
   Images,
   Keyboard,
 } from 'lucide-react';
-import type { Page, Graph, NmapScan, AttackChain } from '@/types';
+import type { Page, Graph, NmapScan, AttackChain, SiteMap } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { cn } from '@/lib/utils';
 import { Portal } from '@/components/ui/Portal';
@@ -90,6 +91,10 @@ export function LeftSidebar() {
     deleteAttackChain,
     ensureAttackChainPage,
     setPendingHighlightChainId,
+    siteMaps,
+    createSiteMap,
+    deleteSiteMap,
+    renameSiteMap,
   } = useAppStore(useShallow((s) => ({
     pages: s.pages,
     graphs: s.graphs,
@@ -119,6 +124,10 @@ export function LeftSidebar() {
     deleteAttackChain: s.deleteAttackChain,
     ensureAttackChainPage: s.ensureAttackChainPage,
     setPendingHighlightChainId: s.setPendingHighlightChainId,
+    siteMaps: s.siteMaps,
+    createSiteMap: s.createSiteMap,
+    deleteSiteMap: s.deleteSiteMap,
+    renameSiteMap: s.renameSiteMap,
   })));
 
   const [toolsExpanded, setToolsExpanded] = useState(true);
@@ -126,8 +135,11 @@ export function LeftSidebar() {
   const [narrativesExpanded, setNarrativesExpanded] = useState(true);
   const [nmapExpanded, setNmapExpanded] = useState(true);
   const [chainsExpanded, setChainsExpanded] = useState(true);
+  const [webmapExpanded, setWebmapExpanded] = useState(true);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
+  const [creatingWebmap, setCreatingWebmap] = useState(false);
+  const [newWebmapName, setNewWebmapName] = useState('');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
@@ -233,6 +245,19 @@ export function LeftSidebar() {
     setNewGroupName('');
     setCreatingGroup(false);
     openScan(group);
+  };
+
+  const openWebMap = (m: SiteMap) => {
+    openTab({ id: uuidv4(), kind: 'webmap', entityId: m.id, title: m.name });
+  };
+
+  const handleCreateWebMap = async () => {
+    const name = newWebmapName.trim();
+    if (!name || !activeWorkspaceId) return;
+    const m = await createSiteMap(name);
+    setNewWebmapName('');
+    setCreatingWebmap(false);
+    openWebMap(m);
   };
 
   const openFindings = () => {
@@ -574,6 +599,46 @@ export function LeftSidebar() {
               ))}
               {nmapScans.filter((scan) => scan.workspaceId === activeWorkspaceId).length === 0 && !creatingGroup && (
                 <span className="px-2 py-1 text-xs text-[hsl(var(--muted-foreground))]">No groups yet</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Web Maps section (web recon: crawl + endpoints + subdomains) */}
+        <div className="py-1">
+          <div className="flex w-full items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2">
+            <button
+              onClick={() => setWebmapExpanded(!webmapExpanded)}
+              className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--foreground))]"
+            >
+              Web Maps
+              <ChevronRight size={10} className={cn('transition-transform duration-150', webmapExpanded && 'rotate-90')} />
+            </button>
+            <button onClick={() => { setCreatingWebmap(true); setWebmapExpanded(true); }} className="p-0.5 hover:bg-[hsl(var(--accent))] text-[hsl(var(--muted-foreground))]" title="Create web map">
+              <Plus size={12} />
+            </button>
+          </div>
+          {webmapExpanded && (
+            <div className="flex flex-col gap-1 px-2 pt-1">
+              {creatingWebmap && (
+                <div className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--status-blue))]/30 bg-[hsl(var(--status-blue))]/10 px-2.5 py-1.5">
+                  <Globe size={12} className="shrink-0 text-[hsl(var(--status-blue))]" />
+                  <input
+                    autoFocus
+                    value={newWebmapName}
+                    onChange={(e) => setNewWebmapName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateWebMap(); if (e.key === 'Escape') { setCreatingWebmap(false); setNewWebmapName(''); } }}
+                    onBlur={() => { if (!newWebmapName.trim()) { setCreatingWebmap(false); setNewWebmapName(''); } }}
+                    placeholder="Map name..."
+                    className="min-w-0 flex-1 border-b border-[hsl(var(--primary))] bg-transparent text-[11px] outline-none"
+                  />
+                </div>
+              )}
+              {siteMaps.filter((m) => m.workspaceId === activeWorkspaceId).map((m) => (
+                <WebMapItem key={m.id} map={m} openWebMap={openWebMap} deleteSiteMap={deleteSiteMap} renameSiteMap={renameSiteMap} />
+              ))}
+              {siteMaps.filter((m) => m.workspaceId === activeWorkspaceId).length === 0 && !creatingWebmap && (
+                <span className="px-2 py-1 text-xs text-[hsl(var(--muted-foreground))]">No maps yet</span>
               )}
             </div>
           )}
@@ -1118,6 +1183,123 @@ function NmapScanItem({
           </button>
           <button
             onClick={() => { setCtxMenu(null); openScan(scan); }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
+          >
+            Open
+          </button>
+          <div className="my-1 border-t border-[hsl(var(--border))]" />
+          <button
+            onClick={() => { setCtxMenu(null); setConfirmDelete(true); }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[hsl(var(--destructive))] hover:bg-[hsl(var(--accent))]"
+          >
+            <Trash2 size={12} /> Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WebMapItem({
+  map,
+  openWebMap,
+  deleteSiteMap,
+  renameSiteMap,
+}: {
+  map: SiteMap;
+  openWebMap: (m: SiteMap) => void;
+  deleteSiteMap: (id: string) => Promise<void>;
+  renameSiteMap: (id: string, name: string) => Promise<void>;
+}) {
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [nameValue, setNameValue] = useState(map.name);
+  const isActive = useAppStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    return tab?.kind === 'webmap' && tab.entityId === map.id;
+  });
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renaming && inputRef.current) inputRef.current.focus();
+  }, [renaming]);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = (e: MouseEvent) => {
+      if (menuRef.current && menuRef.current.contains(e.target as Node)) return;
+      setCtxMenu(null);
+    };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [ctxMenu]);
+
+  const commitRename = () => {
+    setRenaming(false);
+    const trimmed = nameValue.trim();
+    if (trimmed && trimmed !== map.name) {
+      void renameSiteMap(map.id, trimmed);
+    } else {
+      setNameValue(map.name);
+    }
+  };
+
+  return (
+    <div
+      data-active={isActive || undefined}
+      className={cn(
+        'group flex w-full items-center rounded-lg border border-[hsl(var(--status-blue))]/30 bg-[hsl(var(--status-blue))]/10 hover:bg-[hsl(var(--status-blue))]/20',
+        isActive && 'bg-[hsl(var(--status-blue))]/25',
+      )}
+      onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+    >
+      {renaming ? (
+        <div className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5">
+          <Globe size={12} className="shrink-0 text-[hsl(var(--status-blue))]" />
+          <input
+            ref={inputRef}
+            value={nameValue}
+            onChange={(e) => setNameValue(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') { setRenaming(false); setNameValue(map.name); } }}
+            className="min-w-0 w-20 border-b border-[hsl(var(--primary))] bg-transparent text-[11px] outline-none"
+          />
+        </div>
+      ) : (
+        <button
+          onClick={() => openWebMap(map)}
+          className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5 text-[11px]"
+        >
+          <Globe size={12} className="text-[hsl(var(--status-blue))]" />
+          <span className="truncate">{map.name}</span>
+        </button>
+      )}
+
+      {confirmDelete && (
+        <Portal><ConfirmDeleteDialog
+          name={map.name}
+          kind="web map"
+          onConfirm={() => { setConfirmDelete(false); void deleteSiteMap(map.id); }}
+          onCancel={() => setConfirmDelete(false)}
+        /></Portal>
+      )}
+
+      {ctxMenu && (
+        <div
+          ref={menuRef}
+          className="fixed z-50 min-w-[160px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+        >
+          <button
+            onClick={() => { setCtxMenu(null); setNameValue(map.name); setRenaming(true); }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
+          >
+            <Pencil size={12} /> Rename
+          </button>
+          <button
+            onClick={() => { setCtxMenu(null); openWebMap(map); }}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
           >
             Open

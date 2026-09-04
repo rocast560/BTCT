@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, AssetFolder, CustomTimelineEvent, NodeType, TypstAssetKind, CropRect, BlurRegion, CommandLogEntry } from '@/types';
+import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, AssetFolder, CustomTimelineEvent, NodeType, TypstAssetKind, CropRect, BlurRegion, CommandLogEntry, SiteMap, SiteMapNode, SiteMapEdge } from '@/types';
 import { sharedTransact, getSharedDoc } from '@/realtime/shared-doc';
-import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo, typstAssetRepo, commandLogRepo } from '@/db';
+import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo, typstAssetRepo, commandLogRepo, siteMapRepo, siteMapNodeRepo, siteMapEdgeRepo } from '@/db';
 import { assetFolderRepo } from '@/db/asset-folder-repo';
 import { timelineEventRepo } from '@/db/timeline-event-repo';
 import { isDescendantFolder } from '@/lib/asset-folders';
@@ -187,6 +187,25 @@ interface AppState {
   unlinkMachine: (machineId: ID) => Promise<void>;
   toggleMachinePort: (machineId: ID, port: number, enabled: boolean) => void;
 
+  // Web recon / site maps
+  siteMaps: SiteMap[];
+  siteMapNodes: SiteMapNode[];
+  siteMapEdges: SiteMapEdge[];
+  loadSiteMaps: () => Promise<void>;
+  loadSiteMapData: (siteMapId: ID) => Promise<void>;
+  createSiteMap: (name: string, rootUrl?: string) => Promise<SiteMap>;
+  renameSiteMap: (id: ID, name: string) => Promise<void>;
+  setSiteMapRoot: (id: ID, rootUrl: string) => Promise<void>;
+  deleteSiteMap: (id: ID) => Promise<void>;
+  /** Parse a BTCT sitemap JSON document and merge it into a map. Returns node/edge counts. */
+  importSiteMapText: (siteMapId: ID, text: string) => Promise<{ nodes: number; edges: number }>;
+  updateSiteMapNode: (id: ID, data: Partial<Pick<SiteMapNode, 'notes' | 'tags' | 'title'>>) => Promise<void>;
+  updateSiteMapNodePositions: (updates: { id: ID; position: { x: number; y: number } }[]) => Promise<void>;
+  autoLayoutSiteMap: (siteMapId: ID) => Promise<void>;
+  deleteSiteMapNode: (id: ID) => Promise<void>;
+  /** Trigger a server-side scan of the map's rootUrl (Linux host, admin-enabled). */
+  runServerScan: (siteMapId: ID) => Promise<{ nodes: number; edges: number }>;
+
   // Navigation
   pendingFocusNodeId: string | null;
   setPendingFocusNodeId: (nodeId: string | null) => void;
@@ -294,7 +313,7 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   setActiveWorkspace: (id) => {
-    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], graphs: [], graphNodes: [], graphEdges: [], attackChains: [], nmapScans: [], nmapMachines: [], typstAssets: [], assetFolders: [], commandLogs: [], timelineEvents: [] });
+    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], graphs: [], graphNodes: [], graphEdges: [], attackChains: [], nmapScans: [], nmapMachines: [], typstAssets: [], assetFolders: [], commandLogs: [], timelineEvents: [], siteMaps: [], siteMapNodes: [], siteMapEdges: [] });
     // Reload workspace-scoped lists for the newly-active workspace so stale
     // entries from the previous workspace don't appear before the per-view
     // useEffects fire (and so newly-created scans never inherit the prior
@@ -304,6 +323,7 @@ export const useAppStore = create<AppState>((set, get) => {
     void get().loadAssetFolders();
     void get().loadTimelineEvents();
     void get().loadCommandLogs();
+    void get().loadSiteMaps();
   },
 
   createWorkspace: async (name, description) => {
@@ -326,6 +346,9 @@ export const useAppStore = create<AppState>((set, get) => {
         nmapScans: [],
         nmapMachines: [],
         attackChains: [],
+        siteMaps: [],
+        siteMapNodes: [],
+        siteMapEdges: [],
         tabs: [],
         activeTabId: null,
         paneLayout: createLeaf(),
@@ -744,6 +767,7 @@ export const useAppStore = create<AppState>((set, get) => {
         case 'graph': return c.tables.graphs.has(t.entityId);
         case 'nmap': return c.tables.nmapScans.has(t.entityId);
         case 'nmap-machine': return c.tables.nmapMachines.has(t.entityId);
+        case 'webmap': return c.tables.siteMaps.has(t.entityId);
         default: return true;
       }
     };
@@ -1098,6 +1122,136 @@ export const useAppStore = create<AppState>((set, get) => {
     }));
   },
 
+  // Web recon / site maps
+  siteMaps: [],
+  siteMapNodes: [],
+  siteMapEdges: [],
+  loadSiteMaps: async () => {
+    const wsId = get().activeWorkspaceId;
+    if (!wsId) return;
+    set({ siteMaps: await siteMapRepo.getByWorkspace(wsId) });
+  },
+  loadSiteMapData: async (siteMapId) => {
+    const [nodes, edges] = await Promise.all([
+      siteMapNodeRepo.getBySiteMap(siteMapId),
+      siteMapEdgeRepo.getBySiteMap(siteMapId),
+    ]);
+    // Merge per-map, like loadGraphData: keep other maps' slices intact so
+    // concurrent reloads of different open maps don't clobber each other.
+    set((s) => ({
+      siteMapNodes: [...s.siteMapNodes.filter((n) => n.siteMapId !== siteMapId), ...nodes],
+      siteMapEdges: [...s.siteMapEdges.filter((e) => e.siteMapId !== siteMapId), ...edges],
+    }));
+  },
+  createSiteMap: async (name, rootUrl = '') => {
+    const wsId = get().activeWorkspaceId;
+    if (!wsId) throw new Error('No active workspace');
+    const map = await siteMapRepo.create(wsId, name, rootUrl);
+    set((s) => ({ siteMaps: [map, ...s.siteMaps] }));
+    log('create', 'page', map.id, `Created web map "${name}"`);
+    return map;
+  },
+  renameSiteMap: async (id, name) => {
+    await siteMapRepo.rename(id, name);
+    set((s) => ({
+      siteMaps: s.siteMaps.map((m) => m.id === id ? { ...m, name } : m),
+      tabs: s.tabs.map((t) => t.kind === 'webmap' && t.entityId === id ? { ...t, title: name } : t),
+    }));
+  },
+  setSiteMapRoot: async (id, rootUrl) => {
+    await siteMapRepo.setMeta(id, { rootUrl });
+    set((s) => ({ siteMaps: s.siteMaps.map((m) => m.id === id ? { ...m, rootUrl } : m) }));
+  },
+  deleteSiteMap: async (id) => {
+    await siteMapRepo.delete(id);
+    set((s) => ({
+      siteMaps: s.siteMaps.filter((m) => m.id !== id),
+      siteMapNodes: s.siteMapNodes.filter((n) => n.siteMapId !== id),
+      siteMapEdges: s.siteMapEdges.filter((e) => e.siteMapId !== id),
+      tabs: s.tabs.filter((t) => !(t.kind === 'webmap' && t.entityId === id)),
+      paneLayout: collapse(removeTabsWhere(s.paneLayout, (tid) => {
+        const tab = s.tabs.find((t) => t.id === tid);
+        return !!tab && tab.kind === 'webmap' && tab.entityId === id;
+      })),
+    }));
+    get().reconcileTabs();
+    log('delete', 'page', id, 'Deleted web map');
+  },
+  importSiteMapText: async (siteMapId, text) => {
+    const { parseSitemapJson } = await import('@/lib/sitemap-parser');
+    const doc = parseSitemapJson(text);
+    const { idByKey, prevCount } = await siteMapNodeRepo.upsertByKey(siteMapId, doc.nodes);
+    await siteMapEdgeRepo.upsertEdges(siteMapId, doc.edges, idByKey);
+    // Record the target on the map if it didn't have one, and stamp the scan time.
+    const map = get().siteMaps.find((m) => m.id === siteMapId);
+    await siteMapRepo.setMeta(siteMapId, {
+      lastScanAt: doc.scannedAt,
+      ...(map && !map.rootUrl && doc.target ? { rootUrl: doc.target } : {}),
+    });
+    await get().loadSiteMaps();
+    await get().loadSiteMapData(siteMapId);
+    // First import into an empty map: arrange it so the user sees a tree, not
+    // a grid. Later imports keep the user's arrangement (only new nodes get a slot).
+    if (prevCount === 0 && doc.nodes.length > 0) await get().autoLayoutSiteMap(siteMapId);
+    log('update', 'page', siteMapId, `Imported ${doc.nodes.length} nodes into web map`);
+    return { nodes: doc.nodes.length, edges: doc.edges.length };
+  },
+  updateSiteMapNode: async (id, data) => {
+    await siteMapNodeRepo.update(id, data);
+    set((s) => ({
+      siteMapNodes: s.siteMapNodes.map((n) => n.id === id ? { ...n, ...data, updatedAt: Date.now() } : n),
+    }));
+  },
+  updateSiteMapNodePositions: async (updates) => {
+    if (updates.length === 0) return;
+    await siteMapNodeRepo.updatePositions(updates);
+    const now = Date.now();
+    const byId = new Map(updates.map((u) => [u.id, u.position]));
+    set((s) => ({
+      siteMapNodes: s.siteMapNodes.map((n) => {
+        const p = byId.get(n.id);
+        return p ? { ...n, position: p, updatedAt: now } : n;
+      }),
+    }));
+  },
+  autoLayoutSiteMap: async (siteMapId) => {
+    const { autoLayout } = await import('@/lib/auto-layout');
+    const nodes = get().siteMapNodes.filter((n) => n.siteMapId === siteMapId);
+    const edges = get().siteMapEdges.filter((e) => e.siteMapId === siteMapId);
+    if (nodes.length === 0) return;
+    // A crawl is a tree/DAG rooted at the target: left-to-right reads best.
+    const laid = autoLayout(
+      nodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: {} })),
+      edges.map((e) => ({ id: e.id, source: e.sourceNodeId, target: e.targetNodeId })),
+      'LR',
+    );
+    await get().updateSiteMapNodePositions(laid.map((n) => ({ id: n.id, position: n.position })));
+  },
+  deleteSiteMapNode: async (id) => {
+    await siteMapNodeRepo.delete(id);
+    set((s) => ({
+      siteMapNodes: s.siteMapNodes.filter((n) => n.id !== id),
+      siteMapEdges: s.siteMapEdges.filter((e) => e.sourceNodeId !== id && e.targetNodeId !== id),
+    }));
+  },
+  runServerScan: async (siteMapId) => {
+    const map = get().siteMaps.find((m) => m.id === siteMapId);
+    if (!map) throw new Error('Web map not found');
+    if (!map.rootUrl) throw new Error('Set a target URL on this map first');
+    const wsId = get().activeWorkspaceId;
+    // The server spawns the recon script and writes the results straight into
+    // the shared doc; the observers below reload the map. We still reload
+    // explicitly so a cold doc (no other client) reflects the scan immediately.
+    const res = await useAuthStore.getState().webreconRunScan({
+      siteMapId,
+      target: map.rootUrl,
+      workspaceId: wsId ?? undefined,
+    });
+    await get().loadSiteMaps();
+    await get().loadSiteMapData(siteMapId);
+    return { nodes: res.nodes ?? 0, edges: res.edges ?? 0 };
+  },
+
   // Navigation
   pendingFocusNodeId: null,
   setPendingFocusNodeId: (nodeId) => set({ pendingFocusNodeId: nodeId }),
@@ -1425,6 +1579,9 @@ export const useAppStore = create<AppState>((set, get) => {
       attackChains: [],
       typstAssets: [],
       commandLogs: [],
+      siteMaps: [],
+      siteMapNodes: [],
+      siteMapEdges: [],
       tabs: [],
       activeTabId: null,
       paneLayout: createLeaf(),

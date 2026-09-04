@@ -10,3 +10,4 @@ export { nmapScanRepo, nmapMachineRepo } from './nmap-repo';
 export { attackChainRepo } from './attack-chain-repo';
 export { typstAssetRepo } from './typst-asset-repo';
 export { commandLogRepo } from './command-log-repo';
+export { siteMapRepo, siteMapNodeRepo, siteMapEdgeRepo } from './sitemap-repo';

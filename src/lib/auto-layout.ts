@@ -8,6 +8,15 @@ const NODE_SIZES: Record<string, { width: number; height: number }> = {
   finding:    { width: 200, height: 90 },
   credential: { width: 190, height: 80 },
   pivot:      { width: 160, height: 70 },
+  // Web recon site-map node types (share the same dagre layout).
+  root:       { width: 220, height: 74 },
+  subdomain:  { width: 210, height: 68 },
+  page:       { width: 220, height: 74 },
+  endpoint:   { width: 230, height: 74 },
+  api:        { width: 230, height: 74 },
+  js:         { width: 210, height: 68 },
+  form:       { width: 210, height: 74 },
+  external:   { width: 210, height: 68 },
 };
 const DEFAULT_SIZE = { width: 200, height: 100 };
 

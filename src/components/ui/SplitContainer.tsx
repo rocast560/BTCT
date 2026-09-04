@@ -13,7 +13,8 @@ const CommandLogView = lazy(() => import('@/components/cmdlog/CommandLogView').t
 const HistoryView = lazy(() => import('@/components/history/HistoryView').then((m) => ({ default: m.HistoryView })));
 const AssetsManager = lazy(() => import('@/components/typst/AssetsManager').then((m) => ({ default: m.AssetsManager })));
 const ShortcutsView = lazy(() => import('@/components/help/ShortcutsView').then((m) => ({ default: m.ShortcutsView })));
-import { FileText, Network, Radar, Monitor, X, Bug, Clock, FileType2, Sparkles, Terminal, History } from 'lucide-react';
+const WebMapView = lazy(() => import('@/components/webmap/WebMapView').then((m) => ({ default: m.WebMapView })));
+import { FileText, Network, Radar, Monitor, X, Bug, Clock, FileType2, Sparkles, Terminal, History, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export const TAB_DRAG_TYPE = 'application/x-btct-tab';
@@ -275,6 +276,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
         {activeTab?.kind === 'history' && <HistoryView pageId={activeTab.entityId} />}
         {activeTab?.kind === 'assets' && <AssetsManager />}
         {activeTab?.kind === 'shortcuts' && <ShortcutsView />}
+        {activeTab?.kind === 'webmap' && <WebMapView siteMapId={activeTab.entityId} />}
         {!activeTab && (
           <div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">
             Drop a tab here
@@ -355,7 +357,7 @@ const PaneTabChip = memo(function PaneTabChip({
           )}
         />
       )}
-      {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'findings' ? <Bug size={9} /> : tab.kind === 'timeline' ? <Clock size={9} /> : tab.kind === 'typst' ? <FileType2 size={9} /> : tab.kind === 'ai' ? <Sparkles size={9} /> : tab.kind === 'cmdlog' ? <Terminal size={9} /> : tab.kind === 'history' ? <History size={9} /> : <Network size={9} />}
+      {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'findings' ? <Bug size={9} /> : tab.kind === 'timeline' ? <Clock size={9} /> : tab.kind === 'typst' ? <FileType2 size={9} /> : tab.kind === 'ai' ? <Sparkles size={9} /> : tab.kind === 'cmdlog' ? <Terminal size={9} /> : tab.kind === 'history' ? <History size={9} /> : tab.kind === 'webmap' ? <Globe size={9} /> : <Network size={9} />}
       <span className="max-w-[100px] truncate">{tab.title}</span>
       <button
         onClick={(e) => { e.stopPropagation(); onClose(); }}

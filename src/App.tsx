@@ -80,6 +80,7 @@ function AuthedApp() {
     loadChangeLogs,
     loadNmapScans,
     loadAttackChains,
+    loadSiteMaps,
     leftSidebarOpen,
     rightSidebarOpen,
     workspaces,
@@ -91,6 +92,7 @@ function AuthedApp() {
     loadChangeLogs: s.loadChangeLogs,
     loadNmapScans: s.loadNmapScans,
     loadAttackChains: s.loadAttackChains,
+    loadSiteMaps: s.loadSiteMaps,
     leftSidebarOpen: s.leftSidebarOpen,
     rightSidebarOpen: s.rightSidebarOpen,
     workspaces: s.workspaces,
@@ -149,8 +151,9 @@ function AuthedApp() {
       void loadChangeLogs();
       void loadNmapScans();
       void loadAttackChains();
+      void loadSiteMaps();
     }
-  }, [activeWorkspaceId, loadPages, loadGraphs, loadChangeLogs, loadNmapScans, loadAttackChains]);
+  }, [activeWorkspaceId, loadPages, loadGraphs, loadChangeLogs, loadNmapScans, loadAttackChains, loadSiteMaps]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

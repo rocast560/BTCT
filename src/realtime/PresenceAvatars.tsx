@@ -30,6 +30,7 @@ const KIND_LABEL: Record<TabKind, string> = {
   history: 'History',
   assets: 'Assets',
   shortcuts: 'Shortcuts',
+  webmap: 'Web Map',
 };
 
 function whereLabel(peer: PeerPresence): string {

@@ -33,6 +33,7 @@ crisp version is [`blog/media/btct-demo.mp4`](blog/media/btct-demo.mp4) at
   - [AI assistant (Claude)](#ai-assistant-claude)
   - [MCP server (connect an external client)](#mcp-server-connect-an-external-client)
   - [Command log (team shell-command capture)](#command-log-team-shell-command-capture)
+  - [Web recon (site maps)](#web-recon-site-maps)
   - [Real-time collaboration](#real-time-collaboration)
   - [Workspaces, navigation & layout](#workspaces-navigation--layout)
   - [Edit history & versioning](#edit-history--versioning)
@@ -516,6 +517,36 @@ command (unbounded, queried over REST with filters) and mirrors only the most re
 ~500 per workspace into the shared CRDT for the live view, so the collaborative doc
 stays bounded while no history is ever lost.
 
+### Web recon (site maps)
+
+Map a target website for web penetration testing. A **Web Map** tab (create one in
+the sidebar under **Web Maps**) shows an auto-laid-out graph of everything discovered
+(pages, endpoints, subdomains, API routes, forms, linked JavaScript) alongside a
+filterable, grouped list of endpoints with method, status, and content-type, plus a
+CSV export. Clicking a list row locates its node on the graph.
+
+There are three ways to fill a map, all sharing one normalized "sitemap JSON"
+document so the graph, lists, and re-scan de-duplication stay consistent:
+
+- **Import a scan file.** Run the standalone scanner on your Kali box and import its
+  JSON with the **Import** button (offline, no configuration needed, exactly like the
+  nmap import).
+- **Ship results with a token.** An admin enables ingest in **Admin → Web Recon**
+  (mints a bearer token); the scanner then POSTs straight into a map.
+- **Scan from the app.** On a Linux host, an admin turns on server-side scanning and
+  anyone can press **Scan now** on a map to scan its target. It runs behind a scope
+  guard that blocks private, loopback, link-local, and cloud-metadata addresses, is
+  time-bounded, and never runs more than one scan at a time.
+
+The scanner is [`webrecon-agent/`](webrecon-agent/README.md), a stdlib-only Python 3
+tool. Its built-in engine crawls the site, seeds from robots.txt and sitemap.xml,
+enumerates subdomains via crt.sh (no API key), probes common paths, and detects API
+surface (OpenAPI/Swagger, GraphQL, and endpoints mined out of JavaScript). When run on
+a full Kali box it also folds in whatever recon tools are installed (subfinder, httpx,
+katana, gau/waybackurls, whatweb, ffuf/feroxbuster/gobuster) with the same command.
+
+Only scan targets you are authorized to test.
+
 ### Real-time collaboration
 
 Everything is live and multi-user over the LAN:
@@ -777,14 +808,14 @@ findings. Those only exist inside the CRDT documents the clients share.
 - **Records** are plain JSON in a per-table `Y.Map` keyed by `id`
   (last-writer-wins). Tables: `workspaces`, `pages`, `graphs`, `graphNodes`,
   `graphEdges`, `attackChains`, `changeLogs`, `pageSnapshots`, `nmapScans`,
-  `nmapMachines`.
+  `nmapMachines`, `siteMaps`, `siteMapNodes`, `siteMapEdges`.
 - **Collaborative text fields** are `Y.Text`s in the single `texts` map, keyed
   `<entity>:<id>:<field>` (e.g. `page:<id>:title`, `node:<id>:label`). A
   `mirrorTextsToRecords` observer writes each `Y.Text`'s value back into the JSON
   record's field, so the rest of the app (sidebar, search, exports) can read plain
   JSON. The collaborative fields are: page `title`/`slug`, node `label`, edge
   `label`, workspace `name`, graph `name`, nmap scan `name`, nmap machine
-  `hostname`, attack-chain `name`.
+  `hostname`, attack-chain `name`, web-map `name`.
 - **Page bodies** never go in the shared doc. They live in the per-page doc and
   are checkpointed via [page snapshots](#edit-history--versioning-detail).
 
@@ -807,6 +838,9 @@ Fields shown as *(Y.Text)* are collaborative; everything else is last-writer-win
 | **PageSnapshot** | `id`, `pageId`, `workspaceId`, `timestamp`, author, `label?`, `updateBase64` (`Y.encodeStateAsUpdate`), `byteLength` |
 | **TypstAsset** | `id` (= server blob id), `workspaceId`, `kind` (`image`\|`font`), `filename` (also the `/assets/<name>` path in the Typst VFS), `mime`, `size`, `width?`/`height?`, `crop?` (`CropRect`, normalized 0..1; `null` = full image), `blurs?` (`BlurRegion[]`, normalized redaction rectangles; `null` = none), `fontFamily?`, timestamps. **Metadata only; the bytes live server-side.** |
 | **CommandLogEntry** | `id` (agent-generated, the idempotency key), `workspaceId`, `operator`, `command` (redacted), `tool`, `cwd?`, `host?`, `localUser?`, `shellPid?`, `startedAt`, `receivedAt`, `exitCode?` (`null` = still running), `durationMs?`, `redacted?`. **No Y.Text fields**, all LWW JSON. Written **only by the server ingest endpoint**; the shared-doc copy is a bounded live window over the SQLite archive. |
+| **SiteMap** | `id`, `workspaceId`, `name` *(Y.Text)*, `rootUrl` (the scanned target), `lastScanAt?`, timestamps. One per target website. |
+| **SiteMapNode** | `id`, `siteMapId`, `key` (natural key `type\|method\|url`, the re-scan upsert key), `type` (`root\|subdomain\|page\|endpoint\|api\|js\|form\|external`), `url`, `method`, `status`, `contentType`, `title`, `size`, `params[]`, `sources[]`, `tags[]`, `notes`, `position`, timestamps. **No Y.Text fields**, all LWW JSON. |
+| **SiteMapEdge** | `id`, `siteMapId`, `sourceNodeId`, `targetNodeId`, `kind` (`link\|redirect\|hierarchy\|form-action\|api-ref`), `label`, timestamps. **No Y.Text fields.** |
 
 Node `data` is polymorphic: `HostData` / `CredentialData` / `ServiceData` /
 `FindingData` / `PivotData` (fields listed in the [graph feature
@@ -999,6 +1033,12 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `POST` | `/api/cmdlog/config` | admin | Enable/disable, set whitelist + default workspace (mints a token on first enable) |
 | `POST` | `/api/cmdlog/token` | admin | Regenerate (rotate) the ingest token |
 | `DELETE` | `/api/cmdlog/logs?workspaceId=…` | admin | Purge a workspace's command-log archive |
+| `POST` | `/api/webrecon/ingest` | ingest token | Ingest a sitemap JSON document (`{ target, nodes[], edges[], workspaceId?, siteMapId?, name? }`); upserts nodes by `key` into the shared doc |
+| `POST` | `/api/webrecon/scan` | yes | Spawn the bundled scanner server-side against `{ target, siteMapId?, workspaceId? }` (Linux + admin-enabled; anti-SSRF checked; single-flight) |
+| `GET` | `/api/webrecon/scan/status` | yes | Whether server-side scanning is enabled, the host supports it, and a scan is running |
+| `GET` | `/api/webrecon/config` | admin | Web-recon config incl. token, ingest/scan flags, default workspace, platform support |
+| `POST` | `/api/webrecon/config` | admin | Enable/disable ingest + server-side scanning, set default workspace (mints a token on first ingest-enable) |
+| `POST` | `/api/webrecon/token` | admin | Regenerate (rotate) the ingest token |
 | `GET` | `/api/backup/config` | admin | Backup settings: `enabled`, `fullIntervalMin`, `includes`, folder, host token |
 | `POST` | `/api/backup/config` | admin | Update any of `enabled`, `fullIntervalMin`, `includes` |
 | `POST` | `/api/backup/token` | admin | Regenerate the host-scheduler token |
@@ -1254,6 +1294,13 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    marks only `/assets/*` (hashed) `immutable`; everything else is
    `no-cache` with an ETag. Audit record:
    [docs/perf-bug-audit-2026-08-28.md](docs/perf-bug-audit-2026-08-28.md).
+26. **A server-side web-recon scan validates its target before touching it.**
+   `assertScanTargetAllowed` (`server/webrecon-scope.mjs`) rejects non-http(s)
+   schemes and private, loopback, link-local, CGNAT, and cloud-metadata
+   addresses, and the scan handler re-checks the resolved DNS address, so
+   "Scan now" cannot be pointed at internal infrastructure (SSRF). Server-side
+   scanning is admin-enabled, Linux-only, single-flight, and wall-clock bounded,
+   and the scanner runs via `Bun.spawn` (async) so it never blocks the Yjs relay.
 
 ### Recipes: how to extend
 

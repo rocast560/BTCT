@@ -248,7 +248,7 @@ export interface CustomTimelineEvent {
 }
 
 // ---- UI State Types ----
-export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline' | 'typst' | 'ai' | 'cmdlog' | 'history' | 'assets' | 'shortcuts';
+export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline' | 'typst' | 'ai' | 'cmdlog' | 'history' | 'assets' | 'shortcuts' | 'webmap';
 
 export interface TabItem {
   id: string;
@@ -422,6 +422,74 @@ export interface AttackChain {
   name: string;
   nodeIds: ID[];
   linkedPageId: ID | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ---- Web Recon / Site Map ----
+// A mapped target website for web penetration testing: a graph of discovered
+// pages / endpoints / subdomains / API routes, populated by an external recon
+// script (imported or shipped over the ingest token) or by an in-app
+// server-side scan. Modeled on Graph / GraphNode / GraphEdge, but a SEPARATE
+// entity trio so crawl-generated content never rides on the attack-narrative
+// NodeType (which is baked into the palette, findings, timeline, nmap-linking).
+//
+// SiteMap.name is a collaborative Y.Text (renameable, like NmapScan.name).
+// Nodes and edges have NO Y.Text fields: they are bulk machine-generated LWW
+// JSON (like typstAssets / commandLogs), so invariant #1 does not apply to them.
+export const SITE_NODE_TYPES = ['root', 'subdomain', 'page', 'endpoint', 'api', 'js', 'form', 'external'] as const;
+export type SiteNodeType = (typeof SITE_NODE_TYPES)[number];
+
+export const SITE_EDGE_KINDS = ['link', 'redirect', 'hierarchy', 'form-action', 'api-ref'] as const;
+export type SiteEdgeKind = (typeof SITE_EDGE_KINDS)[number];
+
+export interface SiteMap {
+  id: ID;
+  workspaceId: ID;
+  name: string;
+  /** The scanned target, e.g. `https://example.com`. */
+  rootUrl: string;
+  createdAt: number;
+  updatedAt: number;
+  /** Epoch ms of the most recent scan/import into this map, or null. */
+  lastScanAt?: number | null;
+}
+
+export interface SiteMapNode {
+  id: ID;
+  siteMapId: ID;
+  /** Stable natural key (`type|method|url`): re-scans upsert instead of duplicating. */
+  key: string;
+  type: SiteNodeType;
+  url: string;
+  /** HTTP method for endpoint/api/form nodes; '' when not applicable. */
+  method: string;
+  /** HTTP status code, or null if unknown/unprobed. */
+  status: number | null;
+  contentType: string;
+  title: string;
+  /** Response size in bytes, or null if unknown. */
+  size: number | null;
+  /** Query/body parameter names discovered for this node. */
+  params: string[];
+  /** Which collectors/tools reported this node (e.g. "crawl", "httpx", "crt.sh"). */
+  sources: string[];
+  tags: string[];
+  /** Operator notes (LWW JSON, not a Y.Text). */
+  notes: string;
+  position: { x: number; y: number };
+  discoveredAt: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SiteMapEdge {
+  id: ID;
+  siteMapId: ID;
+  sourceNodeId: ID;
+  targetNodeId: ID;
+  kind: SiteEdgeKind;
+  label: string;
   createdAt: number;
   updatedAt: number;
 }

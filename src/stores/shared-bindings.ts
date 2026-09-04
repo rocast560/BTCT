@@ -42,6 +42,7 @@ export function bindSharedSubscriptions(): () => void {
   unsubs.push(subscribeTable('assetFolders', debounce(() => { void s().loadAssetFolders(); })));
   unsubs.push(subscribeTable('timelineEvents', debounce(() => { void s().loadTimelineEvents(); })));
   unsubs.push(subscribeTable('commandLogs',  debounce(() => { void s().loadCommandLogs(); })));
+  unsubs.push(subscribeTable('siteMaps',     debounce(() => { void s().loadSiteMaps().then(() => s().reconcileTabs()); })));
 
   // Admin theme policy, mirrored into the doc by the server on every save
   // (LWW JSON): re-theme live. The store drops payloads older than the one
@@ -94,6 +95,32 @@ export function bindSharedSubscriptions(): () => void {
       for (const id of targets) void st.loadNmapMachines(id);
     });
   }));
+
+  // Web-recon nodes/edges: reload only the maps whose records changed (the
+  // event's keys carry a `siteMapId`), mirroring the nmapMachines binding.
+  // A server-side scan or a remote import lands here.
+  const pendingMapIds = new Set<string>();
+  let reloadAllMaps = false;
+  let mapsQueued = false;
+  const onSiteMapChildChange = (e: import('@/realtime/shared-doc').TableEvent) => {
+    for (const [key, change] of e.keys) {
+      const rec = (e.current(key) ?? change.oldValue) as { siteMapId?: string } | undefined;
+      if (rec?.siteMapId) pendingMapIds.add(rec.siteMapId);
+      else reloadAllMaps = true;
+    }
+    if (mapsQueued) return;
+    mapsQueued = true;
+    queueMicrotask(() => {
+      mapsQueued = false;
+      const st = s();
+      const targets = reloadAllMaps ? st.siteMaps.map((m) => m.id) : [...pendingMapIds];
+      reloadAllMaps = false;
+      pendingMapIds.clear();
+      for (const id of targets) void st.loadSiteMapData(id);
+    });
+  };
+  unsubs.push(subscribeTable('siteMapNodes', onSiteMapChildChange));
+  unsubs.push(subscribeTable('siteMapEdges', onSiteMapChildChange));
 
   return () => {
     bound = false;
