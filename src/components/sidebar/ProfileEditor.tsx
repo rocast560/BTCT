@@ -12,7 +12,7 @@ import {
   type ThemePrefs,
 } from '@/lib/editor-prefs';
 import { MAX_STRENGTH, MIN_STRENGTH } from '@/lib/blur-math';
-import { applyCodeAccent } from '@/lib/code-theme';
+import { applyCodeAccent } from '@/lib/code-accent';
 import { applyHeadingColors, resolveEffectiveHeadings } from '@/lib/theme';
 import { useThemeStore } from '@/stores/theme-store';
 import { usePresenceRoster } from '@/realtime/presence';

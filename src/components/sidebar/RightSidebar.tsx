@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { lazy, Suspense, useState, useRef, useEffect } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
 import { NodeProperties } from '@/components/graph/NodeProperties';
@@ -7,7 +7,7 @@ import { BacklinksPanel } from '@/components/sidebar/BacklinksPanel';
 import { ChangeLogPanel } from '@/components/sidebar/ChangeLogPanel';
 import { PageHistoryPanel } from '@/components/sidebar/PageHistoryPanel';
 import { LastEditedBadge } from '@/components/sidebar/LastEditedBadge';
-import { ExportDialog } from '@/components/ui/ExportDialog';
+const ExportDialog = lazy(() => import('@/components/ui/ExportDialog').then((m) => ({ default: m.ExportDialog })));
 import { Portal } from '@/components/ui/Portal';
 import { PanelRightClose, AlertTriangle } from 'lucide-react';
 
@@ -92,7 +92,7 @@ export function RightSidebar() {
         </button>
       </div>
 
-      <Portal><ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} /></Portal>
+      {exportOpen && <Portal><Suspense fallback={<div role="status" className="panel-loading">Loading export…</div>}><ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} /></Suspense></Portal>}
 
       {showDeleteConfirm && (
         <Portal>

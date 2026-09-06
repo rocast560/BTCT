@@ -3,11 +3,11 @@ import { UI_THEME, applyUiTheme } from '@/themes/registry';
 import { resolvePrefs, type EditorPrefs } from '@/lib/editor-prefs';
 
 describe('interface look', () => {
-  it('is Glass, stamped on <html>', () => {
+  it('is Operations, stamped on <html>', () => {
     document.documentElement.removeAttribute('data-ui-theme');
     applyUiTheme();
-    expect(UI_THEME).toBe('glass');
-    expect(document.documentElement.getAttribute('data-ui-theme')).toBe('glass');
+    expect(UI_THEME).toBe('operations');
+    expect(document.documentElement.getAttribute('data-ui-theme')).toBe('operations');
   });
 
   it('ignores a uiTheme pref left over from before the switch', () => {

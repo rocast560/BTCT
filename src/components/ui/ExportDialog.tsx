@@ -1,3 +1,4 @@
+import { collectRetiredRecon, restoreRetiredRecon } from '@/export/retired-recon';
 import { useState } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
@@ -21,9 +22,6 @@ import {
   nmapScanRepo,
   nmapMachineRepo,
   attackChainRepo,
-  siteMapRepo,
-  siteMapNodeRepo,
-  siteMapEdgeRepo,
 } from '@/db';
 import JSZip from 'jszip';
 import { getSharedDoc, seedMissingYTexts } from '@/realtime/shared-doc';
@@ -136,10 +134,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
       const allNmapScans   = await nmapScanRepo.getByWorkspace(activeWorkspaceId);
       const allNmapMachines = (await Promise.all(allNmapScans.map((s) => nmapMachineRepo.getByScan(s.id)))).flat();
       const allSnapshots   = (await Promise.all(allPages.map((p) => db.pageSnapshots.where('pageId').equals(p.id).toArray()))).flat();
-      const allSiteMaps    = await siteMapRepo.getByWorkspace(activeWorkspaceId);
-      const allSiteNodes   = (await Promise.all(allSiteMaps.map((m) => siteMapNodeRepo.getBySiteMap(m.id)))).flat();
-      const allSiteEdges   = (await Promise.all(allSiteMaps.map((m) => siteMapEdgeRepo.getBySiteMap(m.id)))).flat();
-      const pageYjsUpdates = collectPageYjsUpdates(allPages.map((p) => p.id));
+      const pageYjsUpdates = await collectPageYjsUpdates(allPages.map((p) => p.id));
 
       const blob = await exportWorkspaceZip({
         schemaVersion: 2,
@@ -154,10 +149,8 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         nmapScans: allNmapScans,
         nmapMachines: allNmapMachines,
         pageSnapshots: allSnapshots,
-        siteMaps: allSiteMaps,
-        siteMapNodes: allSiteNodes,
-        siteMapEdges: allSiteEdges,
         pageYjsUpdates,
+        retiredRecon: collectRetiredRecon(activeWorkspaceId),
       });
       downloadBlob(blob, `${workspace.name}.zip`);
       setStatus(`Workspace exported (${Object.keys(pageYjsUpdates).length} page docs included)`);
@@ -245,11 +238,6 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
           for (const snap of await db.pageSnapshots.where('workspaceId').equals(existingWs.id).toArray()) {
             await db.pageSnapshots.delete(snap.id);
           }
-          for (const m of await siteMapRepo.getByWorkspace(existingWs.id)) {
-            for (const n of await siteMapNodeRepo.getBySiteMap(m.id)) await db.siteMapNodes.delete(n.id);
-            for (const e of await siteMapEdgeRepo.getBySiteMap(m.id)) await db.siteMapEdges.delete(e.id);
-            await db.siteMaps.delete(m.id);
-          }
         }
 
         const importedWsId = remap(data.workspace.id);
@@ -264,9 +252,8 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         for (const s of data.nmapScans)     await db.nmapScans.add({ ...s, id: remap(s.id), workspaceId: importedWsId });
         for (const m of data.nmapMachines)  await db.nmapMachines.add({ ...m, id: remap(m.id), scanId: remap(m.scanId), linkedNodeId: m.linkedNodeId ? remap(m.linkedNodeId) : undefined });
         for (const snap of data.pageSnapshots) await db.pageSnapshots.add({ ...snap, id: remap(snap.id), pageId: remap(snap.pageId), workspaceId: importedWsId });
-        for (const m of data.siteMaps)      await db.siteMaps.add({ ...m, id: remap(m.id), workspaceId: importedWsId });
-        for (const n of data.siteMapNodes)  await db.siteMapNodes.add({ ...n, id: remap(n.id), siteMapId: remap(n.siteMapId) });
-        for (const e of data.siteMapEdges)  await db.siteMapEdges.add({ ...e, id: remap(e.id), siteMapId: remap(e.siteMapId), sourceNodeId: remap(e.sourceNodeId), targetNodeId: remap(e.targetNodeId) });
+
+        restoreRetiredRecon(data.retiredRecon, importedWsId, remap);
 
         // Apply page Y.Doc updates AFTER the page records exist so the
         // editor's lazy provider hookup will see the seeded content.

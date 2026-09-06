@@ -17,3 +17,8 @@ server/server.err
 .env.*
 !.env.example
 README.md
+
+.claude
+.preview
+backups
+blog

@@ -43,14 +43,6 @@ import {
   handleCmdlogClear,
 } from './cmdlog.mjs';
 import {
-  getWebreconConfig,
-  setWebreconConfig,
-  regenerateWebreconToken,
-  handleWebreconIngest,
-  handleWebreconScan,
-  getWebreconScanStatus,
-} from './webrecon.mjs';
-import {
   handleAssetUpload,
   handleAssetGet,
   handleAssetList,
@@ -70,7 +62,7 @@ import {
 } from './history.mjs';
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-const DEFAULT_THEME_COLOR = '#f59e0b'; // yellow-orange (amber-500)
+const DEFAULT_THEME_COLOR = '#7db4dc'; // restrained blue for Operations
 
 // ── Theme policy (note heading colours + hard-lock) ─────────────────────
 // Same shape the client's resolveThemePrefs() accepts:
@@ -728,45 +720,6 @@ const httpServer = http.createServer(async (req, res) => {
       const gate = requireAdmin(req);
       if (gate.error) return sendJson(res, gate.status, { error: gate.error });
       return handleCmdlogClear(req, res, { sendJson });
-    }
-
-    // ── Web recon (crawl / endpoint / subdomain maps from btct-webrecon) ──
-    // Ingest authenticates with the static ingest token (checked in the
-    // handler). Scan + status are any-authenticated-user (the scan itself is
-    // gated by the admin scan flag + a Linux host + an anti-SSRF check).
-    // Config is admin-only.
-    if (req.method === 'POST' && req.url === '/api/webrecon/ingest') {
-      return handleWebreconIngest(req, res, { sendJson, readJsonBody });
-    }
-    if (req.method === 'POST' && req.url === '/api/webrecon/scan') {
-      const claims = authFromHeader(req);
-      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
-      const user = getUserById(claims.uid);
-      if (!user) return sendJson(res, 401, { error: 'unauthorized' });
-      return handleWebreconScan(req, res, { sendJson, readJsonBody }, { userId: user.id, userName: user.username });
-    }
-    if (req.method === 'GET' && req.url === '/api/webrecon/scan/status') {
-      const claims = authFromHeader(req);
-      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
-      if (!getUserById(claims.uid)) return sendJson(res, 401, { error: 'unauthorized' });
-      return sendJson(res, 200, getWebreconScanStatus());
-    }
-    if (req.method === 'GET' && req.url === '/api/webrecon/config') {
-      const gate = requireAdmin(req);
-      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
-      return sendJson(res, 200, getWebreconConfig());
-    }
-    if (req.method === 'POST' && req.url === '/api/webrecon/config') {
-      const gate = requireAdmin(req);
-      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
-      const body = await readJsonBody(req, 8 * 1024);
-      try { return sendJson(res, 200, setWebreconConfig(body)); }
-      catch (e) { return sendJson(res, 400, { error: String(e?.message || e) }); }
-    }
-    if (req.method === 'POST' && req.url === '/api/webrecon/token') {
-      const gate = requireAdmin(req);
-      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
-      return sendJson(res, 200, { token: regenerateWebreconToken() });
     }
 
     // ── Backups (host folder target; see server/backup.mjs) ───────────

@@ -10,7 +10,8 @@ import { HeadingColorPicker } from '@/components/ui/HeadingColorPicker';
 // Each one is a sane standalone choice; the native color wheel below
 // covers everything else.
 const COLOR_PRESETS = [
-  '#f59e0b', // amber-500 (default, yellow-orange)
+  '#7db4dc', // Operations blue (default)
+  '#f59e0b', // amber-500
   '#f97316', // orange-500
   '#ef4444', // red-500 (the legacy signature red)
   '#ec4899', // pink-500

@@ -18,7 +18,7 @@ import { getSharedDoc, sharedTransact, type TableName, textKey, TEXT_FIELDS_BY_E
 import type {
   Workspace, Page, Graph, GraphNode, GraphEdge,
   ChangeLogEntry, NmapScan, NmapMachine, AttackChain, PageSnapshot, TypstAsset, AssetFolder, CustomTimelineEvent,
-  CommandLogEntry, SiteMap, SiteMapNode, SiteMapEdge,
+  CommandLogEntry,
 } from '@/types';
 
 type Row = { id: string };
@@ -210,9 +210,6 @@ class AppDatabase {
   assetFolders  = new Table<AssetFolder>  ('assetFolders');
   timelineEvents = new Table<CustomTimelineEvent>('timelineEvents');
   commandLogs   = new Table<CommandLogEntry>('commandLogs');
-  siteMaps      = new Table<SiteMap>       ('siteMaps');
-  siteMapNodes  = new Table<SiteMapNode>   ('siteMapNodes');
-  siteMapEdges  = new Table<SiteMapEdge>   ('siteMapEdges');
 
   /**
    * Yjs has no transactional rollback, but it does batch updates: every

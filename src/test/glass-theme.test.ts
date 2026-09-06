@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// The glass skin is plain CSS, so these are source-level guards for the rules
-// a future edit could break without noticing in the classic theme. Read from
+// The operations skin is plain CSS, so these are source-level guards for the rules
+// a future edit could break without noticing in the base theme. Read from
 // disk (vitest runs at the repo root): vitest hands CSS imports back empty.
-const css = readFileSync(join(process.cwd(), 'src', 'themes', 'glass.css'), 'utf8');
+const css = readFileSync(join(process.cwd(), 'src', 'themes', 'operations.css'), 'utf8');
 
 /** Bodies of every `@media (prefers-reduced-motion: reduce)` block, brace-balanced. */
 function reducedMotionBlocks(source: string): string[] {
@@ -35,7 +35,7 @@ function rules(block: string): Array<[string, string]> {
   });
 }
 
-describe('glass theme stylesheet', () => {
+describe('operations theme stylesheet', () => {
   it('has a reduced-motion block that silences transitions and animations', () => {
     const blocks = reducedMotionBlocks(css);
     expect(blocks.length).toBeGreaterThan(0);

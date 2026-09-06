@@ -53,10 +53,6 @@ export const TABLE_NAMES = [
   'assetFolders',
   'timelineEvents',
   'commandLogs',
-  // Web recon: one target per SiteMap, with its discovered nodes/edges.
-  'siteMaps',
-  'siteMapNodes',
-  'siteMapEdges',
   // Server-written mirror of the public settings (admin theme policy), so
   // clients re-theme live. Read by theme-store via shared-bindings; never
   // written by clients.
@@ -313,7 +309,6 @@ const TEXT_FIELD_TO_TABLE: Record<string, TableName> = {
   nmapScan: 'nmapScans',
   nmapMachine: 'nmapMachines',
   attackChain: 'attackChains',
-  siteMap: 'siteMaps',
 };
 
 let mirrorBound = false;
@@ -400,7 +395,6 @@ export const TEXT_FIELDS_BY_ENTITY: Record<string, { table: TableName; fields: s
   nmapScan:    { table: 'nmapScans',    fields: ['name'] },
   nmapMachine: { table: 'nmapMachines', fields: ['hostname'] },
   attackChain: { table: 'attackChains', fields: ['name'] },
-  siteMap:     { table: 'siteMaps',     fields: ['name'] },
 };
 
 /**

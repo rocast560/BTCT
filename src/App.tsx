@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
 import { LeftSidebar } from '@/components/sidebar/LeftSidebar';
@@ -6,21 +6,19 @@ import { RightSidebar } from '@/components/sidebar/RightSidebar';
 import { TabBar } from '@/components/ui/TabBar';
 import { SplitContainer } from '@/components/ui/SplitContainer';
 import { CommandPalette } from '@/components/ui/CommandPalette';
-import { QuickAddEvent } from '@/components/findings/QuickAddEvent';
-import { AssetImageEditor } from '@/components/editor/AssetImageEditor';
-import { blurSelectedImage } from '@/lib/note-image-paste';
-import { seedDemoWorkspace } from '@/db/seed';
+const QuickAddEvent = lazy(() => import('@/components/findings/QuickAddEvent').then((m) => ({ default: m.QuickAddEvent })));
+const AssetImageEditor = lazy(() => import('@/components/editor/AssetImageEditor').then((m) => ({ default: m.AssetImageEditor })));
 import { useAuthStore } from '@/auth/auth-store';
 import { useThemeStore } from '@/stores/theme-store';
 import { resolvePrefs, matchShortcut } from '@/lib/editor-prefs';
-import { applyCodeAccent } from '@/lib/code-theme';
+import { applyCodeAccent } from '@/lib/code-accent';
 import { applyHeadingColors, resolveEffectiveHeadings } from '@/lib/theme';
-import { setEditorKeybinds } from '@/lib/editor-keybinds';
+import { setEditorKeybinds } from '@/lib/editor-keybind-registry';
 import { LoginScreen } from '@/auth/LoginScreen';
 import { getSharedDoc } from '@/realtime/shared-doc';
+import { syncOpenPageDocs } from '@/realtime/yjs-providers';
 import { bindSharedSubscriptions } from '@/stores/shared-bindings';
 import { getActiveMilkdownEditor, hasMilkdownSelection } from '@/lib/active-editor';
-import { openLinkEditor } from '@/lib/link-editor';
 import { startPresence } from '@/realtime/presence';
 import { useFollowEngine } from '@/realtime/use-follow';
 import { PresenceAvatars } from '@/realtime/PresenceAvatars';
@@ -69,6 +67,16 @@ export function App() {
 }
 
 function AuthedApp() {
+  const quickAddOpen = useAppStore((s) => s.quickAddOpen);
+  const editingAssetId = useAppStore((s) => s.editingAssetId);
+  useEffect(() => {
+    const sync = () => syncOpenPageDocs(useAppStore.getState().tabs
+      .filter((t) => t.kind === 'page' || t.kind === 'history').map((t) => t.entityId));
+    sync();
+    const unsubscribe = useAppStore.subscribe((s, prev) => { if (s.tabs !== prev.tabs) sync(); });
+    return () => { unsubscribe(); syncOpenPageDocs([]); };
+  }, []);
+
   // Select only what this shell reads: a selectorless useAppStore() snapshot
   // re-renders the entire app tree on every store write (each sync event,
   // each debounced content save).
@@ -80,7 +88,6 @@ function AuthedApp() {
     loadChangeLogs,
     loadNmapScans,
     loadAttackChains,
-    loadSiteMaps,
     leftSidebarOpen,
     rightSidebarOpen,
     workspaces,
@@ -92,7 +99,6 @@ function AuthedApp() {
     loadChangeLogs: s.loadChangeLogs,
     loadNmapScans: s.loadNmapScans,
     loadAttackChains: s.loadAttackChains,
-    loadSiteMaps: s.loadSiteMaps,
     leftSidebarOpen: s.leftSidebarOpen,
     rightSidebarOpen: s.rightSidebarOpen,
     workspaces: s.workspaces,
@@ -151,9 +157,8 @@ function AuthedApp() {
       void loadChangeLogs();
       void loadNmapScans();
       void loadAttackChains();
-      void loadSiteMaps();
     }
-  }, [activeWorkspaceId, loadPages, loadGraphs, loadChangeLogs, loadNmapScans, loadAttackChains, loadSiteMaps]);
+  }, [activeWorkspaceId, loadPages, loadGraphs, loadChangeLogs, loadNmapScans, loadAttackChains]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -167,7 +172,7 @@ function AuthedApp() {
             e.preventDefault();
             // Inline "Paste link..." input at the selection (Crepe's link
             // tooltip), matching Notion's Ctrl+K.
-            openLinkEditor(editor);
+            void import('@/lib/link-editor').then(({ openLinkEditor }) => openLinkEditor(editor));
             return;
           }
         }
@@ -214,7 +219,9 @@ function AuthedApp() {
     const handler = (e: KeyboardEvent) => {
       const shortcut = resolvePrefs(useAuthStore.getState().user).keybinds.blurImage;
       if (!matchShortcut(e, shortcut)) return;
-      if (blurSelectedImage()) e.preventDefault();
+      if (!getActiveMilkdownEditor()) return;
+      e.preventDefault();
+      void import('@/lib/note-image-paste').then(({ blurSelectedImage }) => blurSelectedImage());
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -358,7 +365,7 @@ function AuthedApp() {
   useEffect(() => {
     if (!ready) return;
     if (workspaces.length === 0) {
-      void seedDemoWorkspace().then(() => loadWorkspaces());
+      void import('@/db/seed').then(({ seedDemoWorkspace }) => seedDemoWorkspace()).then(() => loadWorkspaces());
     }
   }, [ready, workspaces.length, loadWorkspaces]);
 
@@ -379,8 +386,8 @@ function AuthedApp() {
       </div>
       {rightSidebarOpen && <RightSidebar />}
       <CommandPalette />
-      <QuickAddEvent />
-      <AssetImageEditor />
+      {quickAddOpen && <Suspense fallback={null}><QuickAddEvent /></Suspense>}
+      {editingAssetId && <Suspense fallback={null}><AssetImageEditor /></Suspense>}
       <PresenceAvatars />
     </div>
   );

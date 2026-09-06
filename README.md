@@ -32,8 +32,8 @@ crisp version is [`blog/media/btct-demo.mp4`](blog/media/btct-demo.mp4) at
   - [Recon & reporting (nmap, findings, timeline)](#recon--reporting-nmap-findings-timeline)
   - [AI assistant (Claude)](#ai-assistant-claude)
   - [MCP server (connect an external client)](#mcp-server-connect-an-external-client)
+  - [Lightweight operations interface](#lightweight-operations-interface)
   - [Command log (team shell-command capture)](#command-log-team-shell-command-capture)
-  - [Web recon (site maps)](#web-recon-site-maps)
   - [Real-time collaboration](#real-time-collaboration)
   - [Workspaces, navigation & layout](#workspaces-navigation--layout)
   - [Edit history & versioning](#edit-history--versioning)
@@ -210,9 +210,10 @@ rendered entirely in the browser** (no calls to typst.app or any remote service)
   image again (here or in the report) lets you adjust or remove the blur and get
   the original back at any time.
 - **Local WebAssembly compiler**: bundled [`typst.ts`](https://github.com/Myriad-Dreamin/typst.ts)
-  (compiler + renderer wasm) ships with the app, and the default Typst font set
-  is embedded in the compiler, so it renders **fully offline / air-gapped**, with no
-  internet needed during an engagement.
+  (compiler + renderer wasm) ships with the app and loads only when reports are
+  opened. Report compilation runs in the browser. The default report fonts are
+  downloaded from jsDelivr on first use; a fresh report session needs internet
+  unless those assets are already cached. The application interface uses system fonts.
 - **Live errors**: Typst compile diagnostics (with `file:line` ranges) surface
   in a banner while the last good render stays on screen, so a transient typo
   doesn't blank the preview.
@@ -406,7 +407,7 @@ workspace, so you can explore a network and have it document findings as you go.
 - **Live markdown replies with syntax highlighting.** Responses stream
   token-by-token and render as markdown (headings, lists, tables, code), batched
   per animation frame so long, table-heavy answers stay fast and readable. Code
-  blocks are syntax-highlighted (shiki, many languages, grey theme).
+  blocks share the note editor's lazy syntax grammars and use CSS token colours.
 - **Durable chat history (per account).** Conversations are saved server-side per
   user, so a chat **survives closing the Claude pane and refreshing the browser**,
   and follows you across browsers/devices. **`+ New chat`** starts a fresh one and
@@ -517,35 +518,18 @@ command (unbounded, queried over REST with filters) and mirrors only the most re
 ~500 per workspace into the shared CRDT for the live view, so the collaborative doc
 stays bounded while no history is ever lost.
 
-### Web recon (site maps)
+### Lightweight operations interface
+The Operations interface uses solid slate panels, compact tables, crisp borders and system fonts. It replaces the translucent Glass skin and removes continuous decorative glow, animated backgrounds and backdrop blur. Dark/light mode, custom accent colours and editor colours remain available.
 
-Map a target website for web penetration testing. A **Web Map** tab (create one in
-the sidebar under **Web Maps**) shows an auto-laid-out graph of everything discovered
-(pages, endpoints, subdomains, API routes, forms, linked JavaScript) alongside a
-filterable, grouped list of endpoints with method, status, and content-type, plus a
-CSV export. Clicking a list row locates its node on the graph.
+The workspace overview shows real page, narrative, scan and chain counts, recently updated pages, and direct links to findings, timeline and reports. Heavy editors, exports, image tools and account panels load when opened. History polling and the minute clock pause while the browser tab is hidden. Icons share a single bundle to reduce startup requests. Chat syntax highlighting reuses the editor's CodeMirror grammars instead of shipping Shiki. Very large code output stays plain text to keep the interface responsive.
 
-There are three ways to fill a map, all sharing one normalized "sitemap JSON"
-document so the graph, lists, and re-scan de-duplication stay consistent:
+Closed pages save to the offline cache before releasing their memory and live connection. Open page and history tabs stay connected, including background tabs. Reopening a closed page restores its saved content and reconnects; offline changes reach the server when the page reconnects. If the browser cannot save a page, the app retains it in memory. Exports wait for document state before encoding it.
 
-- **Import a scan file.** Run the standalone scanner on your Kali box and import its
-  JSON with the **Import** button (offline, no configuration needed, exactly like the
-  nmap import).
-- **Ship results with a token.** An admin enables ingest in **Admin → Web Recon**
-  (mints a bearer token); the scanner then POSTs straight into a map.
-- **Scan from the app.** On a Linux host, an admin turns on server-side scanning and
-  anyone can press **Scan now** on a map to scan its target. It runs behind a scope
-  guard that blocks private, loopback, link-local, and cloud-metadata addresses, is
-  time-bounded, and never runs more than one scan at a time.
+Web recon has been removed: there is no scanner, Web Map UI, recon settings, scan/ingest route or Python dependency in the application image. Existing recon records remain in storage and still round-trip through workspace ZIP files and full server backups as archived data.
 
-The scanner is [`webrecon-agent/`](webrecon-agent/README.md), a stdlib-only Python 3
-tool. Its built-in engine crawls the site, seeds from robots.txt and sitemap.xml,
-enumerates subdomains via crt.sh (no API key), probes common paths, and detects API
-surface (OpenAPI/Swagger, GraphQL, and endpoints mined out of JavaScript). When run on
-a full Kali box it also folds in whatever recon tools are installed (subfinder, httpx,
-katana, gau/waybackurls, whatweb, ffuf/feroxbuster/gobuster) with the same command.
+Generated `dist/` bundles are ignored by Git. Run `bun run build` for a local production client; Docker builds the client directly from source. This avoids carrying obsolete recon code and unused generated assets in the branch.
 
-Only scan targets you are authorized to test.
+Measurements, verification and preview commands: [Lightweight redesign record](docs/lightweight-redesign-2026-09-06.md).
 
 ### Real-time collaboration
 
@@ -648,19 +632,7 @@ below for the full mechanics:
   heading colours on everyone (users' own choices are kept but ignored until
   unlocked). Saved server-side and pushed to every connected client live. Plus
   a per-client **dark/light** toggle.
-- **Interface**: one look, **Glass**: floating translucent rails in the style
-  of Apple's Liquid Glass on a dark-grey palette (one platform UI font for
-  chrome, notes and form controls, semibold rather than bold, title-case
-  section headers, flat sidebar rows with the coloured icon carrying the
-  category, capsule chips, opaque menus and dialogs, a flat tinted primary
-  button and no gloss gradients; it honours Reduce Transparency, Increase
-  Contrast and Reduce Motion, and falls back to solid panels where
-  `backdrop-filter` is missing). The earlier flat "Classic" theme and the
-  per-account switcher were removed on 2026-08-28. See
-  [Interface themes](#interface-themes) for how the look is layered. Dark and
-  light mode remain a per-client toggle in the sidebar header.
-
----
+- **Interface**: Operations, with solid surfaces, compact navigation, restrained status colours and no continuous decorative effects. Both dark and light palettes are supported. See [Interface themes](#interface-themes).
 
 ## Keyboard shortcuts & gestures
 
@@ -808,7 +780,7 @@ findings. Those only exist inside the CRDT documents the clients share.
 - **Records** are plain JSON in a per-table `Y.Map` keyed by `id`
   (last-writer-wins). Tables: `workspaces`, `pages`, `graphs`, `graphNodes`,
   `graphEdges`, `attackChains`, `changeLogs`, `pageSnapshots`, `nmapScans`,
-  `nmapMachines`, `siteMaps`, `siteMapNodes`, `siteMapEdges`.
+  `nmapMachines`.
 - **Collaborative text fields** are `Y.Text`s in the single `texts` map, keyed
   `<entity>:<id>:<field>` (e.g. `page:<id>:title`, `node:<id>:label`). A
   `mirrorTextsToRecords` observer writes each `Y.Text`'s value back into the JSON
@@ -838,9 +810,6 @@ Fields shown as *(Y.Text)* are collaborative; everything else is last-writer-win
 | **PageSnapshot** | `id`, `pageId`, `workspaceId`, `timestamp`, author, `label?`, `updateBase64` (`Y.encodeStateAsUpdate`), `byteLength` |
 | **TypstAsset** | `id` (= server blob id), `workspaceId`, `kind` (`image`\|`font`), `filename` (also the `/assets/<name>` path in the Typst VFS), `mime`, `size`, `width?`/`height?`, `crop?` (`CropRect`, normalized 0..1; `null` = full image), `blurs?` (`BlurRegion[]`, normalized redaction rectangles; `null` = none), `fontFamily?`, timestamps. **Metadata only; the bytes live server-side.** |
 | **CommandLogEntry** | `id` (agent-generated, the idempotency key), `workspaceId`, `operator`, `command` (redacted), `tool`, `cwd?`, `host?`, `localUser?`, `shellPid?`, `startedAt`, `receivedAt`, `exitCode?` (`null` = still running), `durationMs?`, `redacted?`. **No Y.Text fields**, all LWW JSON. Written **only by the server ingest endpoint**; the shared-doc copy is a bounded live window over the SQLite archive. |
-| **SiteMap** | `id`, `workspaceId`, `name` *(Y.Text)*, `rootUrl` (the scanned target), `lastScanAt?`, timestamps. One per target website. |
-| **SiteMapNode** | `id`, `siteMapId`, `key` (natural key `type\|method\|url`, the re-scan upsert key), `type` (`root\|subdomain\|page\|endpoint\|api\|js\|form\|external`), `url`, `method`, `status`, `contentType`, `title`, `size`, `params[]`, `sources[]`, `tags[]`, `notes`, `position`, timestamps. **No Y.Text fields**, all LWW JSON. |
-| **SiteMapEdge** | `id`, `siteMapId`, `sourceNodeId`, `targetNodeId`, `kind` (`link\|redirect\|hierarchy\|form-action\|api-ref`), `label`, timestamps. **No Y.Text fields.** |
 
 Node `data` is polymorphic: `HostData` / `CredentialData` / `ServiceData` /
 `FindingData` / `PivotData` (fields listed in the [graph feature
@@ -891,8 +860,8 @@ custom plugins layered on:
   server-written `settingsPublic.theme` map, plus the workspace blur-strength
   defaults (`settingsPublic.blur`), resolved per account by
   `resolveBlurStrengthPolicy` in [src/lib/editor-prefs.ts](src/lib/editor-prefs.ts).
-- [src/themes/registry.ts](src/themes/registry.ts) + [src/themes/glass.css](src/themes/glass.css):
-  the Glass look (see [Interface themes](#interface-themes)).
+- [src/themes/registry.ts](src/themes/registry.ts) + [src/themes/operations.css](src/themes/operations.css):
+  the Operations look (see [Interface themes](#interface-themes)).
 - [src/lib/editor-keybinds.ts](src/lib/editor-keybinds.ts):
   `codeBlockShellDefault` (schema default language = shell), `codeFenceInputRule`
   (replaces commonmark's ``` rule, which stores the captured language verbatim
@@ -915,73 +884,9 @@ updated by an effect in `App.tsx`, never by rebuilding the editor, which would
 tear down the Yjs collab binding.
 
 ### Interface themes
+BTCT ships the Operations look, declared in [src/themes/registry.ts](src/themes/registry.ts). [src/themes/operations.css](src/themes/operations.css) styles the shell and editor using native CSS over the shared base styles. The attribute `data-ui-theme="operations"` is set in `index.html` before first paint and reinforced by `main.tsx`.
 
-BTCT ships one look, **Glass**, declared in
-[src/themes/registry.ts](src/themes/registry.ts) (`UI_THEME`, `applyUiTheme`).
-The base stylesheet (`src/index.css` plus the Tailwind utilities in the
-components) is what the skin restyles; it is never shown on its own. The
-Classic theme, the layers switcher and the Profile "Interface" section were
-removed on 2026-08-28; a `prefs.uiTheme` still stored on an account is ignored.
-
-- **Glass** is [src/themes/glass.css](src/themes/glass.css), imported once in
-  `src/main.tsx`, with every rule scoped under `html[data-ui-theme="glass"]`
-  (`index.html` carries the attribute so the first paint is already Glass,
-  and `main.tsx` stamps it again at boot).
-  It restyles the surfaces the components already render and adds no
-  components and no JavaScript. Two mechanics make that possible: Tailwind v4
-  emits utilities inside `@layer utilities`, and an unlayered stylesheet beats
-  layered rules by cascade-layer order, so the skin can override
-  `bg-[hsl(var(--card))]`-style recipes without specificity games (every
-  restyled surface therefore carries its own `:hover`, because the utility's
-  hover loses too); and selectors match class tokens (`[class~="…"]`), never
-  substrings, so `hover:` and `/10` variants are not caught by accident. Five
-  `data-ui` hooks (`shell`, `main`, `sidebar`, `tabbar`, `toolbar`) mark the
-  only places where the layout itself changes (floating rails with gaps).
-- The design follows Apple's Liquid Glass rules. The material is a tint plus
-  `blur(24px) saturate(150%)`, a 1px rim that is brighter along the top edge
-  and one soft shadow; it sits only on the rails, the tab strip and the
-  toolbars, while every pop-up (dialogs, menus, popovers), the content
-  column, cards and graph nodes are opaque, and glass never stacks on glass. Radii are concentric: an 8px
-  shell gap, 18px rails, 10px groups, 8px controls, capsules for chips.
-  Type is one platform face (SF Pro on a Mac, Segoe UI Variable on Windows)
-  applied to the body, the note editor and form controls, on a 600/500/400
-  weight scale: `font-bold` renders as 600, and the classic theme's
-  uppercase micro-labels become title-case 11px semibold headers on the
-  secondary label colour (0.86 / 0.55 / 0.30 white in dark mode). Sidebar
-  rows lose their tinted frames (the coloured icon carries the category),
-  are 28px tall with 2px gaps, and every icon in the rail sits at the same
-  x, page rows reserving a 16px disclosure gutter. Nested page trees draw
-  FolderPalette-style tree lines: a 1px grey L with a 5px rounded corner from
-  the parent's chevron into each child row, a vertical run to the next
-  sibling only, no tail after the last child (per-child `::before` and
-  `::after`, the container itself has no border). The row whose entity is
-  the active tab carries `data-active` and a rounded grey fill, the
-  disclosure chevrons are one arrow that rotates (right closed, down open),
-  and every dialog is opaque. Motion is 160ms ease-out
-  for colour, 120ms for the press scale, a short fade or scale on menus and
-  sheets, and nothing under Reduce Motion. The wallpaper is one flat colour
-  with a single soft glow so the blur has something to reveal; the primary
-  button is a flat tint with no gloss.
-- The rails and the content column never create stacking contexts or
-  containing blocks (no `backdrop-filter`, `filter`, `transform`,
-  `isolation` or `z-index` on them): dialogs render inside those elements
-  with `position: fixed` and would be trapped behind later siblings. The
-  blurred material lives on a `::before` with `z-index: -1` instead, and the
-  rails' mount animation ends at `transform: none` and full opacity.
-- A skin never resets `transform` on `*`, not even under Reduce Motion. The
-  Typst preview is an SVG positioned entirely by `transform` attributes, and
-  a CSS transform overrides the attribute: every glyph collapses onto the
-  page origin at font-unit scale and the page renders as a black blob. React
-  Flow places its viewport and nodes with inline transforms the same way.
-  Reduce Motion turns off transitions and animations and resets only the
-  transforms the skin itself sets (the press scale);
-  `src/test/glass-theme.test.ts` guards the rule.
-**Bringing a second look back.** Give the new sheet its own
-`html[data-ui-theme="…"]` scope, turn `UI_THEME` back into a registry list
-with a default, and reintroduce a per-account pref (the server's profile
-route still accepts a short `prefs.uiTheme` slug). The base stylesheet is
-not a usable look by itself any more: the sidebar, tab strip and dialogs
-were laid out for the skin.
+Surfaces are opaque and typography uses installed system fonts. Selection and focus use borders and colour rather than motion. The stylesheet does not reset graph or report transforms. Reduced-motion preferences also suppress progress animations and transitions. Custom workspace accents and per-user note/code colours remain CSS-variable updates and never rebuild the editor.
 
 ### Server & HTTP API reference
 
@@ -1033,12 +938,6 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `POST` | `/api/cmdlog/config` | admin | Enable/disable, set whitelist + default workspace (mints a token on first enable) |
 | `POST` | `/api/cmdlog/token` | admin | Regenerate (rotate) the ingest token |
 | `DELETE` | `/api/cmdlog/logs?workspaceId=…` | admin | Purge a workspace's command-log archive |
-| `POST` | `/api/webrecon/ingest` | ingest token | Ingest a sitemap JSON document (`{ target, nodes[], edges[], workspaceId?, siteMapId?, name? }`); upserts nodes by `key` into the shared doc |
-| `POST` | `/api/webrecon/scan` | yes | Spawn the bundled scanner server-side against `{ target, siteMapId?, workspaceId? }` (Linux + admin-enabled; anti-SSRF checked; single-flight) |
-| `GET` | `/api/webrecon/scan/status` | yes | Whether server-side scanning is enabled, the host supports it, and a scan is running |
-| `GET` | `/api/webrecon/config` | admin | Web-recon config incl. token, ingest/scan flags, default workspace, platform support |
-| `POST` | `/api/webrecon/config` | admin | Enable/disable ingest + server-side scanning, set default workspace (mints a token on first ingest-enable) |
-| `POST` | `/api/webrecon/token` | admin | Regenerate (rotate) the ingest token |
 | `GET` | `/api/backup/config` | admin | Backup settings: `enabled`, `fullIntervalMin`, `includes`, folder, host token |
 | `POST` | `/api/backup/config` | admin | Update any of `enabled`, `fullIntervalMin`, `includes` |
 | `POST` | `/api/backup/token` | admin | Regenerate the host-scheduler token |
@@ -1106,7 +1005,7 @@ src/
     findings/                 FindingsCollector.tsx, AttackTimeline.tsx
     nmap/NmapScanView.tsx     XML import, machine grid/detail, host-node linking
     ai/                       AiAssistant (chat pane), ThinkingIndicator
-                              (agent activity), markdown.tsx (shiki renderer)
+                              (agent activity), markdown.tsx (shared-grammar renderer)
     typst/                    TypstView (3-pane editor+preview+assets tab,
                               resizable) TypstEditor (collab CodeMirror),
                               TypstSearchPanel (whole-doc find/replace overlay),
@@ -1294,13 +1193,9 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    marks only `/assets/*` (hashed) `immutable`; everything else is
    `no-cache` with an ETag. Audit record:
    [docs/perf-bug-audit-2026-08-28.md](docs/perf-bug-audit-2026-08-28.md).
-26. **A server-side web-recon scan validates its target before touching it.**
-   `assertScanTargetAllowed` (`server/webrecon-scope.mjs`) rejects non-http(s)
-   schemes and private, loopback, link-local, CGNAT, and cloud-metadata
-   addresses, and the scan handler re-checks the resolved DNS address, so
-   "Scan now" cannot be pointed at internal infrastructure (SSRF). Server-side
-   scanning is admin-enabled, Linux-only, single-flight, and wall-clock bounded,
-   and the scanner runs via `Bun.spawn` (async) so it never blocks the Yjs relay.
+26. **Closed page contexts are released after offline persistence commits.**
+   Keep an operation lease during asynchronous page work. Never delete the IndexedDB
+   cache when closing a tab; open page/history tabs retain their documents.
 
 ### Recipes: how to extend
 
@@ -1727,3 +1622,19 @@ beyond that needs additional work.
 ## License
 
 Internal tooling. Not licensed for redistribution.
+
+## Local lightweight preview
+
+The branch includes an isolated Docker configuration. It uses `btct-lightweight-preview`, binds only to [127.0.0.1:8081](http://127.0.0.1:8081), and stores data in `btct-lightweight-preview-data` and backups in `btct-lightweight-preview-backups`. Its limits are 1 GB RAM and two CPUs. It does not use the production data volume.
+
+Create an ignored `.env.preview` with two independently generated values:
+
+```dotenv
+PREVIEW_AUTH_SECRET=<random signing secret>
+PREVIEW_ADMIN_PASSWORD=<preview administrator password>
+```
+
+Start: `docker compose --env-file .env.preview -f docker-compose.preview.yml up -d --build`.
+Sign in as `preview` with the password from `.env.preview`. Stop while preserving data: `docker compose --env-file .env.preview -f docker-compose.preview.yml stop`.
+
+The preview uses the same application build and persistent formats. This branch is not automatically merged or deployed to another host.

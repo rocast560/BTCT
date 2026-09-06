@@ -1,3 +1,18 @@
+let sdkPromise;
+let McpServer, StreamableHTTPServerTransport, z;
+async function loadMcpSdk() {
+  sdkPromise ??= Promise.all([
+    import('@modelcontextprotocol/sdk/server/mcp.js'),
+    import('@modelcontextprotocol/sdk/server/streamableHttp.js'),
+    import('zod'),
+  ]).then(([server, transport, schema]) => {
+    McpServer = server.McpServer;
+    StreamableHTTPServerTransport = transport.StreamableHTTPServerTransport;
+    z = schema.z;
+  });
+  return sdkPromise;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Hosted MCP (Model Context Protocol) server for BTCT.
 //
@@ -11,9 +26,6 @@
 // generated), checked here at the HTTP layer: the MCP transport does no auth.
 // ─────────────────────────────────────────────────────────────────────────
 import crypto from 'node:crypto';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { z } from 'zod';
 import { getSetting, setSetting } from './db.mjs';
 import { READ_TOOLS, WRITE_TOOLS, dispatch } from './ai.mjs';
 import { listWorkspaces } from './yjs-data.mjs';
@@ -147,6 +159,7 @@ export async function handleMcp(req, res) {
   // Stateless: GET (SSE) / DELETE (session teardown) aren't needed.
   if (req.method !== 'POST') return rpcError(res, 405, -32000, 'Method not allowed.');
 
+  await loadMcpSdk();
   const server = buildServer(getMcpConfig().mode);
   try {
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });

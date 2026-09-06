@@ -1,3 +1,4 @@
+import { pollWhileVisible } from '@/lib/visible-poll';
 // ─────────────────────────────────────────────────────────────────────────
 // Version history tab (kind: 'history', entityId: pageId).
 //
@@ -273,9 +274,14 @@ export function HistoryView({ pageId }: { pageId: string }) {
     viewerSchema()
       .then((s) => { if (!cancelled) setSchema(s); })
       .catch((err) => setError(`Viewer failed to start: ${err instanceof Error ? err.message : String(err)}`));
-    refresh({ twin: true }).catch((err) => setError(err instanceof Error ? err.message : String(err)));
-    const id = window.setInterval(() => { refresh().catch(() => { /* transient */ }); }, 30_000);
-    return () => { cancelled = true; window.clearInterval(id); };
+    let firstRefresh = true;
+    const stopPolling = pollWhileVisible(async () => {
+      const initial = firstRefresh;
+      firstRefresh = false;
+      try { await refresh({ twin: initial }); }
+      catch (err) { if (initial && !cancelled) setError(err instanceof Error ? err.message : String(err)); }
+    }, 60_000);
+    return () => { cancelled = true; stopPolling(); };
   }, [pageId, refresh]);
 
   const loadBytes = useCallback(async (versionId: string): Promise<VersionBytes> => {

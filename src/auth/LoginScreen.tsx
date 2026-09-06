@@ -37,9 +37,16 @@ export function LoginScreen() {
 
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+      <div className="op-login">
+      <section className="op-login-intro">
+        <div className="op-brand"><span className="op-brand-mark" aria-hidden>BT</span><div className="op-brand-name">BTCT / OPERATIONS</div></div>
+        <h1>From the first foothold<br />to the final report.</h1>
+        <p>A shared workspace for the evidence, connections, and decisions behind every engagement.</p>
+        <div className="op-login-capabilities"><span>Collaborative notes</span><span>Attack narratives</span><span>Reporting</span></div>
+      </section>
       <form
         onSubmit={submit}
-        className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-7 shadow-2xl"
+        className="w-full rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-7 shadow-2xl"
       >
         <div className="mb-5 flex items-center gap-2">
           <img src="/new-logo-64.png" alt="" className="h-7 w-7 rounded-md object-cover" />
@@ -86,6 +93,7 @@ export function LoginScreen() {
           Accounts are created by an administrator from inside the app.
         </p>
       </form>
+      </div>
     </div>
   );
 }

@@ -13,6 +13,15 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [{ name: 'icons', test: /node_modules[\\/]lucide-react[\\/]/ }],
+        },
+      },
+    },
+  },
   // The typst.ts packages ship wasm-pack shims + large wasm that esbuild's
   // dep pre-bundler mishandles; let Vite serve them as-is (they're loaded
   // lazily via a dynamic import + `?url` wasm anyway).

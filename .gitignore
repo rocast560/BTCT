@@ -1,4 +1,9 @@
 node_modules
+dist/
 # Scheduled backups written by the app (docker-compose bind mount)
 backups/
 server/backups/
+
+# Local isolated preview credentials and artifacts
+.preview/
+.env.preview

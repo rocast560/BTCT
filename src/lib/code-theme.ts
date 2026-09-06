@@ -1,3 +1,5 @@
+import type { Node as DocumentNode } from '@milkdown/prose/model';
+const decorationCache = new WeakMap<DocumentNode, DecorationSet>();
 // ─────────────────────────────────────────────────────────────────────────
 // Per-account code-block syntax theme.
 //
@@ -18,7 +20,6 @@ import { Plugin, PluginKey } from '@milkdown/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/prose/view';
 import { $prose } from '@milkdown/utils';
 
-import { hexToHsl } from '@/lib/theme';
 
 // The language descriptions handed to Crepe's CodeMirror feature. Each lazily
 // loads its grammar on first use (see the loader in @milkdown/components).
@@ -55,13 +56,7 @@ export const codeSyntaxThemeExtension: Extension = Prec.highest(
  * most prominent token (keywords) so each user gets a personal touch without
  * losing the familiar GitHub colors. No-op when the hex is malformed.
  */
-export function applyCodeAccent(hex: string): void {
-  if (typeof document === 'undefined') return;
-  if (!hexToHsl(hex)) return; // validate the hex; ignore garbage
-  const root = document.documentElement.style;
-  root.setProperty('--code-accent', hex);
-  root.setProperty('--code-keyword', hex);
-}
+export { applyCodeAccent } from './code-accent';
 
 // ── Per-language theming hook ────────────────────────────────────────────
 //
@@ -137,6 +132,8 @@ export const codeLanguageAttrPlugin = $prose(
       key: codeLanguageAttrKey,
       props: {
         decorations(state) {
+          const hit = decorationCache.get(state.doc);
+          if (hit !== undefined) return hit;
           const decos: Decoration[] = [];
           // Code blocks are always top-level, so a shallow scan suffices.
           state.doc.forEach((node, offset) => {
@@ -148,7 +145,9 @@ export const codeLanguageAttrPlugin = $prose(
               );
             }
           });
-          return decos.length ? DecorationSet.create(state.doc, decos) : null;
+          const result = decos.length ? DecorationSet.create(state.doc, decos) : DecorationSet.empty;
+          decorationCache.set(state.doc, result);
+          return result;
         },
       },
     }),

@@ -49,7 +49,7 @@ import type { Ctx } from '@milkdown/ctx';
 import { setActiveMilkdownEditor, registerPageEditor, unregisterPageEditor } from '@/lib/active-editor';
 import { useAppStore } from '@/stores';
 import { normalizePageContent } from '@/export/markdown';
-import { getPageYContext } from '@/realtime/yjs-providers';
+import { getPageYContext, retainPageYContext } from '@/realtime/yjs-providers';
 import { textKey } from '@/realtime/shared-doc';
 import { useYTextInput } from '@/realtime/use-y-text';
 import { graphNodeRepo } from '@/db/graph-node-repo';
@@ -516,6 +516,7 @@ function MarkdownEditor({
     const editor = get();
     if (!editor) return;
 
+    const releasePage = retainPageYContext(pageId);
     editorRef.current = editor;
     setActiveMilkdownEditor(editor);
     registerPageEditor(pageId, editor);
@@ -573,6 +574,7 @@ function MarkdownEditor({
 
     return () => {
       cancelled = true;
+      releasePage();
       try {
         editor.action((ctx) => {
           const service = ctx.get(collabServiceCtx);

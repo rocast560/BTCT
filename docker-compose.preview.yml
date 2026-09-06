@@ -1,0 +1,39 @@
+# Isolated local preview. Start with:
+# docker compose --env-file .env.preview -f docker-compose.preview.yml up -d --build
+name: btct-lightweight-preview
+services:
+  btct-preview:
+    build: .
+    image: btct:lightweight-preview
+    container_name: btct-lightweight-preview
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:8081:8080"
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 256
+    environment:
+      AUTH_SECRET: "${PREVIEW_AUTH_SECRET:?set PREVIEW_AUTH_SECRET in .env.preview}"
+      ADMIN_USERNAME: "preview"
+      ADMIN_PASSWORD: "${PREVIEW_ADMIN_PASSWORD:?set PREVIEW_ADMIN_PASSWORD in .env.preview}"
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      STATIC_DIR: /app/dist
+      DB_PATH: /data/data.sqlite
+      YPERSISTENCE: /data/yjs
+      BACKUP_DIR: /backups
+    volumes:
+      - preview-data:/data
+      - preview-backups:/backups
+    healthcheck:
+      test: ["CMD", "bun", "--smol", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+volumes:
+  preview-data:
+    name: btct-lightweight-preview-data
+  preview-backups:
+    name: btct-lightweight-preview-backups

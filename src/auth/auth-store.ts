@@ -93,32 +93,6 @@ export interface CmdlogConfig {
   whitelist: string[];
   workspaceId: string | null;
 }
-/** Web recon config (admin). `token` is the external script's bearer. */
-export interface WebreconConfig {
-  ingestEnabled: boolean;
-  scanEnabled: boolean;
-  configured: boolean;
-  token: string | null;
-  workspaceId: string | null;
-  platformSupported: boolean;
-}
-export interface WebreconConfigInput {
-  ingestEnabled?: boolean;
-  scanEnabled?: boolean;
-  workspaceId?: string | null;
-}
-/** What the "Scan now" button reads to decide if it can run server-side. */
-export interface WebreconScanStatus {
-  scanEnabled: boolean;
-  platformSupported: boolean;
-  running: boolean;
-}
-export interface WebreconScanResult {
-  siteMapId: string | null;
-  nodes: number;
-  edges: number;
-}
-
 /** Backup engine (server/backup.mjs): what a run covers. */
 export interface BackupIncludes {
   sqlite: boolean;
@@ -304,11 +278,6 @@ interface AuthState {
   cmdlogRegenerateToken: () => Promise<{ token: string }>;
   cmdlogQuery: (params: CmdlogQueryParams) => Promise<CommandLogEntry[]>;
   cmdlogAddManual: (entry: CmdlogManualInput) => Promise<CommandLogEntry>;
-  webreconGetConfig: () => Promise<WebreconConfig>;
-  webreconSaveConfig: (patch: WebreconConfigInput) => Promise<WebreconConfig>;
-  webreconRegenerateToken: () => Promise<{ token: string }>;
-  webreconScanStatus: () => Promise<WebreconScanStatus>;
-  webreconRunScan: (input: { siteMapId?: string; target: string; workspaceId?: string }) => Promise<WebreconScanResult>;
   // Backups (admin only; status/run also accept the backup token server-side).
   backupGetConfig: () => Promise<BackupConfig>;
   backupSaveConfig: (patch: BackupConfigInput) => Promise<BackupConfig>;
@@ -493,11 +462,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const data = await getJson<{ logs: CommandLogEntry[] }>(`/api/cmdlog/query?${qs.toString()}`, get().token);
     return data.logs;
   },
-  webreconGetConfig: async () => getJson<WebreconConfig>('/api/webrecon/config', get().token),
-  webreconSaveConfig: async (patch) => postJson<WebreconConfig>('/api/webrecon/config', patch, get().token),
-  webreconRegenerateToken: async () => postJson<{ token: string }>('/api/webrecon/token', {}, get().token),
-  webreconScanStatus: async () => getJson<WebreconScanStatus>('/api/webrecon/scan/status', get().token),
-  webreconRunScan: async (input) => postJson<WebreconScanResult>('/api/webrecon/scan', input, get().token),
   cmdlogAddManual: async (entry) => {
     const data = await postJson<{ log: CommandLogEntry }>('/api/cmdlog/manual', entry, get().token);
     return data.log;

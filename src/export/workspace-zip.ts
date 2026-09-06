@@ -1,13 +1,13 @@
+import type { RetiredRecon, RetiredRecord } from './retired-recon';
 import JSZip from 'jszip';
 import * as Y from 'yjs';
 import type {
   Workspace, Page, Graph, GraphNode, GraphEdge,
   AttackChain, ChangeLogEntry, NmapScan, NmapMachine, PageSnapshot,
-  SiteMap, SiteMapNode, SiteMapEdge,
 } from '@/types';
 import { toGraphML } from './graphml';
 import { pageToMarkdown } from './markdown';
-import { getPageYContext } from '@/realtime/yjs-providers';
+import { getPageYContext, withPageYContext } from '@/realtime/yjs-providers';
 
 /**
  * Lossless workspace export: every entity table tied to the workspace
@@ -18,6 +18,7 @@ import { getPageYContext } from '@/realtime/yjs-providers';
  * (workspace + pages + graphs/nodes/edges), so older zips still load.
  */
 export interface WorkspaceExportData {
+  retiredRecon?: RetiredRecon;
   schemaVersion: 2;
   exportedAt: number;
   workspace: Workspace;
@@ -30,9 +31,6 @@ export interface WorkspaceExportData {
   nmapScans: NmapScan[];
   nmapMachines: NmapMachine[];
   pageSnapshots: PageSnapshot[];
-  siteMaps: SiteMap[];
-  siteMapNodes: SiteMapNode[];
-  siteMapEdges: SiteMapEdge[];
   /** Map<pageId, base64 of Y.encodeStateAsUpdate(pageDoc)>. Optional:
    *  set only when the page's Y.Doc was reachable at export time. */
   pageYjsUpdates: Record<ID, string>;
@@ -60,9 +58,6 @@ export async function exportWorkspaceZip(data: WorkspaceExportData): Promise<Blo
       nmapScans: data.nmapScans.length,
       nmapMachines: data.nmapMachines.length,
       pageSnapshots: data.pageSnapshots.length,
-      siteMaps: data.siteMaps.length,
-      siteMapNodes: data.siteMapNodes.length,
-      siteMapEdges: data.siteMapEdges.length,
       pageYjsUpdates: Object.keys(data.pageYjsUpdates).length,
     },
   }, null, 2));
@@ -77,9 +72,10 @@ export async function exportWorkspaceZip(data: WorkspaceExportData): Promise<Blo
   zip.file('nmapScans.json',     JSON.stringify(data.nmapScans,     null, 2));
   zip.file('nmapMachines.json',  JSON.stringify(data.nmapMachines,  null, 2));
   zip.file('pageSnapshots.json', JSON.stringify(data.pageSnapshots, null, 2));
-  zip.file('siteMaps.json',      JSON.stringify(data.siteMaps,      null, 2));
-  zip.file('siteMapNodes.json',  JSON.stringify(data.siteMapNodes,  null, 2));
-  zip.file('siteMapEdges.json',  JSON.stringify(data.siteMapEdges,  null, 2));
+
+  for (const key of ['siteMaps', 'siteMapNodes', 'siteMapEdges'] as const) {
+    if (data.retiredRecon?.[key].length) zip.file(`${key}.json`, JSON.stringify(data.retiredRecon[key]));
+  }
 
   // Human-readable companion outputs (markdown + GraphML) preserved from v1.
   const pagesFolder = zip.folder('pages')!;
@@ -106,18 +102,13 @@ export async function exportWorkspaceZip(data: WorkspaceExportData): Promise<Blo
  * Capture the live Y.Doc state for a list of pages. Best-effort: returns
  * an empty record if the page docs aren't reachable in this session.
  */
-export function collectPageYjsUpdates(pageIds: ID[]): Record<ID, string> {
+export async function collectPageYjsUpdates(pageIds: ID[]): Promise<Record<ID, string>> {
   const out: Record<ID, string> = {};
-  for (const pageId of pageIds) {
-    try {
-      const ctx = getPageYContext(pageId);
-      const bytes = Y.encodeStateAsUpdate(ctx.doc);
-      if (bytes.byteLength > 0) {
-        out[pageId] = bytesToBase64(bytes);
-      }
-    } catch {
-      // ignore; per-page docs only exist after they're opened at least once
-    }
+  for (let i = 0; i < pageIds.length; i += 4) {
+    await Promise.all(pageIds.slice(i, i + 4).map((pageId) => withPageYContext(pageId, async (ctx) => {
+      await ctx.whenFullySynced;
+      out[pageId] = bytesToBase64(Y.encodeStateAsUpdate(ctx.doc));
+    })));
   }
   return out;
 }
@@ -152,9 +143,12 @@ export async function parseWorkspaceZip(blob: Blob): Promise<WorkspaceExportData
   const nmapScans     = await readJson<NmapScan>    ('nmapScans.json');
   const nmapMachines  = await readJson<NmapMachine> ('nmapMachines.json');
   const pageSnapshots = await readJson<PageSnapshot>('pageSnapshots.json');
-  const siteMaps      = await readJson<SiteMap>     ('siteMaps.json');
-  const siteMapNodes  = await readJson<SiteMapNode> ('siteMapNodes.json');
-  const siteMapEdges  = await readJson<SiteMapEdge> ('siteMapEdges.json');
+
+  const retiredRecon: RetiredRecon = {
+    siteMaps: await readJson<RetiredRecord>('siteMaps.json'),
+    siteMapNodes: await readJson<RetiredRecord>('siteMapNodes.json'),
+    siteMapEdges: await readJson<RetiredRecord>('siteMapEdges.json'),
+  };
 
   // v1 fallback: per-graph node/edge JSONs split by folder
   if (graphNodes.length === 0 && graphEdges.length === 0) {
@@ -185,10 +179,8 @@ export async function parseWorkspaceZip(blob: Blob): Promise<WorkspaceExportData
     nmapScans,
     nmapMachines,
     pageSnapshots,
-    siteMaps,
-    siteMapNodes,
-    siteMapEdges,
     pageYjsUpdates,
+    retiredRecon,
   };
 }
 

@@ -1,18 +1,26 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
-import { X, FileText, Network, PanelLeftOpen, PanelRightOpen, Radar, Monitor, Bug, Clock, FileType2, Sparkles, Terminal, History, Images, Keyboard, Globe } from 'lucide-react';
+import { X, FileText, Network, PanelLeftOpen, PanelRightOpen, Radar, Monitor, Bug, Clock, FileType2, Sparkles, Terminal, History, Images, Keyboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TAB_DRAG_TYPE } from './SplitContainer';
 
 function LiveClock() {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      clearTimeout(timer);
+      if (document.hidden) return;
+      setNow(new Date());
+      timer = setTimeout(tick, 60_000 - Date.now() % 60_000);
+    };
+    tick();
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', tick); };
   }, []);
-  const fmt = now.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short', year: '2-digit' }).toUpperCase()
-    + ', ' + now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + 'Z';
+  const fmt = now.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short', year: '2-digit', timeZone: 'UTC' }).toUpperCase()
+    + ', ' + now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + 'Z';
   return <span className="font-mono text-[10px] text-[hsl(var(--muted-foreground))]">{fmt}</span>;
 }
 
@@ -124,14 +132,17 @@ export function TabBar() {
                 )}
               />
             )}
-            {tab.kind === 'page' ? <FileText size={11} /> : tab.kind === 'nmap-machine' ? <Monitor size={11} /> : tab.kind === 'nmap' ? <Radar size={11} /> : tab.kind === 'findings' ? <Bug size={11} /> : tab.kind === 'timeline' ? <Clock size={11} /> : tab.kind === 'typst' ? <FileType2 size={11} /> : tab.kind === 'ai' ? <Sparkles size={11} /> : tab.kind === 'cmdlog' ? <Terminal size={11} /> : tab.kind === 'history' ? <History size={11} /> : tab.kind === 'assets' ? <Images size={11} /> : tab.kind === 'shortcuts' ? <Keyboard size={11} /> : tab.kind === 'webmap' ? <Globe size={11} /> : <Network size={11} />}
+            {tab.kind === 'page' ? <FileText size={11} /> : tab.kind === 'nmap-machine' ? <Monitor size={11} /> : tab.kind === 'nmap' ? <Radar size={11} /> : tab.kind === 'findings' ? <Bug size={11} /> : tab.kind === 'timeline' ? <Clock size={11} /> : tab.kind === 'typst' ? <FileType2 size={11} /> : tab.kind === 'ai' ? <Sparkles size={11} /> : tab.kind === 'cmdlog' ? <Terminal size={11} /> : tab.kind === 'history' ? <History size={11} /> : tab.kind === 'assets' ? <Images size={11} /> : tab.kind === 'shortcuts' ? <Keyboard size={11} /> : <Network size={11} />}
             <span className="max-w-[140px] truncate">{tab.title}</span>
             <button
+              type="button"
+              aria-label={`Close ${tab.title}`}
+              title={`Close ${tab.title}`}
               onClick={(e) => {
                 e.stopPropagation();
                 closeTab(tab.id);
               }}
-              className="ml-1 hidden rounded-full p-0.5 hover:bg-[hsl(var(--destructive))]/30 group-hover:block"
+              className="op-tab-close ml-1 rounded p-0.5 hover:bg-[hsl(var(--destructive))]/30"
             >
               <X size={10} />
             </button>

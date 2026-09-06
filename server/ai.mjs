@@ -3,7 +3,6 @@
 // agentic tool loop over the live workspace data (server/yjs-data.mjs), and an
 // SSE stream back to the browser. The API key lives only server-side.
 // ─────────────────────────────────────────────────────────────────────────
-import Anthropic from '@anthropic-ai/sdk';
 import { getSetting, setSetting, listUsers } from './db.mjs';
 import * as data from './yjs-data.mjs';
 
@@ -48,7 +47,8 @@ export function setAiConfig(body) {
 // request. Rekeys automatically when the admin changes the key.
 let cachedClient = null;
 let cachedKey = null;
-function getAnthropic(apiKey) {
+async function getAnthropic(apiKey) {
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
   if (cachedClient && cachedKey === apiKey) return cachedClient;
   cachedClient = new Anthropic({ apiKey });
   cachedKey = apiKey;
@@ -68,7 +68,7 @@ function encodeToolResult(out) {
 export async function testAiConnection() {
   const apiKey = getSetting(KEY);
   if (!apiKey) throw new Error('no API key configured');
-  const client = getAnthropic(apiKey);
+  const client = await getAnthropic(apiKey);
   const model = getSetting('ai_model') || DEFAULT_MODEL;
   await client.messages.create({
     model, max_tokens: 8,
@@ -186,7 +186,7 @@ export async function handleAiChat(req, res, { user, body, setCors }) {
     actor: { userId: user?.id ?? null, userName: user?.username ?? 'Claude', userColor: user?.color ?? '#d97757' },
   };
   const tools = cfg.mode === 'edit' ? [...READ_TOOLS, ...WRITE_TOOLS] : READ_TOOLS;
-  const client = getAnthropic(apiKey);
+  const client = await getAnthropic(apiKey);
 
   setCors?.(res);
   res.writeHead(200, {

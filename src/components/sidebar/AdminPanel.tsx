@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw, Terminal, HardDrive, Play, EyeOff, Timer, Globe } from 'lucide-react';
+import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw, Terminal, HardDrive, Play, EyeOff, Timer } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   useAuthStore,
@@ -7,7 +7,6 @@ import {
   type AiConfig,
   type McpConfig,
   type CmdlogConfig,
-  type WebreconConfig,
   type BackupConfig,
   type BackupConfigInput,
   type BackupStatus,
@@ -150,8 +149,6 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
           {/* Command-log ingest configuration */}
           <CmdlogConfigSection />
 
-          {/* Web recon: external-script ingest + server-side scanning */}
-          <WebreconConfigSection />
 
           {/* Scheduled backups to the host folder */}
           <BackupConfigSection />
@@ -686,130 +683,6 @@ function CmdlogConfigSection() {
             <div className="flex items-start gap-1.5">
               <code className="flex-1 overflow-x-auto whitespace-pre rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-[10px] text-white/80">{installCmd}</code>
               <button onClick={() => copy(installCmd)} title="Copy command" className="rounded-md border border-white/10 p-1.5 hover:bg-white/10"><Copy size={11} /></button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {(msg || err) && (
-        <div className={`mt-2 text-[11px] ${err ? 'text-[hsl(var(--status-red))]' : 'text-white/60'}`}>{err || msg}</div>
-      )}
-    </div>
-  );
-}
-
-// ── Web recon ───────────────────────────────────────────────────────────
-//
-// Two integrations behind one token: (1) an external recon script POSTs
-// normalized site-map JSON to the ingest endpoint; (2) an in-app "Scan now"
-// button spawns the bundled scanner server-side (Linux only, off by default).
-
-function WebreconConfigSection() {
-  const getConfig = useAuthStore((s) => s.webreconGetConfig);
-  const saveConfig = useAuthStore((s) => s.webreconSaveConfig);
-  const regenerateToken = useAuthStore((s) => s.webreconRegenerateToken);
-  const workspaces = useAppStore((s) => s.workspaces);
-
-  const [cfg, setCfg] = useState<WebreconConfig | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [revealed, setRevealed] = useState(false);
-
-  useEffect(() => {
-    void getConfig().then(setCfg).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const token = cfg?.token || '';
-  const runCmd = `python3 -m btct_webrecon https://target.example --ship --server ${origin} --token ${token || '<token>'}`;
-
-  const save = async (patch: Parameters<typeof saveConfig>[0], note: string) => {
-    setBusy(true); setErr(null); setMsg(null);
-    try { const c = await saveConfig(patch); setCfg(c); setMsg(note); }
-    catch (e) { setErr(e instanceof Error ? e.message : 'save failed'); }
-    finally { setBusy(false); }
-  };
-  const regen = async () => {
-    setBusy(true); setErr(null); setMsg(null);
-    try {
-      const { token: t } = await regenerateToken();
-      setCfg((c) => (c ? { ...c, token: t, configured: true } : c));
-      setRevealed(true); setMsg('Token regenerated');
-    } catch (e) { setErr(e instanceof Error ? e.message : 'failed'); }
-    finally { setBusy(false); }
-  };
-  const copy = (text: string) => {
-    try { void navigator.clipboard.writeText(text); setMsg('Copied'); } catch { /* ignore */ }
-  };
-
-  return (
-    <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
-      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/70">
-        <Globe size={12} className="text-[hsl(var(--status-blue))]" /> Web Recon
-      </div>
-      <p className="mb-2 text-[10px] text-white/50">
-        Map a target website (crawl, endpoints, subdomains, API routes) into a Web Map tab. Ingest lets an external script ship results; server-side scanning runs the bundled scanner on this host.
-      </p>
-
-      <label className="flex items-center gap-2 text-[11px] text-white/70">
-        <input
-          type="checkbox"
-          checked={!!cfg?.ingestEnabled}
-          onChange={(e) => void save({ ingestEnabled: e.target.checked }, e.target.checked ? 'Ingest enabled' : 'Ingest disabled')}
-        />
-        Ingest enabled (external script can POST results)
-      </label>
-      <label className="mt-1.5 flex items-center gap-2 text-[11px] text-white/70">
-        <input
-          type="checkbox"
-          checked={!!cfg?.scanEnabled}
-          disabled={!cfg?.platformSupported}
-          onChange={(e) => void save({ scanEnabled: e.target.checked }, e.target.checked ? 'Server-side scanning enabled' : 'Server-side scanning disabled')}
-        />
-        Server-side scanning ("Scan now" button)
-      </label>
-      <div className="mt-1 text-[10px] text-white/50">
-        {cfg?.platformSupported
-          ? 'This host is Linux: server-side scans can run. Private/internal addresses are always blocked.'
-          : 'This host is not Linux: server-side scanning is unavailable. Ingest still works.'}
-      </div>
-
-      {cfg?.configured && (
-        <div className="mt-3 space-y-3">
-          <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/50">Ingest token (treat like a password)</label>
-            <div className="flex items-center gap-1.5">
-              <input
-                readOnly
-                type={revealed ? 'text' : 'password'}
-                value={token}
-                className="flex-1 rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs outline-none"
-              />
-              <button onClick={() => setRevealed((r) => !r)} className="rounded-md border border-white/10 px-2 py-1.5 text-[10px] hover:bg-white/10">{revealed ? 'Hide' : 'Reveal'}</button>
-              <button onClick={() => copy(token)} title="Copy token" className="rounded-md border border-white/10 p-1.5 hover:bg-white/10"><Copy size={11} /></button>
-              <button onClick={() => void regen()} disabled={busy} title="Regenerate" className="rounded-md border border-white/10 p-1.5 hover:bg-white/10"><RefreshCw size={11} /></button>
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/50">Default workspace (where results land)</label>
-            <select
-              value={cfg.workspaceId ?? ''}
-              onChange={(e) => void save({ workspaceId: e.target.value || null }, 'Default workspace set')}
-              className="w-full rounded-md border border-white/10 bg-black/40 px-2 py-1.5 text-xs outline-none"
-            >
-              <option value="">none (uses first workspace)</option>
-              {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/50">Run on a Kali box (ships to the ingest endpoint)</label>
-            <div className="flex items-start gap-1.5">
-              <code className="flex-1 overflow-x-auto whitespace-pre rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-[10px] text-white/80">{runCmd}</code>
-              <button onClick={() => copy(runCmd)} title="Copy command" className="rounded-md border border-white/10 p-1.5 hover:bg-white/10"><Copy size={11} /></button>
             </div>
           </div>
         </div>

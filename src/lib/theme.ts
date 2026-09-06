@@ -18,9 +18,8 @@ import {
   type ThemePrefs,
 } from '@/lib/editor-prefs';
 
-// Yellow-orange (amber-500). Picked as a softer, more pen-test-flavored
-// default than the original signature red.
-export const DEFAULT_THEME_COLOR = '#f59e0b';
+// Restrained blue accent for the operations interface.
+export const DEFAULT_THEME_COLOR = '#7db4dc';
 
 export interface Hsl {
   h: number; // 0-360

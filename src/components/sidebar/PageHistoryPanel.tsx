@@ -1,3 +1,4 @@
+import { pollWhileVisible } from '@/lib/visible-poll';
 import { useCallback, useEffect, useState } from 'react';
 import { Clock, History, Save, X } from 'lucide-react';
 import { useAppStore } from '@/stores';
@@ -21,13 +22,11 @@ export function PageHistoryPanel({ pageId }: { pageId: string }) {
   const [status, setStatus] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
-    listVersions(pageId).then(setData).catch(() => setData(null));
+    return listVersions(pageId).then(setData).catch(() => setData(null));
   }, [pageId]);
 
   useEffect(() => {
-    refresh();
-    const id = window.setInterval(refresh, 30_000);
-    return () => window.clearInterval(id);
+    return pollWhileVisible(refresh, 60_000);
   }, [refresh]);
 
   const flash = (msg: string) => {

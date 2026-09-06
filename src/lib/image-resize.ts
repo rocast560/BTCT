@@ -1,3 +1,5 @@
+import type { Node as DocumentNode } from '@milkdown/prose/model';
+const decorationCache = new WeakMap<DocumentNode, DecorationSet>();
 // ─────────────────────────────────────────────────────────────────────────
 // Drag-to-resize for images in the note editor.
 //
@@ -155,6 +157,8 @@ export function createImageResizeProsePlugin(): Plugin {
       // width onto the node view's element (works whichever node view renders
       // the image, including Crepe's own).
       decorations(state) {
+        const hit = decorationCache.get(state.doc);
+        if (hit !== undefined) return hit;
         const decos: Decoration[] = [];
         state.doc.descendants((node, pos) => {
           if (!IMAGE_TYPES.has(node.type.name)) return;
@@ -164,7 +168,9 @@ export function createImageResizeProsePlugin(): Plugin {
           if (width) attrs.style = `width:${width}px`;
           decos.push(Decoration.node(pos, pos + node.nodeSize, attrs));
         });
-        return decos.length ? DecorationSet.create(state.doc, decos) : null;
+        const result = decos.length ? DecorationSet.create(state.doc, decos) : DecorationSet.empty;
+          decorationCache.set(state.doc, result);
+          return result;
       },
     },
 

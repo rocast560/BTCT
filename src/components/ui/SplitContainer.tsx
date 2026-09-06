@@ -1,7 +1,8 @@
+import { WorkspaceOverview } from './WorkspaceOverview';
 import { useCallback, useRef, useState, memo, lazy, Suspense } from 'react';
 import { useAppStore } from '@/stores';
 import type { PaneNode, LeafPane, SplitPane, TabItem, DropPosition } from '@/types';
-import { PageEditor } from '@/components/editor/PageEditor';
+const PageEditor = lazy(() => import('@/components/editor/PageEditor').then((m) => ({ default: m.PageEditor })));
 const GraphCanvas = lazy(() => import('@/components/graph/GraphCanvas').then((m) => ({ default: m.GraphCanvas })));
 const NmapScanView = lazy(() => import('@/components/nmap/NmapScanView').then((m) => ({ default: m.NmapScanView })));
 const NmapMachineView = lazy(() => import('@/components/nmap/NmapScanView').then((m) => ({ default: m.NmapMachineView })));
@@ -13,8 +14,7 @@ const CommandLogView = lazy(() => import('@/components/cmdlog/CommandLogView').t
 const HistoryView = lazy(() => import('@/components/history/HistoryView').then((m) => ({ default: m.HistoryView })));
 const AssetsManager = lazy(() => import('@/components/typst/AssetsManager').then((m) => ({ default: m.AssetsManager })));
 const ShortcutsView = lazy(() => import('@/components/help/ShortcutsView').then((m) => ({ default: m.ShortcutsView })));
-const WebMapView = lazy(() => import('@/components/webmap/WebMapView').then((m) => ({ default: m.WebMapView })));
-import { FileText, Network, Radar, Monitor, X, Bug, Clock, FileType2, Sparkles, Terminal, History, Globe } from 'lucide-react';
+import { FileText, Network, Radar, Monitor, X, Bug, Clock, FileType2, Sparkles, Terminal, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export const TAB_DRAG_TYPE = 'application/x-btct-tab';
@@ -25,19 +25,7 @@ export function SplitContainer() {
   const paneLayout = useAppStore((s) => s.paneLayout);
   const tabs = useAppStore((s) => s.tabs);
 
-  if (tabs.length === 0) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-lg font-medium text-white">Been There, Conquered That</h2>
-          <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
-            Open a page or attack narrative from the sidebar, or press{' '}
-            <kbd className="rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 text-xs">Ctrl+K</kbd> for the command palette.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  if (tabs.length === 0) return <WorkspaceOverview />;
 
   return (
     <div className="flex-1 overflow-hidden">
@@ -260,7 +248,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
-        {/* Everything but the note editor loads on first use, so the graph,
+        {/* Every tab view, including the note editor, loads on first use, so the graph,
             Typst, assistant, nmap, command-log and history code stays out
             of the initial bundle. */}
         <Suspense fallback={<div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">Loading…</div>}>
@@ -276,7 +264,6 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
         {activeTab?.kind === 'history' && <HistoryView pageId={activeTab.entityId} />}
         {activeTab?.kind === 'assets' && <AssetsManager />}
         {activeTab?.kind === 'shortcuts' && <ShortcutsView />}
-        {activeTab?.kind === 'webmap' && <WebMapView siteMapId={activeTab.entityId} />}
         {!activeTab && (
           <div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">
             Drop a tab here
@@ -357,11 +344,14 @@ const PaneTabChip = memo(function PaneTabChip({
           )}
         />
       )}
-      {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'findings' ? <Bug size={9} /> : tab.kind === 'timeline' ? <Clock size={9} /> : tab.kind === 'typst' ? <FileType2 size={9} /> : tab.kind === 'ai' ? <Sparkles size={9} /> : tab.kind === 'cmdlog' ? <Terminal size={9} /> : tab.kind === 'history' ? <History size={9} /> : tab.kind === 'webmap' ? <Globe size={9} /> : <Network size={9} />}
+      {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'findings' ? <Bug size={9} /> : tab.kind === 'timeline' ? <Clock size={9} /> : tab.kind === 'typst' ? <FileType2 size={9} /> : tab.kind === 'ai' ? <Sparkles size={9} /> : tab.kind === 'cmdlog' ? <Terminal size={9} /> : tab.kind === 'history' ? <History size={9} /> : <Network size={9} />}
       <span className="max-w-[100px] truncate">{tab.title}</span>
       <button
+        type="button"
+        aria-label={`Close ${tab.title}`}
+        title={`Close ${tab.title}`}
         onClick={(e) => { e.stopPropagation(); onClose(); }}
-        className="ml-0.5 hidden rounded-full p-0.5 hover:bg-[hsl(var(--destructive))]/30 group-hover:block"
+        className="op-tab-close ml-0.5 rounded p-0.5 hover:bg-[hsl(var(--destructive))]/30"
       >
         <X size={8} />
       </button>

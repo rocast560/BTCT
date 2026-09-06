@@ -7,11 +7,9 @@
  * the message currently being written re-parses.
  */
 import { memo, useEffect, useState, type ReactNode } from 'react';
-import { codeToHtml } from 'shiki';
+import { tokenizeChatCode, type CodeToken } from '@/lib/chat-highlighting';
 
-// Map common fence aliases Claude emits to shiki's grammar names. shiki resolves
-// most aliases itself; this covers the few it doesn't, and unknown langs fall
-// back to plaintext highlighting.
+// Normalize fence aliases before matching the shared editor language list.
 const LANG_ALIAS: Record<string, string> = {
   '': 'text', text: 'text', txt: 'text', plaintext: 'text', plain: 'text',
   console: 'bash', shell: 'bash', sh: 'bash', zsh: 'bash', shellsession: 'bash',
@@ -21,35 +19,24 @@ const LANG_ALIAS: Record<string, string> = {
   rs: 'rust', kt: 'kotlin', htm: 'html', dockerfile: 'docker', tf: 'terraform',
 };
 
-/**
- * A syntax-highlighted code block. Highlights the code with shiki (github-dark,
- * lazy-loading the grammar for the given language). Highlighting is debounced so
- * a code block that's still streaming re-highlights after it settles rather than
- * on every token; until the first highlight resolves it renders as plain text.
- */
+/** Highlight settled chat code with the editor grammars and React text spans. */
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
-  const [html, setHtml] = useState<string | null>(null);
+  const [result, setResult] = useState<{ code: string; lang: string; tokens: CodeToken[] } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    const language = LANG_ALIAS[lang.toLowerCase()] ?? lang.toLowerCase() ?? 'text';
-    const t = setTimeout(() => {
-      const run = (l: string) => codeToHtml(code, { lang: l, theme: 'github-dark' });
-      run(language)
-        .catch(() => run('text')) // unknown grammar → plaintext
-        .then((h) => { if (!cancelled) setHtml(h); })
-        .catch(() => { if (!cancelled) setHtml(null); });
+    const language = LANG_ALIAS[lang.toLowerCase()] ?? lang.toLowerCase();
+    const timer = setTimeout(() => {
+      void tokenizeChatCode(code, language).then((tokens) => {
+        if (!cancelled) setResult({ code, lang, tokens });
+      });
     }, 120);
-    return () => { cancelled = true; clearTimeout(t); };
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [code, lang]);
-
-  if (html) {
-    return <div className="ai-code my-1 text-[11px] leading-snug" dangerouslySetInnerHTML={{ __html: html }} />;
-  }
-  return (
-    <pre className="ai-blk my-1 overflow-x-auto rounded-lg bg-black/35 p-2 text-[11px] leading-snug">
-      <code className="font-mono">{code}</code>
-    </pre>
-  );
+  return <pre className="ai-code ai-blk my-1 overflow-x-auto rounded border border-[hsl(var(--border))] bg-[hsl(var(--background))] p-3 text-[11px] leading-snug"><code className="font-mono">{
+    result?.code === code && result.lang === lang
+      ? result.tokens.map((token, i) => <span key={i} className={token.className}>{token.text}</span>)
+      : code
+  }</code></pre>;
 }
 
 // ── Inline: bold / italic / code / strikethrough / links ──

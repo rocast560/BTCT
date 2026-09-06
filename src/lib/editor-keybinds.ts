@@ -42,23 +42,14 @@ import { selectBlockAt } from '@/lib/block-select';
 import { DEFAULT_CODE_LANGUAGE, fenceLanguage } from '@/lib/code-theme';
 import { digitToTarget, turnIntoBlock } from '@/lib/turn-into';
 import {
-  DEFAULT_KEYBINDS,
   matchShortcut,
   type KeybindAction,
 } from '@/lib/editor-prefs';
 
 // ── Live keybind registry ────────────────────────────────────────────────
 
-let currentKeybinds: Record<KeybindAction, string> = { ...DEFAULT_KEYBINDS };
-
-export function setEditorKeybinds(keybinds: Record<KeybindAction, string>): void {
-  currentKeybinds = keybinds;
-}
-
-/** Current (live) keybinds, for UI that wants to print shortcut hints. */
-export function getEditorKeybinds(): Record<KeybindAction, string> {
-  return currentKeybinds;
-}
+import { currentKeybinds } from './editor-keybind-registry';
+export { setEditorKeybinds, getEditorKeybinds } from './editor-keybind-registry';
 
 // ── /code defaults to shell ──────────────────────────────────────────────
 //
