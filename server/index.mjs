@@ -20,13 +20,7 @@ import {
   adminCount,
   getSetting,
   setSetting,
-  listChatSessions,
-  getChatSession,
-  saveChatSession,
-  deleteChatSession,
 } from './db.mjs';
-import { getAiConfig, setAiConfig, testAiConnection, handleAiChat } from './ai.mjs';
-import { getMcpConfig, setMcpConfig, regenerateMcpToken, handleMcp } from './mcp.mjs';
 import { publishPublicBlur, publishPublicSettings } from './yjs-data.mjs';
 import {
   getBackupConfig, setBackupConfig, regenerateBackupToken, runBackupNow,
@@ -62,7 +56,7 @@ import {
 } from './history.mjs';
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-const DEFAULT_THEME_COLOR = '#7db4dc'; // restrained blue for Operations
+const DEFAULT_THEME_COLOR = '#6b7280'; // neutral dark grey (see src/lib/theme.ts)
 
 // ── Theme policy (note heading colours + hard-lock) ─────────────────────
 // Same shape the client's resolveThemePrefs() accepts:
@@ -546,82 +540,6 @@ const httpServer = http.createServer(async (req, res) => {
       return sendJson(res, 200, pubBlur);
     }
 
-    // ── AI assistant (Claude) ──────────────────────────────────────────
-    // Config is admin-only and the API key is never returned to clients.
-    if (req.method === 'GET' && req.url === '/api/ai/config') {
-      const claims = authFromHeader(req);
-      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
-      return sendJson(res, 200, getAiConfig());
-    }
-    if (req.method === 'POST' && req.url === '/api/ai/config') {
-      const gate = requireAdmin(req);
-      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
-      const body = await readJsonBody(req, 64 * 1024);
-      try {
-        return sendJson(res, 200, setAiConfig(body));
-      } catch (e) {
-        return sendJson(res, 400, { error: String(e?.message || e) });
-      }
-    }
-    if (req.method === 'POST' && req.url === '/api/ai/config/test') {
-      const gate = requireAdmin(req);
-      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
-      try {
-        return sendJson(res, 200, await testAiConnection());
-      } catch (e) {
-        return sendJson(res, 400, { error: String(e?.message || e) });
-      }
-    }
-    // Chat: any authenticated user. Streams SSE; handler writes its own head.
-    if (req.method === 'POST' && req.url === '/api/ai/chat') {
-      const claims = authFromHeader(req);
-      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
-      const user = getUserById(claims.uid);
-      if (!user) return sendJson(res, 401, { error: 'unauthorized' });
-      const body = await readJsonBody(req, 512 * 1024);
-      return handleAiChat(req, res, { user, body, setCors });
-    }
-
-    // Chat history: durable per-account Claude conversations. Every query is
-    // scoped to the authenticated user's id, so users can't see each other's.
-    if (req.method === 'GET' && req.url === '/api/ai/sessions') {
-      const claims = authFromHeader(req);
-      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
-      return sendJson(res, 200, { sessions: listChatSessions(claims.uid) });
-    }
-    if (req.url?.startsWith('/api/ai/sessions/')) {
-      const claims = authFromHeader(req);
-      if (!claims) return sendJson(res, 401, { error: 'unauthorized' });
-      const id = decodeURIComponent(req.url.slice('/api/ai/sessions/'.length));
-      if (!id) return sendJson(res, 400, { error: 'missing session id' });
-      if (req.method === 'GET') {
-        const session = getChatSession(claims.uid, id);
-        if (!session) return sendJson(res, 404, { error: 'not found' });
-        return sendJson(res, 200, { session });
-      }
-      if (req.method === 'POST') {
-        const body = await readJsonBody(req, 2 * 1024 * 1024);
-        if (!Array.isArray(body.messages)) {
-          return sendJson(res, 400, { error: 'messages must be an array' });
-        }
-        const messages = body.messages
-          .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-          .map((m) => ({ role: m.role, content: m.content }));
-        const meta = saveChatSession(claims.uid, {
-          id,
-          title: typeof body.title === 'string' ? body.title : 'New chat',
-          messages,
-          createdAt: body.createdAt,
-          updatedAt: body.updatedAt ?? Date.now(),
-        });
-        return sendJson(res, 200, { session: meta });
-      }
-      if (req.method === 'DELETE') {
-        deleteChatSession(claims.uid, id);
-        return sendJson(res, 200, { ok: true });
-      }
-    }
-
     // ── Binary assets (Typst screenshots + custom fonts) ───────────────
     // Any authenticated user can upload/read; deletes are restricted to the
     // uploader or an admin (enforced in the handler). Bodies are raw bytes,
@@ -800,30 +718,6 @@ const httpServer = http.createServer(async (req, res) => {
       catch (e) { return sendJson(res, e?.code === 'NOT_FOUND' ? 404 : 400, { error: String(e?.message || e) }); }
     }
 
-    // ── MCP server (connect an external MCP client, e.g. Claude Code CLI) ──
-    // Config is admin-only; the /mcp endpoint authenticates with its own token.
-    if (req.method === 'GET' && req.url === '/api/mcp/config') {
-      const gate = requireAdmin(req);
-      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
-      return sendJson(res, 200, getMcpConfig());
-    }
-    if (req.method === 'POST' && req.url === '/api/mcp/config') {
-      const gate = requireAdmin(req);
-      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
-      const body = await readJsonBody(req, 8 * 1024);
-      try { return sendJson(res, 200, setMcpConfig(body)); }
-      catch (e) { return sendJson(res, 400, { error: String(e?.message || e) }); }
-    }
-    if (req.method === 'POST' && req.url === '/api/mcp/token') {
-      const gate = requireAdmin(req);
-      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
-      return sendJson(res, 200, { token: regenerateMcpToken() });
-    }
-    // The Streamable-HTTP MCP endpoint: handles its own bearer auth + methods.
-    if (req.url?.split('?')[0] === '/mcp') {
-      return handleMcp(req, res);
-    }
-
     if (tryServeStatic(req, res)) return;
 
     return sendJson(res, 404, { error: 'not found' });
@@ -878,7 +772,11 @@ function tryServeStatic(req, res) {
   let urlPath;
   try { urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname); }
   catch { return false; }
-  if (urlPath.startsWith('/api/') || urlPath === '/healthz' || urlPath.startsWith('/yjs/') || urlPath === '/mcp') {
+  // `/mcp` is listed with the live API paths on purpose: the hosted MCP server
+  // is gone, and an old client pointed at it should get a clean 404 rather
+  // than the SPA's index.html and a confusing parse error.
+  if (urlPath.startsWith('/api/') || urlPath === '/healthz'
+      || urlPath.startsWith('/yjs/') || urlPath === '/mcp') {
     return false;
   }
 

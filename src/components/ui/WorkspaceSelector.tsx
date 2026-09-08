@@ -5,7 +5,7 @@ import { Briefcase, Plus, Trash2, ChevronUp, AlertTriangle } from 'lucide-react'
 import { Portal } from '@/components/ui/Portal';
 
 export function WorkspaceSelector() {
-  const { workspaces, activeWorkspaceId, setActiveWorkspace, createWorkspace, deleteWorkspace, loadPages, loadGraphs } =
+  const { workspaces, activeWorkspaceId, setActiveWorkspace, createWorkspace, deleteWorkspace, loadPages } =
     useAppStore(useShallow((s) => ({
       workspaces: s.workspaces,
       activeWorkspaceId: s.activeWorkspaceId,
@@ -13,7 +13,6 @@ export function WorkspaceSelector() {
       createWorkspace: s.createWorkspace,
       deleteWorkspace: s.deleteWorkspace,
       loadPages: s.loadPages,
-      loadGraphs: s.loadGraphs,
     })));
   const [isOpen, setIsOpen] = useState(false);
   const [newName, setNewName] = useState('');
@@ -30,7 +29,6 @@ export function WorkspaceSelector() {
   const handleSwitch = (id: string) => {
     setActiveWorkspace(id);
     void loadPages();
-    void loadGraphs();
     setIsOpen(false);
   };
 

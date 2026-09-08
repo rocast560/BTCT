@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
-import type { NmapMachine, NmapPort, MachineOS, GraphNode, HostData } from '@/types';
-import { Upload, ArrowLeft, Monitor, Skull, ChevronDown, ChevronRight, X, Link2, Unlink, Check, ExternalLink, Server } from 'lucide-react';
+import type { NmapMachine, NmapPort, MachineOS } from '@/types';
+import { Upload, ArrowLeft, Monitor, Skull, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { nmapMachineRepo } from '@/db/nmap-repo';
-import { graphNodeRepo } from '@/db/graph-node-repo';
 import { textKey } from '@/realtime/shared-doc';
 import { useYTextInput } from '@/realtime/use-y-text';
 
@@ -57,7 +56,7 @@ const OS_OPTIONS: { value: MachineOS; label: string }[] = [
 // ── Main view ──
 
 export function NmapScanView({ scanId }: { scanId: string }) {
-  const { nmapScans, nmapMachines, loadNmapScans, loadNmapMachines, importToNmapGroup, deleteNmapMachine, activeWorkspaceId, openTab, graphs, graphNodes, setPendingFocusNodeId, setSelectedNmapMachineId } = useAppStore(useShallow((s) => ({
+  const { nmapScans, nmapMachines, loadNmapScans, loadNmapMachines, importToNmapGroup, deleteNmapMachine, activeWorkspaceId, openTab, setSelectedNmapMachineId } = useAppStore(useShallow((s) => ({
     nmapScans: s.nmapScans,
     nmapMachines: s.nmapMachines,
     loadNmapScans: s.loadNmapScans,
@@ -66,9 +65,6 @@ export function NmapScanView({ scanId }: { scanId: string }) {
     deleteNmapMachine: s.deleteNmapMachine,
     activeWorkspaceId: s.activeWorkspaceId,
     openTab: s.openTab,
-    graphs: s.graphs,
-    graphNodes: s.graphNodes,
-    setPendingFocusNodeId: s.setPendingFocusNodeId,
     setSelectedNmapMachineId: s.setSelectedNmapMachineId,
   })));
   const fileRef = useRef<HTMLInputElement>(null);
@@ -76,19 +72,6 @@ export function NmapScanView({ scanId }: { scanId: string }) {
   const [view, setView] = useState<'list' | 'detail'>('list');
 
   const scan = nmapScans.find((s) => s.id === scanId);
-
-  // Lookup maps so the machine grid resolves each card's linked node/graph
-  // in O(1) instead of a `.find()` per card (O(machines x nodes) per render).
-  const nodeById = useMemo(() => {
-    const m = new Map<string, typeof graphNodes[number]>();
-    for (const n of graphNodes) m.set(n.id, n);
-    return m;
-  }, [graphNodes]);
-  const graphById = useMemo(() => {
-    const m = new Map<string, typeof graphs[number]>();
-    for (const g of graphs) m.set(g.id, g);
-    return m;
-  }, [graphs]);
 
   useEffect(() => {
     if (activeWorkspaceId) void loadNmapScans();
@@ -180,27 +163,13 @@ export function NmapScanView({ scanId }: { scanId: string }) {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
             {nmapMachines.map((machine) => {
-              // Attached state is driven by the machine's own linkedNodeId so
-              // the icon flips red→green even when the linked host node lives
-              // in a graph that isn't currently loaded into `graphNodes`.
-              const isAttached = !!machine.linkedNodeId;
-              const linkedNode = machine.linkedNodeId ? nodeById.get(machine.linkedNodeId) ?? null : null;
-              const linkedGraph = linkedNode ? graphById.get(linkedNode.graphId) ?? null : null;
-              const linkedLabel = linkedNode
-                ? (linkedNode.type === 'host'
-                    ? ((linkedNode.data as { hostname?: string; ip?: string }).hostname || (linkedNode.data as { ip?: string }).ip || 'host')
-                    : linkedNode.type)
-                : null;
               return (
                 <MachineCard
                   key={machine.id}
                   machine={machine}
-                  isAttached={isAttached}
-                  linkedLabel={linkedLabel}
                   onClick={() => openMachine(machine)}
                   onOpenTab={() => openMachineInTab(machine)}
                   onDelete={() => void handleDeleteMachine(machine.id)}
-                  onGoToNode={linkedNode && linkedGraph ? () => { setPendingFocusNodeId(linkedNode.id); openTab({ id: uuidv4(), kind: 'graph', entityId: linkedGraph.id, title: linkedGraph.name }); } : undefined}
                 />
               );
             })}
@@ -213,7 +182,7 @@ export function NmapScanView({ scanId }: { scanId: string }) {
 
 // ── Machine card ──
 
-function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onDelete, onGoToNode }: { machine: NmapMachine; isAttached: boolean; linkedLabel: string | null; onClick: () => void; onOpenTab: () => void; onDelete: () => void; onGoToNode?: () => void }) {
+function MachineCard({ machine, onClick, onOpenTab, onDelete }: { machine: NmapMachine; onClick: () => void; onOpenTab: () => void; onDelete: () => void }) {
   const openPortCount = machine.ports.filter((p) => p.state === 'open').length;
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -258,26 +227,9 @@ function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onD
         onClick={handleClick}
         onContextMenu={handleContext}
         className={cn(
-          'relative flex w-full flex-col items-center gap-2 rounded-xl border bg-[hsl(var(--card))] p-4 text-center shadow-sm transition-colors hover:bg-[hsl(var(--accent))]',
-          isAttached
-            ? 'border-[hsl(var(--primary))]/60 hover:border-[hsl(var(--primary))]'
-            : 'border-[hsl(var(--border))] hover:border-[hsl(var(--primary))]',
+          'relative flex w-full flex-col items-center gap-2 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 text-center shadow-sm transition-colors hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--accent))]',
         )}
       >
-        {/* Top-left status icon: green host = attached to a graph node,
-            red host = not attached. Hover/title shows the linked node name. */}
-        <div
-          className={cn(
-            'absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border',
-            isAttached
-              ? 'border-[hsl(var(--status-green))]/60 bg-[hsl(var(--status-green))]/15 text-[hsl(var(--status-green))]'
-              : 'border-[hsl(var(--status-red))]/60 bg-[hsl(var(--status-red))]/15 text-[hsl(var(--status-red))]',
-          )}
-          title={isAttached ? (linkedLabel ? `Attached to ${linkedLabel}` : 'Attached to a host') : 'Not attached to a host'}
-          aria-label={isAttached ? (linkedLabel ? `Attached to ${linkedLabel}` : 'Attached to a host') : 'Not attached to a host'}
-        >
-          <Server size={11} />
-        </div>
         <div className={cn(
           'flex h-10 w-10 items-center justify-center',
           machine.os === 'windows' && 'text-[hsl(var(--status-blue))]',
@@ -303,14 +255,6 @@ function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onD
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          {onGoToNode && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onGoToNode(); }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
-            >
-              <ExternalLink size={12} /> Go to Node
-            </button>
-          )}
           <button
             onClick={handleDeleteClick}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[hsl(var(--status-red))] hover:bg-[hsl(var(--status-red))]/10"
@@ -353,16 +297,9 @@ function MachineCard({ machine, isAttached, linkedLabel, onClick, onOpenTab, onD
 
 function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachine; onBack: (() => void) | null }) {
   const updateNmapMachine = useAppStore((s) => s.updateNmapMachine);
-  const graphNodes = useAppStore((s) => s.graphNodes);
-  const graphs = useAppStore((s) => s.graphs);
-  const linkMachineToNode = useAppStore((s) => s.linkMachineToNode);
-  const unlinkMachine = useAppStore((s) => s.unlinkMachine);
-  const toggleMachinePort = useAppStore((s) => s.toggleMachinePort);
   const nmapMachines = useAppStore((s) => s.nmapMachines);
-  const openTab = useAppStore((s) => s.openTab);
-  const setPendingFocusNodeId = useAppStore((s) => s.setPendingFocusNodeId);
 
-  // Get the live version of this machine from the store (so linkedNodeId stays current)
+  // Get the live version of this machine from the store.
   const liveMachine = nmapMachines.find((m) => m.id === initialMachine.id) ?? initialMachine;
 
   const [os, setOs] = useState<MachineOS>(initialMachine.os);
@@ -381,27 +318,6 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
     initialMachine.hostname,
   );
   const [osDropdownOpen, setOsDropdownOpen] = useState(false);
-  const [connectDialog, setConnectDialog] = useState(false);
-  const [alreadyConnectedWarning, setAlreadyConnectedWarning] = useState(false);
-  const [allHostNodes, setAllHostNodes] = useState<GraphNode[]>([]);
-  const [connectedNodeIds, setConnectedNodeIds] = useState<Set<string>>(new Set());
-  const [linkedNodeFromDb, setLinkedNodeFromDb] = useState<GraphNode | null>(null);
-
-  // Try store first, fall back to DB for linked node
-  const linkedNode = liveMachine.linkedNodeId
-    ? graphNodes.find((n) => n.id === liveMachine.linkedNodeId) ?? linkedNodeFromDb
-    : null;
-  const linkedGraph = linkedNode ? graphs.find((g) => g.id === linkedNode.graphId) : null;
-
-  // Load linked node from DB if not in store
-  useEffect(() => {
-    if (liveMachine.linkedNodeId && !graphNodes.find((n) => n.id === liveMachine.linkedNodeId)) {
-      void graphNodeRepo.getById(liveMachine.linkedNodeId).then((n) => setLinkedNodeFromDb(n ?? null));
-    } else {
-      setLinkedNodeFromDb(null);
-    }
-  }, [liveMachine.linkedNodeId, graphNodes]);
-
   const commitHostname = () => {
     const trimmed = hostnameY.trim();
     if (trimmed !== hostnameY) setHostnameY(trimmed);
@@ -413,74 +329,8 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
     void updateNmapMachine(initialMachine.id, { os: newOs });
   };
 
-  const handleConnectClick = () => {
-    if (liveMachine.linkedNodeId) {
-      setAlreadyConnectedWarning(true);
-    } else {
-      void Promise.all([
-        graphNodeRepo.getAllByType('host'),
-        nmapMachineRepo.getAll(),
-      ]).then(([nodes, allMachines]) => {
-        // `getAllByType` returns host nodes across every workspace; scope them
-        // to the active workspace. Host nodes live in graphs, and `graphs` in
-        // the store is the active workspace's graph list.
-        const workspaceGraphIds = new Set(graphs.map((g) => g.id));
-        const scopedNodes = nodes.filter((n) => workspaceGraphIds.has(n.graphId));
-        setAllHostNodes(scopedNodes);
-        setConnectedNodeIds(new Set(allMachines.filter((m) => m.linkedNodeId).map((m) => m.linkedNodeId!)));
-        setConnectDialog(true);
-      });
-    }
-  };
-
-  const handleSelectHost = (node: GraphNode) => {
-    void linkMachineToNode(liveMachine.id, node.id);
-    setConnectDialog(false);
-  };
-
-  const handleDisconnect = () => {
-    void unlinkMachine(liveMachine.id);
-    setAlreadyConnectedWarning(false);
-  };
-
-  // Determine enabled ports from host node's openPorts
-  const hostOpenPorts = linkedNode ? (linkedNode.data as HostData).openPorts ?? [] : [];
-
-  const handleTogglePort = (port: number, enabled: boolean) => {
-    toggleMachinePort(liveMachine.id, port, enabled);
-    // If node is from DB (not store), also update local DB node state
-    if (linkedNodeFromDb && liveMachine.linkedNodeId) {
-      const current = (linkedNodeFromDb.data as HostData).openPorts ?? [];
-      const updated = enabled ? [...new Set([...current, port])] : current.filter((p) => p !== port);
-      setLinkedNodeFromDb({ ...linkedNodeFromDb, data: { ...linkedNodeFromDb.data, openPorts: updated } as HostData });
-    }
-  };
-
   const openPorts = initialMachine.ports.filter((p) => p.state === 'open');
   const closedPorts = initialMachine.ports.filter((p) => p.state !== 'open');
-
-  const setAllPortsEnabled = (enabled: boolean) => {
-    if (!liveMachine.linkedNodeId || !linkedNode) return;
-    const nodeId = liveMachine.linkedNodeId;
-    const hostData = linkedNode.data as HostData;
-    const openPortNums = openPorts.map((p) => p.port);
-    const nextOpenPorts = enabled
-      ? [...new Set([...(hostData.openPorts ?? []), ...openPortNums])]
-      : (hostData.openPorts ?? []).filter((p) => !openPortNums.includes(p));
-    const nextData: HostData = { ...hostData, openPorts: nextOpenPorts };
-    void graphNodeRepo.update(nodeId, { data: nextData });
-    // Keep the zustand store in sync if the node lives there
-    useAppStore.setState((s) => ({
-      graphNodes: s.graphNodes.map((n) => n.id === nodeId ? { ...n, data: nextData, updatedAt: Date.now() } : n),
-    }));
-    // Keep the DB-fallback copy in sync if we're using it
-    if (linkedNodeFromDb && linkedNodeFromDb.id === nodeId) {
-      setLinkedNodeFromDb({ ...linkedNodeFromDb, data: nextData });
-    }
-  };
-
-  const handleSelectAllPorts = () => setAllPortsEnabled(true);
-  const handleDeselectAllPorts = () => setAllPortsEnabled(false);
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -549,58 +399,19 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
           </div>
         </div>
 
-        {/* Connect to host button */}
-        <div className="mb-6 flex items-center gap-2">
-          <button
-            onClick={handleConnectClick}
-            className={cn(
-              'flex items-center gap-2 border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors',
-              liveMachine.linkedNodeId
-                ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
-                : 'border-[hsl(var(--border))] bg-[hsl(var(--card))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--foreground))]'
-            )}
-          >
-            {liveMachine.linkedNodeId ? <><Link2 size={12} /> Connected to {linkedNode?.label ?? 'Host'}{linkedGraph ? ` (${linkedGraph.name})` : ''}</> : <><Link2 size={12} /> Connect to Host</>}
-          </button>
-          {linkedNode && linkedGraph && (
-            <button
-              onClick={() => { setPendingFocusNodeId(linkedNode.id); openTab({ id: uuidv4(), kind: 'graph', entityId: linkedGraph.id, title: linkedGraph.name }); }}
-              className="flex items-center gap-2 border border-[hsl(var(--primary))] bg-[hsl(var(--primary))]/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/20 transition-colors"
-            >
-              <ExternalLink size={12} /> Go to Node
-            </button>
-          )}
-        </div>
-
         {/* Open ports table */}
         <div className="mb-6">
           <div className="mb-2 flex items-center justify-between border-b border-[hsl(var(--border))] pb-2">
             <span className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
               Open Ports ({openPorts.length})
             </span>
-            {liveMachine.linkedNodeId && openPorts.length > 0 && (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={handleSelectAllPorts}
-                  className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border border-[hsl(var(--border))] hover:bg-[hsl(var(--accent))] hover:border-emerald-500 hover:text-emerald-400 transition-colors"
-                >
-                  Select All
-                </button>
-                <button
-                  onClick={handleDeselectAllPorts}
-                  className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border border-[hsl(var(--border))] hover:bg-[hsl(var(--accent))] hover:border-red-500 hover:text-red-400 transition-colors"
-                >
-                  Deselect All
-                </button>
-              </div>
-            )}
           </div>
           {openPorts.length === 0 ? (
             <p className="py-4 text-center text-xs text-[hsl(var(--muted-foreground))]">No open ports detected</p>
           ) : (
             <div className="divide-y divide-[hsl(var(--border))]">
               {openPorts.map((p, i) => (
-                <PortRow key={i} port={p} linked={!!liveMachine.linkedNodeId} enabled={hostOpenPorts.includes(p.port)} onToggle={(enabled) => handleTogglePort(p.port, enabled)} />
+                <PortRow key={i} port={p} />
               ))}
             </div>
           )}
@@ -623,229 +434,11 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
         )}
       </div>
 
-      {/* Connect to host dialog */}
-      {connectDialog && (
-        <ConnectToHostDialog
-          allHostNodes={allHostNodes}
-          graphs={graphs}
-          machineName={initialMachine.hostname || initialMachine.ip}
-          connectedNodeIds={connectedNodeIds}
-          onSelect={handleSelectHost}
-          onClose={() => setConnectDialog(false)}
-        />
-      )}
-
-      {/* Already connected warning */}
-      {alreadyConnectedWarning && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setAlreadyConnectedWarning(false)}>
-          <div className="w-full max-w-sm border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-2 text-sm font-bold text-amber-400">Already Connected</h3>
-            <p className="mb-4 text-xs text-[hsl(var(--muted-foreground))]">
-              This machine is already connected to <span className="font-semibold text-[hsl(var(--foreground))]">{linkedNode?.label ?? 'a host'}</span>{linkedGraph ? ` in ${linkedGraph.name}` : ''}. Would you like to disconnect?
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setAlreadyConnectedWarning(false)}
-                className="rounded-lg border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDisconnect}
-                className="flex items-center gap-1.5 rounded-lg border border-[hsl(var(--status-red))]/60 bg-[hsl(var(--status-red))]/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--status-red))] hover:bg-[hsl(var(--status-red))]/20"
-              >
-                <Unlink size={10} /> Disconnect
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-// ── Connect to Host dialog with search ──
-
-function getHostSearchText(node: GraphNode): string {
-  const hd = node.data as HostData;
-  const parts: string[] = [];
-  if (node.label) parts.push(node.label);
-  if (hd.hostname) parts.push(hd.hostname);
-  if (hd.ip) parts.push(hd.ip);
-  if (hd.os) parts.push(hd.os);
-  if (hd.openPorts?.length) parts.push(...hd.openPorts.map(String));
-  return parts.join(' ').toLowerCase();
-}
-
-function fuzzyScoreHost(query: string, text: string): number {
-  const q = query.toLowerCase();
-  const t = text.toLowerCase();
-  const subIdx = t.indexOf(q);
-  if (subIdx !== -1) return 1000 - subIdx;
-  let qi = 0, consecutive = 0, maxConsecutive = 0, matched = 0;
-  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-    if (t[ti] === q[qi]) { qi++; matched++; consecutive++; maxConsecutive = Math.max(maxConsecutive, consecutive); }
-    else { consecutive = 0; }
-  }
-  if (matched < q.length * 0.5) return 0;
-  return (matched / q.length) * 100 + maxConsecutive * 10;
-}
-
-function ConnectToHostDialog({
-  allHostNodes,
-  graphs,
-  machineName,
-  connectedNodeIds,
-  onSelect,
-  onClose,
-}: {
-  allHostNodes: GraphNode[];
-  graphs: import('@/types').Graph[];
-  machineName: string;
-  connectedNodeIds: Set<string>;
-  onSelect: (node: GraphNode) => void;
-  onClose: () => void;
-}) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedIdx, setSelectedIdx] = useState(0);
-  const [conflictNode, setConflictNode] = useState<GraphNode | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  const trySelect = (node: GraphNode) => {
-    if (connectedNodeIds.has(node.id)) {
-      setConflictNode(node);
-    } else {
-      onSelect(node);
-    }
-  };
-
-  const filtered = searchQuery.trim()
-    ? allHostNodes
-        .map((node) => ({ node, score: fuzzyScoreHost(searchQuery, getHostSearchText(node)) }))
-        .filter((r) => r.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .map((r) => r.node)
-    : allHostNodes;
-
-  // Clamp selected index when results change
-  const clampedIdx = Math.min(selectedIdx, Math.max(0, filtered.length - 1));
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') { onClose(); return; }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      const next = Math.min(clampedIdx + 1, filtered.length - 1);
-      setSelectedIdx(next);
-      (listRef.current?.children[next] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      const next = Math.max(clampedIdx - 1, 0);
-      setSelectedIdx(next);
-      (listRef.current?.children[next] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
-    }
-    if (e.key === 'Enter' && filtered.length > 0) {
-      trySelect(filtered[clampedIdx]!);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 pb-2">
-          <h3 className="mb-1 text-sm font-bold">Connect to Host</h3>
-          <p className="mb-3 text-xs text-[hsl(var(--muted-foreground))]">
-            Select a host node to link <span className="font-semibold text-[hsl(var(--foreground))]">{machineName}</span> to.
-          </p>
-          <div className="flex items-center gap-2 rounded-full border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-1.5">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[hsl(var(--muted-foreground))]"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-            <input
-              ref={inputRef}
-              value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setSelectedIdx(0); }}
-              onKeyDown={handleKeyDown}
-              placeholder="Search by hostname, IP, label..."
-              className="flex-1 bg-transparent text-xs text-[hsl(var(--foreground))] outline-none placeholder:text-[hsl(var(--muted-foreground))]"
-            />
-            <kbd className="text-[9px] text-[hsl(var(--muted-foreground))] border border-[hsl(var(--border))] px-1 py-0.5 rounded">ESC</kbd>
-          </div>
-        </div>
-        {allHostNodes.length === 0 ? (
-          <p className="px-4 py-4 text-center text-xs text-[hsl(var(--muted-foreground))]">No host nodes found in any attack narrative.</p>
-        ) : filtered.length === 0 ? (
-          <p className="px-4 py-4 text-center text-xs text-[hsl(var(--muted-foreground))]">No matching hosts found.</p>
-        ) : (
-          <div ref={listRef} className="max-h-60 overflow-y-auto px-4 pb-2">
-            {filtered.map((node, idx) => {
-              const g = graphs.find((gr) => gr.id === node.graphId);
-              const hd = node.data as HostData;
-              return (
-                <button
-                  key={node.id}
-                  onClick={() => trySelect(node)}
-                  className={`flex w-full items-center gap-3 rounded-lg border border-[hsl(var(--border))] px-3 py-2 text-left transition-colors mb-1 ${
-                    idx === clampedIdx ? 'border-[hsl(var(--primary))] bg-[hsl(var(--accent))]' : 'hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--accent))]'
-                  }`}
-                >
-                  <Monitor size={14} className="shrink-0 text-[hsl(var(--status-blue))]" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-semibold">{node.label}</div>
-                    <div className="truncate text-[10px] text-[hsl(var(--muted-foreground))]">
-                      {hd.hostname ? `${hd.hostname} · ` : ''}{hd.ip || 'No IP'}{g ? ` · ${g.name}` : ''}
-                    </div>
-                  </div>
-                  <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${connectedNodeIds.has(node.id) ? 'bg-[hsl(var(--status-green))]' : 'bg-[hsl(var(--status-red))]'}`} title={connectedNodeIds.has(node.id) ? 'Connected' : 'Not connected'} />
-                </button>
-              );
-            })}
-          </div>
-        )}
-        <div className="flex justify-end border-t border-[hsl(var(--border))] px-4 py-3">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-      {/* Conflict: host already has a linked nmap machine */}
-      {conflictNode && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60" onClick={() => setConflictNode(null)}>
-          <div className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-2 text-sm font-bold text-[hsl(var(--status-amber))]">Host Already Connected</h3>
-            <p className="mb-4 text-xs text-[hsl(var(--muted-foreground))]">
-              <span className="font-semibold text-[hsl(var(--foreground))]">{conflictNode.label}</span> is already connected to another nmap machine. The existing connection will be replaced.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setConflictNode(null)}
-                className="rounded-lg border border-[hsl(var(--border))] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => { onSelect(conflictNode); setConflictNode(null); }}
-                className="flex items-center gap-1.5 rounded-lg border border-[hsl(var(--status-amber))]/60 bg-[hsl(var(--status-amber))]/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--status-amber))] hover:bg-[hsl(var(--status-amber))]/20"
-              >
-                <Unlink size={10} /> Disconnect &amp; Reassign
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Port row with expandable script output ──
-
-function PortRow({ port, muted, linked, enabled, onToggle }: { port: NmapPort; muted?: boolean; linked?: boolean; enabled?: boolean; onToggle?: (enabled: boolean) => void }) {
+function PortRow({ port, muted }: { port: NmapPort; muted?: boolean }) {
   const hasScripts = port.scripts && port.scripts.length > 0;
   const [expanded, setExpanded] = useState(false);
 
@@ -858,19 +451,6 @@ function PortRow({ port, muted, linked, enabled, onToggle }: { port: NmapPort; m
         )}
         onClick={() => hasScripts && setExpanded(!expanded)}
       >
-        {linked && !muted && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onToggle?.(!enabled); }}
-            className={cn(
-              'flex h-4 w-4 shrink-0 items-center justify-center border transition-colors',
-              enabled
-                ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
-                : 'border-[hsl(var(--border))] text-transparent hover:border-[hsl(var(--muted-foreground))]'
-            )}
-          >
-            <Check size={10} />
-          </button>
-        )}
         <div className="w-5 shrink-0">
           {hasScripts && (
             expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />

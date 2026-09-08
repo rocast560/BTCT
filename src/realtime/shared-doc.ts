@@ -1,7 +1,7 @@
 /**
  * Single shared Yjs document containing all workspace metadata
- * (workspaces, pages, graphs, graph nodes, graph edges, attack chains,
- * change logs, nmap scans, nmap machines).
+ * (workspaces, pages, nmap scans, nmap machines, assets, command logs,
+ * change logs, page snapshots).
  *
  * Real-time editing model
  * ───────────────────────
@@ -13,7 +13,7 @@
  *     last-writer-wins, which is correct for non-textual fields.
  *
  *   • Every collaboratively-edited text field (page title, page slug,
- *     graph node label, graph edge label, nmap hostname, etc.) lives as
+ *     nmap scan name, nmap hostname, etc.) lives as
  *     a Y.Text inside the `texts` Y.Map keyed `<entity>:<id>:<field>`.
  *     The UI binds inputs to these Y.Texts using diff-based deltas
  *     (insert / delete) so two users can type into the same field at
@@ -41,17 +41,12 @@ import { useAuthStore, WS_URL } from '@/auth/auth-store';
 export const TABLE_NAMES = [
   'workspaces',
   'pages',
-  'graphs',
-  'graphNodes',
-  'graphEdges',
-  'attackChains',
   'changeLogs',
   'pageSnapshots',
   'nmapScans',
   'nmapMachines',
   'typstAssets',
   'assetFolders',
-  'timelineEvents',
   'commandLogs',
   // Server-written mirror of the public settings (admin theme policy), so
   // clients re-theme live. Read by theme-store via shared-bindings; never
@@ -302,13 +297,9 @@ export function sharedTransact<T>(fn: () => T): T {
  */
 const TEXT_FIELD_TO_TABLE: Record<string, TableName> = {
   page: 'pages',
-  node: 'graphNodes',
-  edge: 'graphEdges',
   workspace: 'workspaces',
-  graph: 'graphs',
   nmapScan: 'nmapScans',
   nmapMachine: 'nmapMachines',
-  attackChain: 'attackChains',
 };
 
 let mirrorBound = false;
@@ -388,13 +379,9 @@ function mirrorTextsToRecords() {
  */
 export const TEXT_FIELDS_BY_ENTITY: Record<string, { table: TableName; fields: string[] }> = {
   page:        { table: 'pages',        fields: ['title', 'slug'] },
-  node:        { table: 'graphNodes',   fields: ['label'] },
-  edge:        { table: 'graphEdges',   fields: ['label'] },
   workspace:   { table: 'workspaces',   fields: ['name'] },
-  graph:       { table: 'graphs',       fields: ['name'] },
   nmapScan:    { table: 'nmapScans',    fields: ['name'] },
   nmapMachine: { table: 'nmapMachines', fields: ['hostname'] },
-  attackChain: { table: 'attackChains', fields: ['name'] },
 };
 
 /**

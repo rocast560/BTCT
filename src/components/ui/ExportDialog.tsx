@@ -1,27 +1,23 @@
-import { collectRetiredRecon, restoreRetiredRecon } from '@/export/retired-recon';
 import { useState } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
 import {
   pageToMarkdown,
-  toGraphML,
   exportWorkspaceZip,
   parseWorkspaceZip,
   collectPageYjsUpdates,
   applyImportedPageYjsUpdate,
-  fromGraphML,
+  collectRetired,
+  restoreRetired,
+  RETIRED_TABLES,
 } from '@/export';
 import {
   db,
   pageRepo,
-  graphRepo,
-  graphNodeRepo,
-  graphEdgeRepo,
   workspaceRepo,
   changeLogRepo,
   nmapScanRepo,
   nmapMachineRepo,
-  attackChainRepo,
 } from '@/db';
 import JSZip from 'jszip';
 import { getSharedDoc, seedMissingYTexts } from '@/realtime/shared-doc';
@@ -32,21 +28,16 @@ type ImportMode = 'new' | 'replace';
 
 export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const {
-    pages, graphs, graphNodes, graphEdges, activeWorkspaceId,
-    loadWorkspaces, loadGraphs, setActiveWorkspace, loadPages, loadChangeLogs, loadNmapScans, loadAttackChains,
+    pages, activeWorkspaceId,
+    loadWorkspaces, setActiveWorkspace, loadPages, loadChangeLogs, loadNmapScans,
   } = useAppStore(useShallow((s) => ({
     pages: s.pages,
-    graphs: s.graphs,
-    graphNodes: s.graphNodes,
-    graphEdges: s.graphEdges,
     activeWorkspaceId: s.activeWorkspaceId,
     loadWorkspaces: s.loadWorkspaces,
-    loadGraphs: s.loadGraphs,
     setActiveWorkspace: s.setActiveWorkspace,
     loadPages: s.loadPages,
     loadChangeLogs: s.loadChangeLogs,
     loadNmapScans: s.loadNmapScans,
-    loadAttackChains: s.loadAttackChains,
   })));
   const [status, setStatus] = useState('');
   const [importMode, setImportMode] = useState<ImportMode>('new');
@@ -83,40 +74,6 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setStatus('Pages exported');
   };
 
-  const handleExportGraphML = (graphId: string) => {
-    const graph = graphs.find((g) => g.id === graphId);
-    if (!graph) return;
-    const nodes = graphNodes.filter((n) => n.graphId === graphId);
-    const edges = graphEdges.filter((e) => e.graphId === graphId);
-    download(toGraphML(nodes, edges, graph.name), `${graph.name}.graphml`, 'application/xml');
-    setStatus('GraphML exported');
-  };
-
-  const handleExportGraphJSON = async (graphId: string) => {
-    const graph = graphs.find((g) => g.id === graphId);
-    if (!graph) return;
-    const nodes = graphNodes.filter((n) => n.graphId === graphId);
-    const edges = graphEdges.filter((e) => e.graphId === graphId);
-    const linkedPages = await Promise.all(nodes.map((n) => pageRepo.getById(n.linkedPageId)));
-    const pageMap = new Map(linkedPages.filter(Boolean).map((p) => [p!.id, p!]));
-    const data = {
-      nodes: nodes.map((n) => {
-        const linkedPage = pageMap.get(n.linkedPageId);
-        return {
-          id: n.id, type: n.type, label: n.label, position: n.position,
-          discoveredAt: n.discoveredAt, data: n.data,
-          notes: linkedPage ? pageToMarkdown(linkedPage) : '',
-        };
-      }),
-      edges: edges.map((e) => ({
-        id: e.id, source: e.sourceNodeId, target: e.targetNodeId,
-        data: { label: e.label, edgeType: e.edgeType },
-      })),
-    };
-    download(JSON.stringify(data, null, 2), `${graph.name}.json`, 'application/json');
-    setStatus('JSON exported');
-  };
-
   // Lossless workspace export. Captures every entity tied to the workspace
   // plus the raw Yjs binary state of every reachable page body.
   const handleExportWorkspace = async () => {
@@ -126,10 +83,6 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
       const workspace = await workspaceRepo.getById(activeWorkspaceId);
       if (!workspace) { setStatus('Active workspace missing in DB'); return; }
       const allPages       = await pageRepo.getByWorkspace(activeWorkspaceId, true);
-      const allGraphs      = await graphRepo.getByWorkspace(activeWorkspaceId);
-      const allNodes       = (await Promise.all(allGraphs.map((g) => graphNodeRepo.getByGraph(g.id)))).flat();
-      const allEdges       = (await Promise.all(allGraphs.map((g) => graphEdgeRepo.getByGraph(g.id)))).flat();
-      const allChains      = await attackChainRepo.getByWorkspace(activeWorkspaceId);
       const allChangeLogs  = await changeLogRepo.getByWorkspace(activeWorkspaceId, 5000);
       const allNmapScans   = await nmapScanRepo.getByWorkspace(activeWorkspaceId);
       const allNmapMachines = (await Promise.all(allNmapScans.map((s) => nmapMachineRepo.getByScan(s.id)))).flat();
@@ -141,48 +94,18 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         exportedAt: Date.now(),
         workspace,
         pages: allPages,
-        graphs: allGraphs,
-        graphNodes: allNodes,
-        graphEdges: allEdges,
-        attackChains: allChains,
         changeLogs: allChangeLogs,
         nmapScans: allNmapScans,
         nmapMachines: allNmapMachines,
         pageSnapshots: allSnapshots,
         pageYjsUpdates,
-        retiredRecon: collectRetiredRecon(activeWorkspaceId),
+        retired: collectRetired(activeWorkspaceId),
       });
       downloadBlob(blob, `${workspace.name}.zip`);
       setStatus(`Workspace exported (${Object.keys(pageYjsUpdates).length} page docs included)`);
     } catch (err) {
       setStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  };
-
-  const handleImportGraphML = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.graphml';
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file || !activeWorkspaceId) return;
-      const text = await file.text();
-      const { nodes, edges } = fromGraphML(text);
-      const graph = await graphRepo.create({ workspaceId: activeWorkspaceId, name: file.name.replace('.graphml', '') });
-      const now = Date.now();
-      for (const node of nodes) {
-        const page = await pageRepo.create({
-          workspaceId: activeWorkspaceId, parentId: null, title: node.label, isGraphPage: true,
-        });
-        await db.graphNodes.add({ ...node, graphId: graph.id, linkedPageId: page.id, createdAt: now, updatedAt: now });
-      }
-      for (const edge of edges) {
-        await db.graphEdges.add({ ...edge, graphId: graph.id, createdAt: now, updatedAt: now });
-      }
-      await loadGraphs();
-      setStatus('GraphML imported');
-    };
-    input.click();
   };
 
   const handleImportWorkspace = () => {
@@ -220,15 +143,15 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
           // Wipe existing workspace's children before re-inserting.
           const oldPages = await pageRepo.getByWorkspace(existingWs.id, true);
           for (const p of oldPages) await db.pages.delete(p.id);
-          const oldGraphs = await graphRepo.getByWorkspace(existingWs.id);
-          for (const g of oldGraphs) {
-            const ns = await graphNodeRepo.getByGraph(g.id);
-            for (const n of ns) await db.graphNodes.delete(n.id);
-            const es = await graphEdgeRepo.getByGraph(g.id);
-            for (const e of es) await db.graphEdges.delete(e.id);
-            await db.graphs.delete(g.id);
-          }
-          for (const c of await attackChainRepo.getByWorkspace(existingWs.id)) await db.attackChains.delete(c.id);
+          // Retired tables have no repo: clear them straight off the doc.
+          const { doc } = getSharedDoc();
+          const oldRetired = collectRetired(existingWs.id);
+          doc.transact(() => {
+            for (const key of RETIRED_TABLES) {
+              const table = doc.getMap(key);
+              for (const row of oldRetired[key]) table.delete(row.id);
+            }
+          });
           for (const s of await nmapScanRepo.getByWorkspace(existingWs.id)) {
             const ms = await nmapMachineRepo.getByScan(s.id);
             for (const m of ms) await db.nmapMachines.delete(m.id);
@@ -244,16 +167,12 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
         await db.workspaces.add({ ...data.workspace, id: importedWsId });
         for (const p of data.pages)         await db.pages.add({ ...p, id: remap(p.id), workspaceId: importedWsId, parentId: p.parentId ? remap(p.parentId) : null });
-        for (const g of data.graphs)        await db.graphs.add({ ...g, id: remap(g.id), workspaceId: importedWsId });
-        for (const n of data.graphNodes)    await db.graphNodes.add({ ...n, id: remap(n.id), graphId: remap(n.graphId), linkedPageId: remap(n.linkedPageId) });
-        for (const e of data.graphEdges)    await db.graphEdges.add({ ...e, id: remap(e.id), graphId: remap(e.graphId), sourceNodeId: remap(e.sourceNodeId), targetNodeId: remap(e.targetNodeId) });
-        for (const c of data.attackChains)  await db.attackChains.add({ ...c, id: remap(c.id), workspaceId: importedWsId, graphId: remap(c.graphId), linkedPageId: c.linkedPageId ? remap(c.linkedPageId) : null, nodeIds: c.nodeIds.map(remap) });
         for (const cl of data.changeLogs)   await db.changeLogs.add({ ...cl, id: remap(cl.id), workspaceId: importedWsId, targetId: remap(cl.targetId) });
         for (const s of data.nmapScans)     await db.nmapScans.add({ ...s, id: remap(s.id), workspaceId: importedWsId });
         for (const m of data.nmapMachines)  await db.nmapMachines.add({ ...m, id: remap(m.id), scanId: remap(m.scanId), linkedNodeId: m.linkedNodeId ? remap(m.linkedNodeId) : undefined });
         for (const snap of data.pageSnapshots) await db.pageSnapshots.add({ ...snap, id: remap(snap.id), pageId: remap(snap.pageId), workspaceId: importedWsId });
 
-        restoreRetiredRecon(data.retiredRecon, importedWsId, remap);
+        restoreRetired(data.retired, importedWsId, remap);
 
         // Apply page Y.Doc updates AFTER the page records exist so the
         // editor's lazy provider hookup will see the seeded content.
@@ -269,7 +188,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         await loadWorkspaces();
         setActiveWorkspace(importedWsId);
         await Promise.all([
-          loadPages(), loadGraphs(), loadAttackChains(), loadNmapScans(), loadChangeLogs(),
+          loadPages(), loadNmapScans(), loadChangeLogs(),
         ]);
         setStatus(
           importMode === 'replace' && existingWs
@@ -300,17 +219,6 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
             <Download size={14} /> All Pages → Markdown
           </button>
 
-          {graphs.map((g) => (
-            <div key={g.id} className="flex gap-1">
-              <button onClick={() => handleExportGraphML(g.id)} className="flex flex-1 items-center gap-2 rounded border border-[hsl(var(--border))] px-3 py-2 text-sm hover:bg-[hsl(var(--accent))]">
-                <Download size={14} /> {g.name} → GraphML
-              </button>
-              <button onClick={() => void handleExportGraphJSON(g.id)} className="flex items-center gap-2 rounded border border-[hsl(var(--border))] px-3 py-2 text-sm hover:bg-[hsl(var(--accent))]">
-                JSON
-              </button>
-            </div>
-          ))}
-
           <button onClick={() => void handleExportWorkspace()} className="flex w-full items-center gap-2 rounded border border-[hsl(var(--border))] px-3 py-2 text-sm hover:bg-[hsl(var(--accent))]">
             <Download size={14} /> Full Workspace → ZIP <span className="ml-auto text-[10px] text-[hsl(var(--muted-foreground))]">(lossless)</span>
           </button>
@@ -327,14 +235,9 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
                 Replace existing
               </label>
             </div>
-            <div className="flex gap-2">
-              <button onClick={handleImportGraphML} className="flex flex-1 items-center gap-2 rounded border border-[hsl(var(--border))] px-3 py-2 text-sm hover:bg-[hsl(var(--accent))]">
-                <Upload size={14} /> GraphML
-              </button>
-              <button onClick={handleImportWorkspace} className="flex flex-1 items-center gap-2 rounded border border-[hsl(var(--border))] px-3 py-2 text-sm hover:bg-[hsl(var(--accent))]">
-                <Upload size={14} /> Workspace ZIP
-              </button>
-            </div>
+            <button onClick={handleImportWorkspace} className="flex w-full items-center gap-2 rounded border border-[hsl(var(--border))] px-3 py-2 text-sm hover:bg-[hsl(var(--accent))]">
+              <Upload size={14} /> Workspace ZIP
+            </button>
           </div>
         </div>
 

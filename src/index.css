@@ -18,7 +18,7 @@
   --card-foreground:   0 0% 12%;
   --popover:           0 0% 100%;
   --popover-foreground:0 0% 12%;
-  --primary:            0 78% 52%;           /* signature red (runtime theme overrides) */
+  --primary:          220 9% 46%;            /* neutral grey (runtime theme overrides) */
   --primary-foreground: 0 0% 100%;
   --secondary:         0 0% 93%;
   --secondary-foreground: 0 0% 12%;
@@ -70,7 +70,7 @@
   --card-foreground:   0 0% 96%;
   --popover:           0 0% 15%;             /* overlay: menus, modals */
   --popover-foreground:0 0% 96%;
-  --primary:            0 84% 60%;           /* signature red (runtime theme overrides) */
+  --primary:          220 9% 46%;            /* neutral grey (runtime theme overrides) */
   --primary-foreground: 0 0% 100%;
   --secondary:         0 0% 16%;
   --secondary-foreground: 0 0% 96%;
@@ -583,24 +583,6 @@ button:focus-visible {
   --code-function: #dcdcaa;
   --code-type:     #4ec9b0; /* [Type] accelerators:            teal      */
   --code-comment:  #6a9955; /* # comments:                     green     */
-}
-
-/* Shiki-highlighted code blocks in the Claude assistant chat. Keep the github-
-   dark theme's token colors but drop them onto a neutral grey surface with
-   padding so they match the rest of the app's (grey, not green) code boxes. */
-.ai-code pre.shiki {
-  margin: 0;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid hsl(var(--border));
-  border-radius: 0.5rem;
-  background: rgba(0, 0, 0, 0.35) !important;
-  overflow-x: auto;
-  font-size: 11px;
-  line-height: 1.5;
-}
-.ai-code pre.shiki code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background: transparent;
 }
 
 /* Keyboard navigation of the language picker (Ctrl+Shift+L → arrow keys).

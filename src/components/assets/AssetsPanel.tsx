@@ -1,77 +1,39 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Assets rail for the Typst tab: drop screenshots and fonts here.
+// Assets browser: the screenshots a note can embed.
 //
-// Assets live in a folder hierarchy (report section → finding → images, or
-// whatever shape the engagement wants). Folders are organizational only:
-// an image keeps its flat `/assets/<name>` path in the compiler's virtual
-// filesystem wherever it sits, so re-organizing never breaks the document.
-// The tree mirrors the sidebar's page tree (chevrons + FolderPalette-style
-// guide lines, drawn by glass.css on the `.atree-*` classes).
+// Assets live in a folder hierarchy (engagement phase, host, whatever shape
+// the work wants). Folders are organizational only: an image keeps its flat
+// `/assets/<name>` path wherever it sits, so re-filing one never breaks a
+// note that references it. The tree mirrors the sidebar's page tree.
 //
-// Images become files under /assets, referenced as `#image("/assets/<name>")`.
-// Clicking a thumbnail opens the crop editor; the crop is applied when the
-// document renders, so the thumbnails deliberately show the *cropped* result.
-// Fonts are installed into the compiler at init and used by name.
+// Clicking a thumbnail opens the crop-and-redact editor. Both are render-time
+// metadata on the record, never baked into the upload, so the thumbnails show
+// the cropped result while the original bytes stay recoverable.
 // ─────────────────────────────────────────────────────────────────────────
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, ChevronRight, Crop, EyeOff, FileType, Folder, FolderPlus, ImagePlus,
-  Loader2, MapPin, Maximize2, Minimize2, PanelRightClose, Pencil, Plus, Trash2, Type, Upload,
+  AlertTriangle, ChevronRight, Crop, EyeOff, Folder, FolderPlus, ImagePlus,
+  Loader2, Pencil, Trash2, Upload,
 } from 'lucide-react';
 import { useAppStore } from '@/stores';
-import type { AssetFolder, BlurRegion, CropRect, ID, TypstAsset, TypstAssetKind } from '@/types';
+import type { AssetFolder, ID, TypstAsset } from '@/types';
 import { blursKey, hasBlurs } from '@/lib/blur-math';
 import { assetsInFolder, childFolders, folderTrail, isDescendantFolder } from '@/lib/asset-folders';
-import { ASSET_DIR, assetPath, isFullFrame, resolveAssetBytes } from '@/lib/typst-assets';
+import { assetPath, isFullFrame, resolveAssetBytes } from '@/lib/assets';
 import { ENCODABLE_FORMATS, formatFromFilename, mimeForFormat } from '@/lib/image-format';
-import {
-  ensureHelper,
-  findScreenshotSlots,
-  newSlotSnippet,
-  retargetAssetPath,
-  setSlotHeight,
-  setSlotPath,
-  type ScreenshotSlot,
-} from '@/lib/typst-placeholders';
-import { insertAtTypstCursor } from './TypstEditor';
-import { PlaceScreenshotDialog } from './PlaceScreenshotDialog';
+import { ImageEditorDialog } from './ImageEditorDialog';
 import { Portal } from '@/components/ui/Portal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-
-const FONT_EXTS = ['.ttf', '.otf', '.woff', '.woff2', '.ttc'];
 
 /** Drag payload types for moving things between folders. */
 const ASSET_DRAG = 'application/x-btct-asset';
 const FOLDER_DRAG = 'application/x-btct-asset-folder';
 
-/** How long the source must be idle before the figure slots are re-scanned. */
-const SLOT_SCAN_DEBOUNCE_MS = 300;
-
-/**
- * Trailing-edge debounce.
- *
- * The Typst source changes on every keystroke, but the slot scan it feeds is
- * only used to label thumbnails: it does not need to be frame-accurate.
- * Debouncing keeps a fast typist from re-parsing the whole document (and
- * re-rendering the thumbnail grid) ten times a second.
- */
-function useDebounced<T>(value: T, delay: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return settled;
-}
-
-/** Route a dropped file to the right asset kind by extension. */
-function kindForFile(file: File): TypstAssetKind | null {
-  const name = file.name.toLowerCase();
-  if (FONT_EXTS.some((e) => name.endsWith(e))) return 'font';
-  if (file.type.startsWith('image/')) return 'image';
-  if (/\.(png|jpe?g|gif|webp|svg)$/.test(name)) return 'image';
-  return null;
+/** Accept a dropped file only if it is an image we can store. */
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith('image/')) return true;
+  return /\.(png|jpe?g|gif|webp|svg)$/.test(file.name.toLowerCase());
 }
 
 /**
@@ -119,13 +81,10 @@ function useAssetPreview(asset: TypstAsset): { url: string | null; error: boolea
   return { url, error };
 }
 
-// Memoized: the panel re-renders whenever the Typst source changes (i.e. on
-// every keystroke), but a thumbnail only actually changes when its asset
-// record or its figure assignment does. Without this, typing re-renders every
-// card and its <img> in the grid.
+// Memoized: a thumbnail only actually changes when its asset record does,
+// so a re-render of the grid does not rebuild every <img> in it.
 const ImageCard = memo(function ImageCard({
   asset,
-  placedIn,
   flash,
   onOpen,
   onDelete,
@@ -133,9 +92,7 @@ const ImageCard = memo(function ImageCard({
   registerEl,
 }: {
   asset: TypstAsset;
-  /** Caption of the figure this image currently fills, if any. */
-  placedIn: string | null;
-  /** Pulse-highlight this card (preview click-to-reveal landed on it). */
+  /** Pulse-highlight this card. */
   flash: boolean;
   // Take the asset as an argument rather than closing over it, so the parent
   // can pass one stable callback instead of minting a new closure per card on
@@ -158,7 +115,7 @@ const ImageCard = memo(function ImageCard({
     >
       <button
         onClick={() => onOpen(asset)}
-        title={placedIn ? `Placed in "${placedIn}": click to re-crop or move` : `Crop and place ${asset.filename}`}
+        title={`Crop or redact ${asset.filename}`}
         className="block h-20 w-full"
       >
         {error ? (
@@ -185,11 +142,6 @@ const ImageCard = memo(function ImageCard({
             <EyeOff size={8} /> redacted
           </span>
         )}
-        {placedIn && (
-          <span className="flex items-center gap-0.5 rounded bg-[hsl(var(--primary))] px-1 py-px text-[9px] font-semibold uppercase text-[hsl(var(--primary-foreground))]">
-            <MapPin size={8} /> placed
-          </span>
-        )}
       </div>
 
       {/* Hover actions */}
@@ -205,58 +157,9 @@ const ImageCard = memo(function ImageCard({
 
       <div
         className="truncate border-t border-[hsl(var(--border))] px-1.5 py-1 font-mono text-[9px] text-[hsl(var(--muted-foreground))]"
-        title={placedIn ? `${assetPath(asset)}: in "${placedIn}"` : assetPath(asset)}
+        title={assetPath(asset)}
       >
-        {placedIn ?? asset.filename}
-      </div>
-    </div>
-  );
-});
-
-const FontRow = memo(function FontRow({
-  asset,
-  onInsert,
-  onDelete,
-  onDragStartAsset,
-}: {
-  asset: TypstAsset;
-  onInsert: (asset: TypstAsset) => void;
-  onDelete: (asset: TypstAsset) => void;
-  onDragStartAsset: (e: React.DragEvent, asset: TypstAsset) => void;
-}) {
-  return (
-    <div
-      draggable
-      onDragStart={(e) => onDragStartAsset(e, asset)}
-      className="group flex items-center gap-1.5 rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)] px-2 py-1.5"
-    >
-      <Type size={12} className="shrink-0 text-[hsl(var(--status-purple))]" />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[11px] text-[hsl(var(--foreground))]" title={asset.filename}>
-          {asset.fontFamily || asset.filename}
-        </div>
-        {asset.fontFamily && (
-          <div className="truncate font-mono text-[9px] text-[hsl(var(--muted-foreground))]">
-            {asset.filename}
-          </div>
-        )}
-      </div>
-      <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-        <button
-          onClick={() => onInsert(asset)}
-          title="Insert #set text(font: …) at the cursor"
-          disabled={!asset.fontFamily}
-          className="rounded p-1 hover:bg-[hsl(var(--accent))] disabled:opacity-30"
-        >
-          <Plus size={11} />
-        </button>
-        <button
-          onClick={() => onDelete(asset)}
-          title="Delete font"
-          className="rounded p-1 hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--status-red))]"
-        >
-          <Trash2 size={11} />
-        </button>
+        {asset.filename}
       </div>
     </div>
   );
@@ -405,34 +308,7 @@ function FolderNode(props: FolderNodeProps) {
 
 // ── Panel ────────────────────────────────────────────────────────────────
 
-export const TypstAssetsPanel = memo(function TypstAssetsPanel({
-  source,
-  onSourceChange,
-  fullscreen,
-  onToggleFullscreen,
-  onHide,
-  reveal,
-  standalone = false,
-}: {
-  /** Live Typst source: the figure slots are read out of it. */
-  source: string;
-  /** Apply a rewritten source through the collaborative Y.Text. */
-  onSourceChange: (next: string) => void;
-  /** Whether the panel currently covers the whole Typst tab. */
-  fullscreen: boolean;
-  onToggleFullscreen: () => void;
-  /** Collapse the panel entirely (the header's Assets button re-opens it). */
-  onHide: () => void;
-  /** Click-to-reveal from the preview: select + flash this asset. */
-  reveal?: { id: ID; nonce: number } | null;
-  /**
-   * Standalone Assets Manager mode (its own tab, opened while taking notes):
-   * always the wide two-column layout, no fullscreen/hide buttons, and the
-   * image editor opens in crop+blur-only mode (no Typst figure placement).
-   * Shares the same asset + folder state as the report.
-   */
-  standalone?: boolean;
-}) {
+export const AssetsPanel = memo(function AssetsPanel() {
   const assets = useAppStore((s) => s.typstAssets);
   const folders = useAppStore((s) => s.assetFolders);
   const addTypstAsset = useAppStore((s) => s.addTypstAsset);
@@ -448,7 +324,7 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [placing, setPlacing] = useState<TypstAsset | null>(null);
+  const [editing, setEditing] = useState<TypstAsset | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Folder navigation. `null` is the root level.
@@ -457,7 +333,7 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
   const [renamingId, setRenamingId] = useState<ID | null>(null);
   const [pendingDelete, setPendingDelete] = useState<AssetFolder | null>(null);
   const [pendingDeleteAsset, setPendingDeleteAsset] = useState<TypstAsset | null>(null);
-  const [flashId, setFlashId] = useState<ID | null>(null);
+  const [flashId] = useState<ID | null>(null);
   const cardEls = useRef(new Map<ID, HTMLDivElement>());
 
   // A folder deleted remotely (or a workspace switch) must not leave the
@@ -471,10 +347,6 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
     () => assetsInFolder(live.filter((a) => a.kind === 'image'), selectedFolder),
     [live, selectedFolder],
   );
-  const fonts = useMemo(
-    () => assetsInFolder(live.filter((a) => a.kind === 'font'), selectedFolder),
-    [live, selectedFolder],
-  );
   const counts = useMemo(() => {
     const map = new Map<string, number>();
     for (const a of live) {
@@ -486,19 +358,6 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
   const rootFolders = useMemo(() => childFolders(folders, null), [folders]);
   const trail = useMemo(() => folderTrail(folders, selectedFolder), [folders, selectedFolder]);
 
-  // Which figure (if any) each image currently fills, keyed by asset path.
-  // Scanned off a debounced copy of the source: these labels are cosmetic, so
-  // they can lag a keystroke rather than re-parsing the document on each one.
-  const settledSource = useDebounced(source, SLOT_SCAN_DEBOUNCE_MS);
-  const slots = useMemo(() => findScreenshotSlots(settledSource), [settledSource]);
-  const captionByPath = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const s of slots) {
-      if (s.path) map.set(s.path, s.caption ?? `figure on line ${s.line}`);
-    }
-    return map;
-  }, [slots]);
-
   const ingest = useCallback(
     async (files: FileList | File[], folderId: ID | null) => {
       const list = [...files];
@@ -507,28 +366,28 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
       setError(null);
       const failures: string[] = [];
       let firstImage: TypstAsset | null = null;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       // Sequential rather than parallel: filename de-duplication reads the
       // current asset list, so two concurrent uploads of `shot.png` would
       // both see the name as free and collide in the virtual FS.
       for (const file of list) {
-        const kind = kindForFile(file);
-        if (!kind) {
-          failures.push(`${file.name}: unsupported file type`);
+        if (!isImageFile(file)) {
+          failures.push(`${file.name}: not an image`);
           continue;
         }
         try {
-          const created = await addTypstAsset(file, kind, folderId);
-          if (kind === 'image' && !firstImage) firstImage = created;
+          const created = await addTypstAsset(file, 'image', folderId);
+          if (!firstImage) firstImage = created;
         } catch (e) {
           failures.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
       setBusy(false);
       if (failures.length) setError(failures.join('\n'));
-      // Drop → immediately offer crop + placement, which is the whole point
-      // of dropping a screenshot in. Only for the first of a batch, so
-      // dragging in ten files doesn't open ten dialogs.
-      if (firstImage) setPlacing(firstImage);
+      // Drop → immediately offer crop + redaction, which is usually why a
+      // screenshot went in. Only for the first of a batch, so dragging in
+      // ten files doesn't open ten dialogs.
+      if (firstImage) setEditing(firstImage);
     },
     [addTypstAsset],
   );
@@ -574,23 +433,6 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
     else cardEls.current.delete(id);
   }, []);
 
-  // Preview click-to-reveal: jump to the asset's folder, scroll it into
-  // view and pulse its card.
-  useEffect(() => {
-    if (!reveal) return;
-    const asset = assets.find((a) => a.id === reveal.id);
-    if (!asset) return;
-    setSelectedFolder(asset.folderId ?? null);
-    setFlashId(reveal.id);
-    const raf = requestAnimationFrame(() => {
-      cardEls.current.get(reveal.id)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    });
-    const timer = window.setTimeout(() => setFlashId(null), 3400);
-    return () => { cancelAnimationFrame(raf); window.clearTimeout(timer); };
-    // Only a new click should re-trigger; the asset list refreshing must not.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reveal?.nonce]);
-
   const toggleExpanded = useCallback((id: ID) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -617,110 +459,15 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
   }, [renameAssetFolder]);
 
   // Stable per-card handlers. Defined once for the whole grid so the memoized
-  // cards actually skip re-rendering when the source changes.
-  const openAsset = useCallback((a: TypstAsset) => setPlacing(a), []);
+  // cards actually skip re-rendering when the panel does.
+  const openAsset = useCallback((a: TypstAsset) => setEditing(a), []);
   // Deleting an asset removes its bytes permanently, so confirm first.
   const removeAsset = useCallback((a: TypstAsset) => setPendingDeleteAsset(a), []);
 
-  const insertSnippet = useCallback((text: string) => {
-    if (!insertAtTypstCursor(text)) {
-      // Code pane hidden: put it on the clipboard so the action isn't a
-      // dead end.
-      void navigator.clipboard?.writeText(text);
-      setError('Code editor is hidden: snippet copied to the clipboard instead.');
-    }
-  }, []);
-
-  const insertFont = useCallback(
-    (a: TypstAsset) => insertSnippet(`#set text(font: "${a.fontFamily}")\n`),
-    [insertSnippet],
-  );
-
-  /**
-   * Commit a crop and (optionally) an assignment to a figure slot.
-   *
-   * Order matters: the helper definition is upgraded/inserted *first*, then
-   * the slots are re-scanned against that new source before rewriting one.
-   * Editing the slot using offsets measured against the pre-upgrade source
-   * would splice into the wrong position once the helper shifted everything
-   * below it.
-   */
-  const applyPlacement = useCallback(
-    (
-      crop: CropRect | null,
-      blurs: BlurRegion[] | null,
-      slot: ScreenshotSlot | null,
-      path: string | null,
-      heightPt: number | null,
-    ) => {
-      if (!placing) return;
-      void setTypstAssetCrop(placing.id, crop, blurs);
-
-      if (slot) {
-        const ensured = ensureHelper(source);
-        let next = ensured.source;
-
-        // Each rewrite shifts the offsets of everything after it, so re-scan
-        // between edits and re-find the slot by its document order.
-        const withHeight = (() => {
-          if (heightPt === null) return next;
-          const target = findScreenshotSlots(next)[slot.index];
-          return target ? setSlotHeight(next, target, heightPt) : next;
-        })();
-        next = withHeight;
-
-        const target = findScreenshotSlots(next)[slot.index];
-        if (target) next = setSlotPath(next, target, path);
-
-        if (next !== source) onSourceChange(next);
-      }
-      setPlacing(null);
-    },
-    [placing, setTypstAssetCrop, source, onSourceChange],
-  );
-
-  /**
-   * Rename an asset and repoint the document at its new path in one go.
-   *
-   * The record is renamed first so the new filename is authoritative, then
-   * every `"/assets/<old>"` literal in the source is rewritten. Doing it in
-   * the other order would leave a window where the document referenced a
-   * path the virtual filesystem no longer served.
-   */
-  const renameAsset = useCallback(
-    (stem: string) => {
-      if (!placing) return;
-      const oldPath = assetPath(placing);
-      void renameTypstAsset(placing.id, stem)
-        .then((filename) => {
-          const newPath = `${ASSET_DIR}/${filename}`;
-          if (newPath === oldPath) return;
-          const next = retargetAssetPath(source, oldPath, newPath);
-          if (next !== source) onSourceChange(next);
-        })
-        .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-    },
-    [placing, renameTypstAsset, source, onSourceChange],
-  );
-
-  const addSlot = useCallback(
-    (caption: string) => {
-      const ensured = ensureHelper(source);
-      const snippet = newSlotSnippet(caption);
-      // Append at the end of the document: a predictable spot the picker
-      // then scrolls to, rather than wherever a stale caret happens to be.
-      const base = ensured.source.endsWith('\n') ? ensured.source : `${ensured.source}\n`;
-      onSourceChange(`${base}\n${snippet}`);
-    },
-    [source, onSourceChange],
-  );
-
   // Keep the open dialog in sync if the record changes underneath us (a
   // collaborator cropping the same image, say).
-  const placingLive = placing ? assets.find((a) => a.id === placing.id) ?? null : null;
+  const editingLive = editing ? assets.find((a) => a.id === editing.id) ?? null : null;
 
-  // Standalone always uses the wide (side-by-side) layout of the full-tab mode.
-  const wide = fullscreen || standalone;
   const rootCount = counts.get('') ?? 0;
   const acceptsRowDrag = (e: React.DragEvent) =>
     e.dataTransfer.types.includes(ASSET_DRAG) ||
@@ -729,7 +476,7 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
 
   return (
     <div
-      className="relative flex h-full flex-col border-l border-[hsl(var(--border))] bg-[hsl(var(--card))]"
+      className="relative flex h-full flex-col bg-[hsl(var(--card))]"
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes(ASSET_DRAG) || e.dataTransfer.types.includes(FOLDER_DRAG)) return;
         e.preventDefault();
@@ -753,30 +500,12 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
         </button>
         <button
           onClick={() => fileInputRef.current?.click()}
-          title="Add images or fonts to this folder"
+          title="Add images to this folder"
           className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))]"
         >
           {busy ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
           Add
         </button>
-        {!standalone && (
-          <>
-            <button
-              onClick={onToggleFullscreen}
-              title={fullscreen ? 'Exit full screen' : 'Expand the asset browser over the whole tab'}
-              className="rounded p-1 hover:bg-[hsl(var(--accent))]"
-            >
-              {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-            </button>
-            <button
-              onClick={onHide}
-              title="Hide the assets panel"
-              className="rounded p-1 hover:bg-[hsl(var(--accent))]"
-            >
-              <PanelRightClose size={12} />
-            </button>
-          </>
-        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -800,13 +529,9 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
         </div>
       )}
 
-      <div className={`min-h-0 flex-1 ${wide ? 'flex' : 'flex flex-col'} overflow-hidden`}>
+      <div className="min-h-0 flex-1 flex overflow-hidden">
         {/* Folder tree */}
-        <div className={`atree shrink-0 overflow-y-auto p-2 ${
-          wide
-            ? 'w-64 border-r border-[hsl(var(--border))]'
-            : 'max-h-[45%] border-b border-[hsl(var(--border))]'
-        }`}>
+        <div className="atree w-64 shrink-0 overflow-y-auto border-r border-[hsl(var(--border))] p-2">
           <div
             data-active={selectedFolder === null || undefined}
             onDragOver={(e) => { if (acceptsRowDrag(e)) { e.preventDefault(); e.stopPropagation(); } }}
@@ -888,14 +613,13 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
           </div>
           {images.length > 0 ? (
             <div
-              className={`mb-3 grid gap-1.5 ${wide ? '' : 'grid-cols-2'}`}
-              style={wide ? { gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' } : undefined}
+              className={`mb-3 grid gap-1.5 `}
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}
             >
               {images.map((a) => (
                 <ImageCard
                   key={a.id}
                   asset={a}
-                  placedIn={captionByPath.get(assetPath(a)) ?? null}
                   flash={flashId === a.id}
                   onOpen={openAsset}
                   onDelete={removeAsset}
@@ -908,25 +632,10 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
             <p className="mb-3 text-[10px] leading-relaxed text-[hsl(var(--muted-foreground))]">
               {selectedFolder
                 ? 'No images in this folder. Drop screenshots here, or drag cards onto a folder in the tree.'
-                : "Drop screenshots here. You'll get a window to crop the image and choose which figure it goes into."}
+                : "Drop screenshots here. You'll get a window to crop the image and redact anything sensitive."}
             </p>
           )}
 
-          {/* Fonts */}
-          <div className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
-            <FileType size={10} /> Fonts
-          </div>
-          {fonts.length > 0 ? (
-            <div className={`flex flex-col gap-1 ${wide ? 'max-w-md' : ''}`}>
-              {fonts.map((a) => (
-                <FontRow key={a.id} asset={a} onInsert={insertFont} onDelete={removeAsset} onDragStartAsset={onDragStartAsset} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-[10px] leading-relaxed text-[hsl(var(--muted-foreground))]">
-              Drop .ttf / .otf / .woff files here to use them in the document.
-            </p>
-          )}
         </div>
       </div>
 
@@ -974,18 +683,19 @@ export const TypstAssetsPanel = memo(function TypstAssetsPanel({
         </Portal>
       )}
 
-      {placingLive && (
+      {editingLive && (
         <Portal>
-          <PlaceScreenshotDialog
-            asset={placingLive}
-            source={source}
-            hidePlacement={standalone}
-            onApply={(crop, blurs, slot, heightPt) =>
-              applyPlacement(crop, blurs, slot, assetPath(placingLive), heightPt)}
-            onUnplace={(crop, blurs, slot) => applyPlacement(crop, blurs, slot, null, null)}
-            onAddSlot={addSlot}
-            onRename={renameAsset}
-            onClose={() => setPlacing(null)}
+          <ImageEditorDialog
+            asset={editingLive}
+            onApply={(crop, blurs) => {
+              void setTypstAssetCrop(editingLive.id, crop, blurs);
+              setEditing(null);
+            }}
+            onRename={(stem) => {
+              void renameTypstAsset(editingLive.id, stem)
+                .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+            }}
+            onClose={() => setEditing(null)}
           />
         </Portal>
       )}

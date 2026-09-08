@@ -35,10 +35,8 @@ export function ShortcutsView() {
     {
       title: 'Getting around',
       rows: [
-        { keys: chord(MOD, 'K'), label: 'Command palette: create pages / narratives, open tools, jump anywhere' },
-        { keys: bound('quickAddEvent'), label: 'Quick-add a timeline event' },
+        { keys: chord(MOD, 'K'), label: 'Command palette: create pages, open tools, jump anywhere' },
         { keys: bound('openFollowPanel'), label: 'Active users / follow a teammate' },
-        { keys: chord(MOD, 'Shift', 'A'), label: 'Open the Claude assistant' },
         { keys: chord('Alt', '←  /  →'), label: 'Switch between open tabs' },
       ],
     },

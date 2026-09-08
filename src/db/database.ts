@@ -16,8 +16,8 @@
  */
 import { getSharedDoc, sharedTransact, type TableName, textKey, TEXT_FIELDS_BY_ENTITY } from '@/realtime/shared-doc';
 import type {
-  Workspace, Page, Graph, GraphNode, GraphEdge,
-  ChangeLogEntry, NmapScan, NmapMachine, AttackChain, PageSnapshot, TypstAsset, AssetFolder, CustomTimelineEvent,
+  Workspace, Page,
+  ChangeLogEntry, NmapScan, NmapMachine, PageSnapshot, TypstAsset, AssetFolder,
   CommandLogEntry,
 } from '@/types';
 
@@ -198,17 +198,12 @@ class Table<T extends Row> {
 class AppDatabase {
   workspaces   = new Table<Workspace>     ('workspaces');
   pages        = new Table<Page>          ('pages');
-  graphs       = new Table<Graph>         ('graphs');
-  graphNodes   = new Table<GraphNode>     ('graphNodes');
-  graphEdges   = new Table<GraphEdge>     ('graphEdges');
-  attackChains  = new Table<AttackChain>  ('attackChains');
   changeLogs    = new Table<ChangeLogEntry>('changeLogs');
   pageSnapshots = new Table<PageSnapshot> ('pageSnapshots');
   nmapScans     = new Table<NmapScan>     ('nmapScans');
   nmapMachines  = new Table<NmapMachine>  ('nmapMachines');
   typstAssets   = new Table<TypstAsset>   ('typstAssets');
   assetFolders  = new Table<AssetFolder>  ('assetFolders');
-  timelineEvents = new Table<CustomTimelineEvent>('timelineEvents');
   commandLogs   = new Table<CommandLogEntry>('commandLogs');
 
   /**

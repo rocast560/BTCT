@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Asset-backed images in the note editor.
 //
-// An `asset_image` node references a shared Typst asset by id instead of
+// An `asset_image` node references a shared image asset by id instead of
 // embedding bytes. That means an image pasted into a note (see
 // `note-image-paste.ts`, which uploads it and inserts this node) shows up in
 // the Assets Manager, and can be cropped / blurred with the same
@@ -20,7 +20,7 @@ import { $node, $view } from '@milkdown/utils';
 import type { Node as ProseNode } from '@milkdown/prose/model';
 import { useAppStore } from '@/stores';
 import { blursKey } from '@/lib/blur-math';
-import { resolveAssetBytes } from '@/lib/typst-assets';
+import { resolveAssetBytes } from '@/lib/assets';
 import type { TypstAsset } from '@/types';
 
 const ASSET_URL_PREFIX = 'asset:';

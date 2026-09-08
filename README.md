@@ -1,12 +1,13 @@
 # Been There, Conquered That (BTCT)
 
-A LAN-hosted, multi-user, **real-time collaborative** note-taking and attack-path
-graphing app for penetration-testing engagements. It combines Notion-style
-pages, an attack-narrative graph canvas, nmap import, findings/timeline
-reporting, and Google-Docs-style live co-editing across every machine on the LAN,
-all from a single Docker container.
+A LAN-hosted, multi-user, **real-time collaborative** note-taking and reporting
+app for penetration-testing engagements. It combines Notion-style pages, nmap
+import, team shell-command capture, shared screenshot assets with crop and
+redaction, and Google-Docs-style live co-editing across every machine on the
+LAN, all from a single Docker container. It is built to stay comfortable on a small host: 1 to
+2 GB of RAM and 1 to 2 cores.
 
-![BTCT demo: typing a highlighted code block, a second operator editing the same page live, nmap import linked to the graph, a highlighted attack path, structured finding data, the live command log, Typst figure placement, and the split-screen report](blog/images/btct-demo.gif)
+![BTCT demo: typing a highlighted code block, a second operator editing the same page live, nmap import, and the live command log](blog/images/btct-demo.gif)
 
 *One continuous take against a small demo workspace. If the GIF looks fuzzy, the
 crisp version is [`blog/media/btct-demo.mp4`](blog/media/btct-demo.mp4) at
@@ -27,11 +28,8 @@ crisp version is [`blog/media/btct-demo.mp4`](blog/media/btct-demo.mp4) at
 
 - [Feature tour](#feature-tour)
   - [Pages & the markdown editor](#pages--the-markdown-editor)
-  - [Typst documents (local typesetting)](#typst-documents-local-typesetting)
-  - [Attack-narrative graph](#attack-narrative-graph)
-  - [Recon & reporting (nmap, findings, timeline)](#recon--reporting-nmap-findings-timeline)
-  - [AI assistant (Claude)](#ai-assistant-claude)
-  - [MCP server (connect an external client)](#mcp-server-connect-an-external-client)
+  - [Screenshots: crop, redact, organize](#screenshots-crop-redact-organize)
+  - [Nmap import](#nmap-import)
   - [Lightweight operations interface](#lightweight-operations-interface)
   - [Command log (team shell-command capture)](#command-log-team-shell-command-capture)
   - [Real-time collaboration](#real-time-collaboration)
@@ -142,7 +140,7 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   edit history in a date range"** button for a one-off purge.
 - **Keyboard shortcuts reference**: open **Shortcuts** (Tools sidebar, or the
   command palette) for a grouped cheat-sheet (getting around, text editor,
-  blocks, code blocks, images, Typst); the editor rows show your current
+  blocks, code blocks, images); the editor rows show your current
   bindings.
 - **Notion-style block selection**: tap **Esc** to leave text editing and
   select the block the caret is in. Then **↑/↓** to move the selection,
@@ -155,330 +153,55 @@ The body is a **live-preview markdown editor** ([Milkdown](https://milkdown.dev)
   **Copy** (or cut) a selected block and it goes to the clipboard as both rich
   content and markdown, so pasting it into another note, a terminal or a chat
   keeps a code block as a fenced code box rather than dropping the fences.
-- **Quick-add timeline event**: press **Ctrl/⌘+Shift+E** anywhere to open a
-  keyboard-driven popup: **↑/↓** move between fields, **←/→** pick the type
-  (host / service / credential / pivot / finding), **Enter** advances,
-  **Ctrl/⌘+Enter** saves, **Esc** closes. The event lands on the Attack Timeline
-  at the date/time you set, flagged “added by <you>”, and can be removed there.
-  The keybind is rebindable in the Keybinds dialog.
 - **Per-account personalization**: each account can rebind the editor shortcuts
   (Keybinds dialog, which also lists the built-in block shortcuts) and choose a
   **code accent** color that retints code-block keywords. Both follow your
   account (stored server-side) and apply live.
-- **Backlinks**: for a graph-linked page, the right sidebar lists the graph
-  nodes and edges that reference it. (Note: there's no `[[wikilink]]` syntax;
-  use standard markdown links.)
-- **Graph-linked pages**: pages auto-created for graph nodes show structured
-  property editors inline (host/service/finding/pivot fields, see below) plus a
-  "Connected nodes" list and a "Narrative" button back to the canvas.
+  (Note: there's no `[[wikilink]]` syntax; use standard markdown links.)
 
-### Typst documents (local typesetting)
+### Screenshots: crop, redact, organize
 
-The Pages section has a dedicated **Typst** tab, a [typst.app](https://typst.app)-style
-split view for the [Typst](https://typst.app) typesetting language, **compiled and
-rendered entirely in the browser** (no calls to typst.app or any remote service):
+Paste or drop an image into a note and it is **not** embedded as bytes. It is
+uploaded as a shared asset and the note keeps a reference, so the same picture
+shows up in the **Assets** tab, and anything you do to it there shows up in
+every note that uses it.
 
-- **Three resizable panes**: the raw Typst source in a collaborative
-  CodeMirror editor on the left, the live-rendered document (SVG) in the
-  middle, and the assets rail on the right. Drag either divider to resize
-  (double-click one to reset it), or use the **Code** / **Assets** toggles to
-  hide a pane entirely. Widths and visibility persist per browser, and both
-  rails re-fit themselves if the window gets too narrow to hold them. Zoom the
-  preview in/out.
-- **Asset folders**: the assets rail organizes screenshots and fonts into a
-  folder tree (report section, then a folder per finding, images inside), with
-  the same chevrons and guide lines as the page tree. Drag a card onto a folder
-  (or drop OS files straight onto one) to file it, drag folders into folders to
-  nest them, and click a folder to browse its contents with a breadcrumb.
-  Folders are organizational only: the Typst path stays `/assets/<name>`, so
-  re-organizing never breaks a reference, and deleting a folder just moves its
-  contents up a level. The rail's header buttons expand it over the whole tab
-  (a full asset browser) or hide it, and **clicking a rendered figure in the
-  preview jumps to that screenshot in the rail**, selecting its folder and
-  flashing the card.
-- **Redaction defaults**: an admin sets the workspace default strength for new
-  blur/pixelate regions (**Admin panel → Blur Defaults**); each account can
-  override it in **Edit Profile → Redaction Defaults**. The default is stamped
-  onto a region when it is drawn, so existing redactions never change.
-- **Assets Manager (standalone)**: open **Assets** from the sidebar or the
-  command palette (also `Ctrl/⌘+K` → *Open Assets Manager*) to get the report's
-  folder browser and the same non-destructive crop/blur image editor in its own
-  tab, so you can organize screenshots and redact them **while you take notes**.
-  It shares one state with the Typst report: a folder you make, an image you
-  drop, a crop or a blur here is the same object the report sees. Blurring is
-  non-destructive: the original bytes are never overwritten, so opening the
-  image again (here or in the report) lets you adjust or remove the blur and get
-  the original back at any time.
-- **Local WebAssembly compiler**: bundled [`typst.ts`](https://github.com/Myriad-Dreamin/typst.ts)
-  (compiler + renderer wasm) ships with the app and loads only when reports are
-  opened. Report compilation runs in the browser. The default report fonts are
-  downloaded from jsDelivr on first use; a fresh report session needs internet
-  unless those assets are already cached. The application interface uses system fonts.
-- **Live errors**: Typst compile diagnostics (with `file:line` ranges) surface
-  in a banner while the last good render stays on screen, so a transient typo
-  doesn't blank the preview.
-- **Collaborative source**: the Typst source is a per-workspace `Y.Text` in the
-  shared doc, so it's character-by-character co-edited (with remote carets) and
-  persisted exactly like every other field in BTCT. One Typst scratchpad per
-  workspace; open it from the **Pages** sidebar, the command palette
-  (*Open Typst Document*), or `Ctrl/⌘+K`.
-- **Find & replace across the whole document**: `Ctrl/⌘+F` (or the header
-  **Find** button) opens a search panel that scans the *entire* Typst source,
-  not just the part on screen, and lists every match with its line number and a
-  context snippet. Click any result to jump to it. Filter with **case-sensitive**,
-  **whole-word**, and **regular-expression** toggles; `Enter` / `Shift+Enter`
-  step through matches; the expandable replace row does one-at-a-time or
-  **replace-all** (regex `$1`/`$&` captures supported). This replaces
-  CodeMirror's built-in find, whose highlighting only covered the visible
-  viewport.
-- **Screenshots go into declared figure slots, not wherever the caret is**:
-  drag image files onto the **Assets** rail (or use *Add*) and a window opens
-  with the crop editor on the left and the document's **figure locations** on
-  the right. Pick a slot, hit *Place in figure*, done.
+- **Folder tree**: file assets by engagement phase, host, whatever shape the
+  work wants. Drag a card onto a folder (or drop OS files straight onto one),
+  drag folders into folders to nest them, and click a folder to browse it with
+  a breadcrumb. Folders are organizational only: an asset's path stays
+  `/assets/<name>` wherever it sits, so re-filing never breaks a note.
+- **Crop as a viewport, not a free rectangle**: the frame keeps the image's own
+  proportions and you pan and scale the image behind it, so what is inside the
+  frame is exactly what the note renders. **Fill** covers the frame, **Fit**
+  puts the whole image inside it, and **Auto-trim** detects a screenshot's
+  border and re-frames to the content.
+- **Redaction**: switch to blur mode and drag rectangles over anything
+  sensitive. Each region has its own style (gaussian or pixelate) and strength;
+  the blur is downscale-then-gaussian, because a plain gaussian over readable
+  text can sometimes be reversed. Admins set a workspace default strength and
+  each account can override it.
+- **Nothing is destructive.** The crop and the redaction rectangles are
+  metadata on the asset record, applied when the bytes are read. The upload is
+  never overwritten, so you can reopen an image at any time, adjust a redaction
+  or remove it, and get the original back.
+- **Live for everyone**: the metadata is in the shared Yjs doc, so a crop or a
+  blur reaches every teammate immediately. The bytes live server-side on the
+  `/data` volume rather than in the CRDT, because a workspace with thirty
+  multi-MB screenshots would otherwise be broadcast to and permanently cached
+  by every connected client.
+- **Deleting a note image retires it** (soft delete) rather than removing the
+  bytes, so page history keeps rendering it until the retention window prunes
+  it. The Assets tab's own delete button is a hard delete and asks first.
 
-  A slot is a call to the `image-placeholder` helper:
+### Nmap import
 
-  ```typst
-  #image-placeholder("Authentication bypass on /admin")
-  ```
-
-  which renders a captioned grey "insert screenshot here" box until an image
-  is assigned. Once one is, **the image is placed inside that same
-  bordered frame**, scaled to fit, rather than replacing it. The figure keeps
-  a consistent size and border whether or not it has been filled in, so a
-  *missing* screenshot is
-  obvious in the rendered PDF rather than silently absent, and captions and
-  figure numbering stay consistent no matter who fills the report in. Placing
-  is reversible (*Unplace* empties the slot but keeps it), and you can create
-  a new slot from inside the same window. Documents that already define their
-  own `image-placeholder` are upgraded in place on first use, but **only if
-  the definition is one BTCT generated**. If you've customized the styling,
-  it's left alone.
-- **Rename after import**: click the filename in the crop window to rename an
-  image. Every `#image-placeholder(…, path: …)` and hand-written
-  `#image("/assets/…")` reference in the document is repointed automatically.
-  The extension isn't editable: Typst picks its decoder from it and the stored
-  bytes are normalized to match, so letting it drift would break the render.
-- **Click the preview to jump to the source**: clicking anywhere on the
-  rendered page selects the matching text in the code (and opens the code pane
-  if it's hidden), so you can start editing the words immediately. It lands on
-  the **editable prose, not the styling that formats it**: text that also
-  appears inside a `#set`/`#show`/`#let` (e.g. a title repeated in a running
-  header) resolves to the body occurrence you clicked. Clicking a heading's
-  auto-generated number lands on the heading itself; clicking blank space does
-  nothing rather than jumping somewhere arbitrary.
-- **Framing is WYSIWYG**: the crop window is a *viewport*, not a free
-  selection. The frame is drawn to the figure box's real proportions,
-  computed from the document's own `#set page(...)` and the slot's height, and
-  the image pans and scales behind it. What sits inside the frame is exactly
-  what the PDF shows: scale past the border and it's clipped there, scale
-  smaller and the placeholder grey shows through. Drag to reposition, scroll
-  to zoom, or use **Fill** / **Fit all** / **Auto** (which trims uniform
-  borders first, then re-frames).
-
-  Because the stored crop carries the box's aspect ratio, the bytes drop into
-  the figure with no letterboxing and no distortion. That's a change from earlier
-  builds, where a 16:9 screenshot in the default 2.9:1 box used only ~61% of
-  the width.
-- **Per-figure size**: each figure's height is adjustable from the crop
-  window (presets plus a slider). The frame reshapes live and the ratio is
-  shown, so you can make one figure a wide banner and the next a tall
-  portrait; placing writes `height:` onto that one slot.
-
-  The crop is stored as a *normalized rectangle on the asset record*, never
-  baked into the file: the upload is immutable, so framing can always be
-  redone and re-cropping never degrades the image.
-- **Blur sensitive content**: hit **Blur** in the same window and drag
-  rectangles over anything the report shouldn't show (credentials, session
-  tokens, client hostnames). Regions render blurred in the viewport, the
-  thumbnail, the preview, and the exported PDF. The redaction is deliberately
-  aggressive: the region is downscaled hard before the gaussian pass, so the
-  text underneath is destroyed rather than merely softened (a plain blur of
-  readable text can sometimes be reversed). Like the crop, blurs are stored
-  as normalized rectangles on the asset record and applied at render time;
-  the upload is untouched, so a mis-drawn region can always be removed (in
-  blur mode, hit the × on a region, or *Clear* for all of them). Regions are
-  anchored to the image, not the frame, so re-cropping never slides a blur
-  off its secret. GIF and SVG images can't be blurred, since re-encoding
-  them through a canvas isn't possible.
-
-  Each region has its own **style** and **strength**: pick *Blur* (smooth
-  gaussian) or *Pixels* (hard mosaic blocks) and set the strength slider
-  before drawing, or click an existing region to select it and adjust it
-  with the same controls. 100% is the original aggressive default; lighter
-  settings still halve the detail, and pixel blocks are floored at 8px so
-  they stay out of mosaic-reversal territory.
-- **Custom fonts**: drop `.ttf` / `.otf` / `.woff` / `.woff2` / `.ttc` files
-  onto the same rail. BTCT reads the family name straight out of the font with
-  the compiler's own parser (so the name shown is the one Typst will match),
-  and the *+* button inserts `#set text(font: "…")` at your cursor. Custom
-  fonts are added *alongside* the built-in Typst faces, so installing your
-  client's brand font never costs you New Computer Modern.
-- **Shared assets**: image and font *metadata* (name, crop rect, family) lives
-  in the shared Yjs doc, so a crop you make appears on every teammate's preview
-  live. The bytes themselves are stored server-side on the `/data` volume
-  rather than in the CRDT. A report with thirty multi-MB screenshots would
-  otherwise be broadcast to and permanently cached by every connected client.
-- **Export**: one-click **PDF** and **SVG** export of the compiled document.
-  Both compile the same virtual file at the same filesystem root, so an
-  `#image(…)` that renders in the preview renders identically in the PDF.
-
-### Attack-narrative graph
-
-Each **Attack Narrative** is a graph canvas ([React Flow](https://reactflow.dev))
-for modeling an engagement's attack path.
-
-- **Node types**: Host, Credential, Service, Finding, Pivot. Drag from the
-  palette (top) or right-click the canvas → *Add Node*. Each carries structured
-  data:
-  - **Host**: hostname, IP, OS, open ports
-  - **Credential**: username, secret, source
-  - **Service**: name, version, port, CVEs
-  - **Finding**: title, severity (critical→info), CVSS + vector, likelihood,
-    impact, description, business impact, exploit steps, MITRE ATT&CK / mitigation,
-    remediation, affected hosts, references
-  - **Pivot**: description
-- **Edges**: drag handle-to-handle to connect; typed as AdminTo, HasSession,
-  MemberOf, Exploits, PivotsTo, or Custom. Double-click an edge label to rename;
-  changing the type resets the label to match.
-- **Every node has a page**: double-click a node to open its linked write-up
-  page; node properties and the page's inline editors stay in sync.
-- **Node search**: **Ctrl/⌘+F** fuzzy-searches across all node fields; **↑/↓**
-  to navigate, **Enter** to zoom to the node.
-- **Pathfinding**: select two nodes and **Highlight Path** (BFS shortest path),
-  or right-click → *Set as Path Start* / *Set as Path End*. Highlighted edges get
-  gold marching-ants; nodes pulse.
-- **Attack chains**: select 2+ nodes → right-click → *Add to Attack Chain*
-  (new or existing). Chains are ordered by canvas position, listed in the
-  sidebar, get an auto-created write-up page, and can be highlighted (red) on the
-  canvas.
-- **Auto-layout**: dagre hierarchical layout with adjustable node/rank/edge
-  spacing.
-- **Export**: high-resolution **PNG** of the canvas, plus GraphML/JSON (see
-  [Export & import](#export--import)). Viewport (pan/zoom) is cached per graph so
-  switching tabs preserves position.
-- **Nmap link**: Host nodes can bind to an imported nmap machine; hostname and
-  open ports sync between them, and a *Go to Nmap* action jumps across.
-
-### Recon & reporting (nmap, findings, timeline)
-
-- **Nmap import**: create a scan group in the sidebar, then drag-drop (or pick)
-  one or more nmap **XML** files. The parser extracts host IP, hostname, OS
-  (osmatch/osclass with a port-signature fallback), and per-port service/version/
-  script output, skipping hosts that are down. Re-importing the same IP merges
-  ports. Each machine has an editable, collaboratively-synced hostname and an OS
-  dropdown; machines can be linked to Host nodes (with port sync).
-- **Findings Collector**: aggregates every Finding node across all narratives in
-  the workspace, grouped by severity and sorted by CVSS, with a summary bar.
-  Click to open the finding's page; **Shift+click** to focus it on its graph.
-- **Attack Timeline**: every node across the workspace ordered by its
-  `discoveredAt` time, grouped by day, with type/narrative filters and each
-  node's incoming edges shown as lineage. **Copy as Markdown** exports the whole
-  timeline as a hierarchical outline.
-
-### AI assistant (Claude)
-
-A built-in Claude assistant that can read (and, when allowed, edit) your live
-workspace, so you can explore a network and have it document findings as you go.
-
-- **Admin-configured, key stays server-side.** An admin opens **Admin panel →
-  Claude AI Assistant** to paste an **Anthropic API key** (write-only: the server
-  never returns it, you only see *Connected ✓ / Not configured*), pick a
-  **mode**, set the **model** (default `claude-opus-4-8`), toggle **Enabled**, and
-  **Test** the connection. The key is stored in the SQLite `settings` table and
-  never reaches the browser or the JS bundle.
-- **View vs Edit mode** (global, admin-set). **View** = read/analyze only.
-  **Edit** = also create/update pages, attack-narrative graphs, nodes, edges,
-  findings, and link nmap hosts to nodes. Write tools are only exposed (and re-checked
-  server-side) in Edit mode. There are no delete tools.
-- **What it can see/do** (tools run in-process against the live shared CRDT, so
-  edits appear on everyone's canvas instantly and are recorded in the change log):
-  read pages/search, list & read attack-narrative graphs (nodes + edges),
-  findings (severity/CVSS), and nmap scans (hosts, open ports, service/version,
-  NSE script output); and in Edit mode **create a new attack narrative**, spawn
-  host/service/credential/finding/pivot **nodes**, connect them with **edges**,
-  add **findings**, create pages, and turn a scanned nmap host into a linked graph
-  node. Great for "read the latest scan, tell me what to hit first, then document
-  it in the graph."
-- **It's a normal tab/pane view.** Open it from the **left sidebar → Claude
-  Assistant**, the **command palette** (*Ask Claude*), or **`Mod+Shift+A`**. Like
-  Findings and the Attack Timeline it's a tab, so you can **split it into its own
-  pane**, move it between panes, or full-screen it.
-- **Live markdown replies with syntax highlighting.** Responses stream
-  token-by-token and render as markdown (headings, lists, tables, code), batched
-  per animation frame so long, table-heavy answers stay fast and readable. Code
-  blocks share the note editor's lazy syntax grammars and use CSS token colours.
-- **Durable chat history (per account).** Conversations are saved server-side per
-  user, so a chat **survives closing the Claude pane and refreshing the browser**,
-  and follows you across browsers/devices. **`+ New chat`** starts a fresh one and
-  the **History** switcher revisits, renames, or deletes past sessions (auto-titled
-  from your first message). Sessions store the plain conversation turns, so
-  reopening one and continuing keeps full context. Endpoints: `GET/POST/DELETE
-  /api/ai/sessions[/:id]` (each scoped to the caller's account).
-- **Usage vs config.** Any signed-in user can chat with the assistant; only admins
-  configure the key/mode/model. Endpoints: `GET/POST /api/ai/config` (config;
-  POST is admin-only) and `POST /api/ai/chat` (SSE stream). See the
-  [API reference](#server--http-api-reference).
-
-### MCP server (connect an external client)
-
-BTCT can expose itself as a **hosted MCP (Model Context Protocol) server** so an
-external MCP client, for example the **Claude Code CLI**, can read (and, if allowed,
-write) all your workspace context: pages, attack-narrative graphs, attack chains,
-findings, the attack timeline, nmap scans/hosts, users, and the change log.
-
-- **Admin-configured, like the API key.** **Admin panel → MCP Server**: enable it,
-  toggle **Edit permissions** (Read-only vs Edit), and copy the generated **access
-  token** (Reveal / Copy / Regenerate). The token is stored server-side and is the
-  bearer the client authenticates with.
-- **Streamable HTTP at `POST /mcp`.** Stateless MCP over HTTP; auth is the bearer
-  token, checked with a constant-time compare. Read tools are always exposed; write
-  tools (create/update pages, graphs, nodes, edges, findings; nmap→node linking)
-  appear only in **Edit** mode. Reconnect the client after toggling to pick up the
-  new tool set. It reuses the same tool catalog as the in-app assistant, so both
-  stay in sync.
-- **Scoping:** read tools return context across all workspaces; `list_users`
-  returns usernames/colors/roles only (never password hashes). Treat the token like
-  a password; **Regenerate** rotates it.
-
-**Connect & check from the Claude Code CLI**
-
-First get the token: Admin panel → **MCP Server** → **Enable** → **Reveal/Copy**
-(or copy the pre-filled connect command). Then, in a terminal:
-
-```bash
-# 1. Register BTCT as an MCP server. Use localhost if the CLI is on the same
-#    machine as the container; otherwise use the host's LAN IP (e.g. 192.168.x.x).
-claude mcp add --transport http btct http://localhost:8080/mcp \
-  --header "Authorization: Bearer <your-token>"
-#    Add --scope user to make it available in every project (default: this project only).
-
-# 2. Confirm it's registered and connected (look for a ✓ / "Connected").
-claude mcp list
-claude mcp get btct
-
-# 3. Start a session and inspect the server + its tools from inside it.
-claude
-#    then run the /mcp slash command in the session to see status + tool list.
-
-# Rotate the token or fix a bad connection: remove and re-add.
-claude mcp remove btct
-#    ...then re-run the `claude mcp add` command above with the current token.
-```
-
-Then just ask in plain language. Claude calls the tools automatically, e.g.
-*"Using the btct server, list my workspaces and their findings"* or *"show the hosts
-in the latest nmap scan."* Tools appear namespaced as `mcp__btct__list_workspaces`,
-`mcp__btct__get_graph`, etc. **Read** tools always work; **write** tools require
-**Edit** mode. After toggling Read↔Edit in the admin panel, reconnect
-(`claude mcp remove btct` + re-add, or restart the session) so the CLI re-fetches
-the tool list.
-
-**Troubleshooting:** if `claude mcp list` shows the server failed to connect, check
-that MCP is **Enabled** in the admin panel, that the **token** matches
-(Regenerate invalidates old ones), and that the **URL/port** is reachable
-(`curl -s -o /dev/null -w "%{http_code}" -X POST <origin>/mcp` → `401` means the
-endpoint is up and rejecting an unauthenticated request, which is expected).
+Create a scan group in the sidebar, then drag-drop (or pick) one or more nmap
+**XML** files. The parser extracts host IP, hostname, OS (osmatch/osclass with a
+port-signature fallback), and per-port service/version/script output, skipping
+hosts that are down. Re-importing the same IP merges ports. Each machine has an
+editable, collaboratively-synced hostname and an OS dropdown, and opens in its
+own tab with its open, closed and filtered ports plus NSE script output.
 
 ### Command log (team shell-command capture)
 
@@ -521,11 +244,13 @@ stays bounded while no history is ever lost.
 ### Lightweight operations interface
 The Operations interface uses solid slate panels, compact tables, crisp borders and system fonts. It replaces the translucent Glass skin and removes continuous decorative glow, animated backgrounds and backdrop blur. Dark/light mode, custom accent colours and editor colours remain available.
 
-The workspace overview shows real page, narrative, scan and chain counts, recently updated pages, and direct links to findings, timeline and reports. Heavy editors, exports, image tools and account panels load when opened. History polling and the minute clock pause while the browser tab is hidden. Icons share a single bundle to reduce startup requests. Chat syntax highlighting reuses the editor's CodeMirror grammars instead of shipping Shiki. Very large code output stays plain text to keep the interface responsive.
+The workspace overview shows real page, scan and asset counts, recently updated pages, and direct links to the report, the command log and a scan group. Heavy editors, exports, image tools and account panels load when opened. History polling and the minute clock pause while the browser tab is hidden. Icons share a single bundle to reduce startup requests.
 
 Closed pages save to the offline cache before releasing their memory and live connection. Open page and history tabs stay connected, including background tabs. Reopening a closed page restores its saved content and reconnects; offline changes reach the server when the page reconnects. If the browser cannot save a page, the app retains it in memory. Exports wait for document state before encoding it.
 
-Web recon has been removed: there is no scanner, Web Map UI, recon settings, scan/ingest route or Python dependency in the application image. Existing recon records remain in storage and still round-trip through workspace ZIP files and full server backups as archived data.
+Six features have been removed outright: web recon, the attack-narrative graph canvas, the Findings Collector, the Attack Timeline, attack chains, and the in-app Claude assistant (with the hosted MCP server that shared its tools). There is no UI, route, repo, store slice or subscription left for any of them, and the client no longer ships `@xyflow/react`, `@dagrejs/dagre`, `html-to-image` or `date-fns`, nor the server `@anthropic-ai/sdk`, `@modelcontextprotocol/sdk` or `zod`.
+
+Existing records are kept, not deleted. Workspaces that had graphs, findings, chains, timeline events or site maps still hold them in the shared document, and they still round-trip through workspace ZIP files and full server backups as archived data (see [Export & import](#export--import)).
 
 Generated `dist/` bundles are ignored by Git. Run `bun run build` for a local production client; Docker builds the client directly from source. This avoids carrying obsolete recon code and unused generated assets in the branch.
 
@@ -535,16 +260,16 @@ Measurements, verification and preview commands: [Lightweight redesign record](d
 
 Everything is live and multi-user over the LAN:
 
-- **Character-by-character merge** on every text field (page title/slug, node &
-  edge labels, workspace/graph/scan names, nmap hostnames, chain names). Two
-  people typing in the same field never clobber each other (Yjs `Y.Text` CRDTs).
+- **Character-by-character merge** on every text field (page title/slug,
+  workspace and scan names, nmap hostnames). Two people typing in the same
+  field never clobber each other (Yjs `Y.Text` CRDTs).
 - **Live page co-editing** with remote carets and name tags (Google-Docs style),
   backed by a per-page CRDT document and Milkdown's collab plugin.
 - **Presence & follow**: each user broadcasts `{ id, name, color }` plus their
   current view. Press **`Mod+Shift+U`** (or the command palette → *Active Users /
   Follow*) to open the active-users window and **follow** a teammate: your view
-  live-mirrors theirs, jumping to the graph node they select, scrolling to their
-  text caret, or opening the nmap host they're inspecting. If you have split panes
+  live-mirrors theirs, scrolling to their text caret or opening the nmap host
+  they're inspecting. If you have split panes
   the first follow asks whether to drop the view into a pane or take over; per-
   teammate **precision** (jump to their exact spot vs. just open their view) is set
   in **Profile → Following**. Press **Stop** or navigate away to detach.
@@ -554,10 +279,10 @@ Everything is live and multi-user over the LAN:
 ### Workspaces, navigation & layout
 
 - **Workspaces**: create/switch/delete from the sidebar footer; the active
-  workspace is remembered across reloads. All pages/graphs/scans/findings are
+  workspace is remembered across reloads. All pages, scans and assets are
   scoped to it.
-- **Tabs**: open pages, narratives, nmap groups/machines, Findings, Timeline,
-  the Typst editor, and the Claude assistant as tabs. Cycle with **←/→**, close
+- **Tabs**: open pages, nmap groups/machines, the command log, the assets
+  manager and the shortcuts sheet as tabs. Cycle with **←/→**, close
   with **Alt+W**, and the **browser back/forward** buttons walk your tab history.
   **Drag a tab left or right** along its strip to reorder it (a bar shows where
   it lands; dropping on the empty end of the strip moves it last). The
@@ -566,22 +291,21 @@ Everything is live and multi-user over the LAN:
   own close button in its header.
 - **Split panes**: drag a tab to a pane edge (left/right/top/bottom) to split;
   drag the divider to resize; emptying a pane collapses the split automatically.
-- **Command palette**: **Ctrl/⌘+K** to create pages/narratives, toggle dark
-  mode, or jump to any page/graph by name. (If text is selected in the editor,
+- **Command palette**: **Ctrl/⌘+K** to create a page, open a tool, toggle dark
+  mode, or jump to any page by name. (If text is selected in the editor,
   Ctrl/⌘+K instead inserts a link.)
 - **Search**: the sidebar search box does live title/tag search over pages.
-- **Sidebars**: left = navigation tree (Pages, Attack Narratives, Attack Chains,
-  Nmap Scans, plus Findings/Timeline shortcuts); right = context properties
-  (node/edge editors, backlinks, "last edited by" badge, change log, page
-  versions, export/import).
+- **Sidebars**: left = navigation tree (Tools, Pages, Nmap Scans); right =
+  context properties ("last edited by" badge, change log, page versions,
+  export/import).
 
 ### Edit history & versioning
 
 Two complementary systems. See [Edit history & rollback](#edit-history--versioning-detail)
 below for the full mechanics:
 
-- **Activity log**: every create/update/delete/restore on a workspace, page,
-  graph, node, edge, or attack chain, with author + timestamp + a reversible
+- **Activity log**: every create/update/delete/restore on a workspace or page,
+  with author + timestamp + a reversible
   field delta (or a full entity snapshot for deletes). Surfaced as the
   right-sidebar **History** feed and as per-entity "Last edited by …" badges;
   reversible entries get an **Undo** button.
@@ -603,12 +327,12 @@ below for the full mechanics:
 ### Export & import
 
 - **Markdown**: per page (single `.md` or a `.zip`).
-- **GraphML / JSON**: per attack narrative.
 - **Lossless workspace ZIP**: the full workspace (every entity as JSON, plus
-  per-page raw CRDT state and human-readable `.md`/`.graphml` companions), with
-  *import-as-new* (re-IDed) or *replace-existing* modes.
-- **Attack-path bundle**: an XML document combining path metadata, a filtered
-  GraphML, and the linked write-up pages as markdown.
+  per-page raw CRDT state and human-readable `.md` companions), with
+  *import-as-new* (re-IDed) or *replace-existing* modes. The ZIP also carries
+  the tables behind removed features (graphs, nodes, edges, attack chains,
+  timeline events, site maps) under the same filenames older builds used, so
+  an archive stays complete and re-imports into either build.
 
 ### Accounts, roles & settings
 
@@ -616,10 +340,8 @@ below for the full mechanics:
   bootstrap `admin` account is created on first launch.
 - **Admin panel** (admins only): create/delete users, reset passwords, toggle
   admin (the server blocks deleting yourself or the last admin), configure the
-  **Claude AI Assistant** (API key, View/Edit mode, model, enable; see
-  [AI assistant](#ai-assistant-claude)), and the **MCP Server** (enable, edit
-  permissions, access token; see [MCP server](#mcp-server-connect-an-external-client)),
-  and **Backups** (consistent scheduled snapshots to a host folder; see
+  **Command log** ingest (enable, agent token, tool whitelist, target
+  workspace), the **Blur defaults** and **Data retention**, and **Backups** (consistent scheduled snapshots to a host folder; see
   [Backups & restore](#backups--restore)).
 - **Profile**: your presence **color**, your per-account **code accent**, and
   your **note heading colours** (one colour for every level, or per-level
@@ -643,7 +365,6 @@ panel).
 | Context | Shortcut / gesture | Action |
 | --- | --- | --- |
 | Global | `Mod+K` | Command palette (or insert link if text is selected) |
-| Global | `Mod+Shift+A` | Open / focus the **Claude assistant** tab |
 | Global | `Mod+Shift+U` | Open the **active-users / follow** window |
 | Global | `←` / `→` | Cycle tabs in the active pane |
 | Global | `Alt+W` | Close active tab |
@@ -664,15 +385,8 @@ panel).
 | Block mode | `Mod+D`, `Backspace`/`Delete`, `Enter`, `Esc`/click | Duplicate / delete / edit / exit |
 | Code block / Block mode | `Mod+/` ⚙ | Focus the language picker (works with the block selected too) |
 | Language picker | type, `Enter`, `↑`/`↓`, `Esc` | Filter, Enter drops to the closest match, arrows choose, Enter sets, Esc closes |
-| Typst preview | click | Select the matching editable text in the source |
-| Typst editor | `Mod+F` | Whole-document find & replace (`Enter`/`Shift+Enter` = next/previous match) |
-| Typst editor | `Esc` | Close the search panel |
-| Place-screenshot window | `Enter` / `Esc` | Place into the selected figure / cancel |
-| Graph | `Mod+F` | Node search (↑/↓, Enter to focus) |
-| Graph | `Delete` | Delete selected node/edge |
-| Graph | double-click node · shift-click · right-click | Open page · multi-select · context menu |
+| Image editor | `Enter` / `Esc` | Save the crop and redactions / cancel |
 | Nmap | `Ctrl+Shift+click` a machine card | Open machine in a new tab |
-| Findings / Timeline | `Shift+click` a row | Focus the node on its graph |
 
 ---
 
@@ -695,9 +409,9 @@ BTCT is two cooperating processes packaged into one Docker image:
 2. **Vite/React client** (`src/`)
    - Authenticates against `/api/login`, then opens WebSockets to `/yjs/...`.
    - Holds **one shared Yjs doc** (room `btct-shared`) with all workspaces, pages,
-     graphs, nodes, edges, attack chains, change logs, page snapshots, and nmap
-     scans + machines. Every collaboratively-edited text field is a `Y.Text` keyed
-     `<entity>:<id>:<field>`.
+     change logs, page snapshots, nmap scans + machines, assets and the live
+     command-log window. Every collaboratively-edited text field is a `Y.Text`
+     keyed `<entity>:<id>:<field>`.
    - Holds **one Y.Doc per page** (room = the page id) for the markdown body,
      cached in IndexedDB.
    - Awareness pushes `{ id, name, color }`, rendered as carets + a presence row.
@@ -715,14 +429,10 @@ normal REST.
 - **Vite 8** + **React 19** + **TypeScript (strict)**
 - **Milkdown 7 (Crepe)** + `@milkdown/plugin-collab` + **CodeMirror 6** code blocks
   (`@codemirror/language-data`, GitHub-Dark token theme)
-- **`@myriaddreamin/typst.ts`** in-browser (WASM) Typst compiler + renderer for
-  the local Typst tab; **`y-codemirror.next`** binds the Typst source CodeMirror
-  editor to a shared Yjs `Y.Text` for live co-editing
-- **@xyflow/react 12** graph canvas with **`@dagrejs/dagre`** auto-layout
 - **Yjs 13** + **y-websocket 2** + **y-prosemirror 1** + **y-indexeddb 9**
 - **Zustand 5** for app/auth/theme state
 - **Tailwind CSS 4** + **Radix UI** primitives + **lucide-react** icons
-- **cmdk** command palette, **JSZip** export bundles, **date-fns** timestamps
+- **cmdk** command palette, **JSZip** export bundles
 - **Vitest 4** unit tests
 
 ### Server (`server/`)
@@ -763,8 +473,9 @@ UI event → repo/store action → write to a Y.Map / Y.Text  (inside doc.transa
 ```
 
 The Bun server is intentionally thin: it does **auth + static hosting + a Yjs
-relay with on-disk persistence**. It does *not* understand pages, graphs, or
-findings. Those only exist inside the CRDT documents the clients share.
+relay with on-disk persistence**. Beyond page version history, command-log
+ingest and asset retention it does *not* understand what the data means. It
+lives inside the CRDT documents the clients share.
 
 ### The two-tier Yjs/CRDT design
 
@@ -778,16 +489,18 @@ findings. Those only exist inside the CRDT documents the clients share.
 | Files | `src/realtime/shared-doc.ts` | `src/realtime/yjs-providers.ts` |
 
 - **Records** are plain JSON in a per-table `Y.Map` keyed by `id`
-  (last-writer-wins). Tables: `workspaces`, `pages`, `graphs`, `graphNodes`,
-  `graphEdges`, `attackChains`, `changeLogs`, `pageSnapshots`, `nmapScans`,
-  `nmapMachines`.
+  (last-writer-wins). Tables: `workspaces`, `pages`, `changeLogs`,
+  `pageSnapshots`, `nmapScans`, `nmapMachines`, `typstAssets`, `assetFolders`,
+  `commandLogs`. The maps behind removed features (`graphs`, `graphNodes`,
+  `graphEdges`, `attackChains`, `timelineEvents`, `siteMaps*`) still exist in
+  older documents but are not in `TABLE_NAMES`: only
+  [src/export/retired.ts](src/export/retired.ts) reads them, for archiving.
 - **Collaborative text fields** are `Y.Text`s in the single `texts` map, keyed
-  `<entity>:<id>:<field>` (e.g. `page:<id>:title`, `node:<id>:label`). A
-  `mirrorTextsToRecords` observer writes each `Y.Text`'s value back into the JSON
-  record's field, so the rest of the app (sidebar, search, exports) can read plain
-  JSON. The collaborative fields are: page `title`/`slug`, node `label`, edge
-  `label`, workspace `name`, graph `name`, nmap scan `name`, nmap machine
-  `hostname`, attack-chain `name`, web-map `name`.
+  `<entity>:<id>:<field>` (e.g. `page:<id>:title`). A `mirrorTextsToRecords`
+  observer writes each `Y.Text`'s value back into the JSON record's field, so the
+  rest of the app (sidebar, search, exports) can read plain JSON. The
+  collaborative fields are: page `title`/`slug`, workspace `name`, nmap scan
+  `name`, nmap machine `hostname`.
 - **Page bodies** never go in the shared doc. They live in the per-page doc and
   are checkpointed via [page snapshots](#edit-history--versioning-detail).
 
@@ -799,37 +512,28 @@ Fields shown as *(Y.Text)* are collaborative; everything else is last-writer-win
 | Entity | Key fields |
 | --- | --- |
 | **Workspace** | `id`, `name` *(Y.Text)*, `description`, timestamps |
-| **Page** | `id`, `workspaceId`, `parentId`, `title` *(Y.Text)*, `slug` *(Y.Text)*, `icon`, `tags[]`, `content` (markdown), `sortOrder`, `isGraphPage`, timestamps |
-| **Graph** (narrative) | `id`, `workspaceId`, `name` *(Y.Text)*, timestamps |
-| **GraphNode** | `id`, `graphId`, `type` (`host`\|`credential`\|`service`\|`finding`\|`pivot`), `label` *(Y.Text)*, `position{x,y}`, `data` (type-specific), `linkedPageId`, `discoveredAt`, timestamps |
-| **GraphEdge** | `id`, `graphId`, `sourceNodeId`, `targetNodeId`, `edgeType` (AdminTo\|HasSession\|MemberOf\|Exploits\|PivotsTo\|Custom), `label` *(Y.Text)*, `linkedPageId?`, timestamps |
-| **AttackChain** | `id`, `workspaceId`, `graphId`, `name` *(Y.Text)*, `nodeIds[]` (ordered), `linkedPageId`, timestamps |
+| **Page** | `id`, `workspaceId`, `parentId`, `title` *(Y.Text)*, `slug` *(Y.Text)*, `icon`, `tags[]`, `content` (markdown), `sortOrder`, `isGraphPage` (legacy, always false for new pages), timestamps |
 | **NmapScan** | `id`, `workspaceId`, `name` *(Y.Text)*, `importedAt`, `rawXml?` |
-| **NmapMachine** | `id`, `scanId`, `ip`, `hostname` *(Y.Text)*, `os` (windows\|linux\|attacker\|unknown), `ports[]`, `linkedNodeId?`, timestamps |
+| **NmapMachine** | `id`, `scanId`, `ip`, `hostname` *(Y.Text)*, `os` (windows\|linux\|attacker\|unknown), `ports[]`, `linkedNodeId?` (legacy), timestamps |
 | **ChangeLogEntry** | `id`, `workspaceId`, `action`, `target`, `targetId`, `summary`, `timestamp`, author (`userId`/`userName`/`userColor`), `field?`, `prevValue?`, `newValue?`, `reversible` |
 | **PageSnapshot** | `id`, `pageId`, `workspaceId`, `timestamp`, author, `label?`, `updateBase64` (`Y.encodeStateAsUpdate`), `byteLength` |
-| **TypstAsset** | `id` (= server blob id), `workspaceId`, `kind` (`image`\|`font`), `filename` (also the `/assets/<name>` path in the Typst VFS), `mime`, `size`, `width?`/`height?`, `crop?` (`CropRect`, normalized 0..1; `null` = full image), `blurs?` (`BlurRegion[]`, normalized redaction rectangles; `null` = none), `fontFamily?`, timestamps. **Metadata only; the bytes live server-side.** |
+| **TypstAsset** (an image asset; the type and its `typstAssets` table keep their names so existing documents still parse) | `id` (= server blob id), `workspaceId`, `kind` (`image`; `font` exists only in old records), `filename` (also its `/assets/<name>` path), `mime`, `size`, `width?`/`height?`, `crop?` (`CropRect`, normalized 0..1; `null` = full image), `blurs?` (`BlurRegion[]`, normalized redaction rectangles; `null` = none), `fontFamily?`, timestamps. **Metadata only; the bytes live server-side.** |
 | **CommandLogEntry** | `id` (agent-generated, the idempotency key), `workspaceId`, `operator`, `command` (redacted), `tool`, `cwd?`, `host?`, `localUser?`, `shellPid?`, `startedAt`, `receivedAt`, `exitCode?` (`null` = still running), `durationMs?`, `redacted?`. **No Y.Text fields**, all LWW JSON. Written **only by the server ingest endpoint**; the shared-doc copy is a bounded live window over the SQLite archive. |
-
-Node `data` is polymorphic: `HostData` / `CredentialData` / `ServiceData` /
-`FindingData` / `PivotData` (fields listed in the [graph feature
-tour](#attack-narrative-graph)). Cast explicitly when reading.
 
 ### Data layer: database, repos, stores
 
 - **[src/db/database.ts](src/db/database.ts)**: a Dexie-*shaped* API
   (`get`/`add`/`put`/`update`/`delete`/`where().equals()`) backed by the shared
   Y.Maps instead of IndexedDB tables. Every write is wrapped in a Yjs transaction.
-- **`src/db/*-repo.ts`**: one repo per entity (`pageRepo`, `graphRepo`,
-  `graphNodeRepo`, `graphEdgeRepo`, `attackChainRepo`, `workspaceRepo`,
-  `changelogRepo`, `pageSnapshotRepo`, `nmapScanRepo`/`nmapMachineRepo`). Repos do
-  CRUD + queries, **pre-seed `Y.Text`s on create**, and cascade deletes (deleting
-  a node removes its edges, unlinks nmap, drops it from chains, and deletes its
-  hidden page).
+- **`src/db/*-repo.ts`**: one repo per entity (`pageRepo`, `workspaceRepo`,
+  `changelogRepo`, `pageSnapshotRepo`, `nmapScanRepo`/`nmapMachineRepo`,
+  `typstAssetRepo`, `assetFolderRepo`, `commandLogRepo`). Repos do CRUD +
+  queries, **pre-seed `Y.Text`s on create**, and cascade deletes (deleting a
+  scan removes its machines; deleting a workspace removes its pages).
 - **[src/stores/app-store.ts](src/stores/app-store.ts)**: the Zustand store:
-  workspaces, pages, graphs, tabs, pane layout, selection, search, change log,
-  nmap, attack chains. Mutating actions call the repos **and** the `log()` helper
-  to write a change-log entry.
+  workspaces, pages, tabs, pane layout, search, change log, nmap, assets,
+  command log. Mutating actions call the repos **and** the `log()` helper to
+  write a change-log entry.
 - **[src/stores/shared-bindings.ts](src/stores/shared-bindings.ts)**:
   `bindSharedSubscriptions()` wires each table's `Y.Map.observe` to a debounced
   store reload (`queueMicrotask`), so a burst of CRDT changes coalesces into one
@@ -886,7 +590,7 @@ tear down the Yjs collab binding.
 ### Interface themes
 BTCT ships the Operations look, declared in [src/themes/registry.ts](src/themes/registry.ts). [src/themes/operations.css](src/themes/operations.css) styles the shell and editor using native CSS over the shared base styles. The attribute `data-ui-theme="operations"` is set in `index.html` before first paint and reinforced by `main.tsx`.
 
-Surfaces are opaque and typography uses installed system fonts. Selection and focus use borders and colour rather than motion. The stylesheet does not reset graph or report transforms. Reduced-motion preferences also suppress progress animations and transitions. Custom workspace accents and per-user note/code colours remain CSS-variable updates and never rebuild the editor.
+Surfaces are opaque and typography uses installed system fonts. Selection and focus use borders and colour rather than motion. The stylesheet does not reset report transforms. Reduced-motion preferences also suppress progress animations and transitions. Custom workspace accents and per-user note/code colours remain CSS-variable updates and never rebuild the editor.
 
 ### Server & HTTP API reference
 
@@ -908,15 +612,7 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `POST` | `/api/admin/users` | admin | Create user (username 3–32, password ≥8) |
 | `DELETE` | `/api/admin/users/:id` | admin | Delete user (not self / not last admin) |
 | `POST` | `/api/admin/users/:id/password` | admin | Reset a user's password |
-| `GET` | `/api/ai/config` | yes | Claude assistant config: `{ enabled, mode, model, configured }` (never the key) |
-| `POST` | `/api/ai/config` | admin | Set the API key / mode (`view`\|`edit`) / model / enabled |
-| `POST` | `/api/ai/config/test` | admin | Live connection test with the stored key (no key returned) |
-| `POST` | `/api/ai/chat` | yes | Agentic chat over workspace data; **SSE** stream. Tool loop runs server-side against the live CRDT; write tools gated to `edit` mode |
-| `GET` | `/api/ai/sessions` | yes | List the caller's saved chat sessions (metadata, newest first) |
-| `GET` | `/api/ai/sessions/:id` | yes | Get one session incl. messages (404 if not the caller's) |
-| `POST` | `/api/ai/sessions/:id` | yes | Create/update a session (`{ title, messages }`); upsert, scoped to caller |
-| `DELETE` | `/api/ai/sessions/:id` | yes | Delete one of the caller's sessions |
-| `POST` | `/api/assets?workspaceId&kind&filename` | yes | Upload one Typst asset. Body is **raw bytes** (not multipart/JSON). `kind` = `image`\|`font`; max 25 MB; extension must be allowed. An image's extension is corrected to match its actual magic number → `{ asset }` |
+| `POST` | `/api/assets?workspaceId&kind&filename` | yes | Upload one image asset. Body is **raw bytes** (not multipart/JSON). `kind` = `image`\|`font` (`font` is legacy); max 25 MB; extension must be allowed. An image's extension is corrected to match its actual magic number → `{ asset }` |
 | `GET` | `/api/assets?workspaceId=…` | yes | Metadata inventory of a workspace's assets |
 | `GET` | `/api/assets/:id` | yes | The raw asset bytes (`Cache-Control: immutable`, since bytes never change for an id) |
 | `DELETE` | `/api/assets/:id` | uploader/admin | Delete the row **and** the file on disk |
@@ -926,10 +622,6 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `POST` | `/api/pages/:id/versions/:vid/name` | yes (author/admin to rename a named one) | Name or rename a version (`{ name }`, empty clears) |
 | `DELETE` | `/api/pages/:id/versions/:vid` | author (named) / admin | Delete one version |
 | `GET` | `/api/pages/:id/history/twin` | yes | The page's GC-off history twin as one Yjs update (`application/octet-stream`, gzipped when accepted) |
-| `GET` | `/api/mcp/config` | admin | MCP server config incl. the bearer token (so it can be copied) |
-| `POST` | `/api/mcp/config` | admin | Enable/disable + set mode (`read`/`edit`); mints a token on first enable |
-| `POST` | `/api/mcp/token` | admin | Regenerate (rotate) the MCP bearer token |
-| `POST` | `/mcp` | MCP token | Streamable-HTTP MCP endpoint (own bearer auth). Read tools always; write tools in `edit` mode |
 | `POST` | `/api/cmdlog/events` | ingest token | Batch ingest from a capture agent (`{ workspace?, events[] }`); upserts by id into SQLite + the CRDT live window |
 | `GET` | `/api/cmdlog/whitelist` | ingest token | Tool whitelist the agent fetches + refreshes |
 | `GET` | `/api/cmdlog/query` | yes | Filtered read of the durable archive (`workspaceId, operator, tool, host, from, to, q, status, limit`) |
@@ -952,16 +644,13 @@ avatar, is_admin, prefs [JSON], created_at)`. The `prefs` column is added by an
 idempotent migration. Per-account editor prefs (`codeAccent`, `keybinds`,
 `follow`, `theme`) are validated at the REST edge and stored as a JSON blob.
 The `settings` table is a simple key/value store: the theme policy
-(`theme_color`, `theme_headings`, `theme_lock`, `theme_updated_at`), the Claude
-assistant config
-(`anthropic_api_key`, `ai_mode`, `ai_model`, `ai_enabled`, where the key is
-write-only and never returned to clients), and the MCP server config
-(`mcp_enabled`, `mcp_mode`, `mcp_token`; the token is admin-readable so it can be
-copied into a client). The `chat_sessions` table
-(`id, user_id, title, messages [JSON], created_at, updated_at`) holds each
-account's durable Claude conversations, scoped and pruned per user. The
+(`theme_color`, `theme_headings`, `theme_lock`, `theme_updated_at`), the
+blur-strength defaults, the command-log ingest config (`cmdlog_enabled`,
+`cmdlog_token`, `cmdlog_whitelist`, `cmdlog_workspace`), the backup schedule
+(`backup_*`) and the retention window (`retention_days`,
+`retention_last_run`). The
 `assets` table (`id, workspace_id, kind, filename, mime, size, uploaded_by,
-created_at`) is the server's inventory of the Typst blobs it stores; the bytes
+created_at`) is the server's inventory of the image blobs it stores; the bytes
 live as files under `ASSETS_DIR` named by the row's uuid. This is the **only**
 place the server holds workspace content on disk, and it stays deliberately
 dumb about meaning. The crop rectangle and display name are CRDT records, not
@@ -978,7 +667,7 @@ uses a static bearer token (`cmdlog_enabled`/`cmdlog_token`/`cmdlog_whitelist`/
 
 **Environment variables:** `AUTH_SECRET` (required in prod; HMAC key, random &
 ephemeral if unset, which silently invalidates tokens on restart), `HOST`,
-`PORT`, `STATIC_DIR`, `DB_PATH`, `ASSETS_DIR` (Typst image/font blobs; defaults
+`PORT`, `STATIC_DIR`, `DB_PATH`, `ASSETS_DIR` (image blobs; defaults
 to `assets/` beside `DB_PATH`, i.e. `/data/assets` in Docker), `HISTORY_DIR`
 (per-page GC-off history twins behind version diffs; defaults to `history/`
 beside `DB_PATH`, i.e. `/data/history` in Docker), `YPERSISTENCE`
@@ -1000,43 +689,30 @@ src/
   components/
     editor/PageEditor.tsx     Milkdown/Crepe editor + floating format panel
     editor/KeybindsDialog.tsx Per-account keybind capture UI
-    graph/                    GraphCanvas + nodes/ + edges/ + palette + ctx menu
-                              + Node/EdgeProperties
-    findings/                 FindingsCollector.tsx, AttackTimeline.tsx
-    nmap/NmapScanView.tsx     XML import, machine grid/detail, host-node linking
-    ai/                       AiAssistant (chat pane), ThinkingIndicator
-                              (agent activity), markdown.tsx (shared-grammar renderer)
-    typst/                    TypstView (3-pane editor+preview+assets tab,
-                              resizable) TypstEditor (collab CodeMirror),
-                              TypstSearchPanel (whole-doc find/replace overlay),
-                              TypstPreview (local SVG render), TypstAssetsPanel
-                              (image/font drop zone), PlaceScreenshotDialog
-                              (viewport editor + figure-slot picker),
-                              FigureViewport (the framing surface)
+    nmap/NmapScanView.tsx     XML import, machine grid + machine detail
+    cmdlog/CommandLogView.tsx Team command archive (REST seed, then CRDT follow)
+    history/HistoryView.tsx   Read-only page-version viewer with per-user diffs
+    help/ShortcutsView.tsx    Grouped shortcut cheat sheet (reads live keybinds)
+    assets/                   AssetsManager (the tab), AssetsPanel (folder tree
+                              + drop zone + grid), ImageEditorDialog (crop and
+                              redact), FigureViewport (the framing surface)
     sidebar/                  LeftSidebar (tree/nav), RightSidebar (properties),
                               AdminPanel, ProfileEditor, ThemePicker,
-                              ChangeLogPanel, PageHistoryPanel, BacklinksPanel,
-                              LastEditedBadge
-    ui/                       TabBar, SplitContainer (panes), MainContent,
+                              ChangeLogPanel, PageHistoryPanel, LastEditedBadge
+    ui/                       TabBar, SplitContainer (panes), WorkspaceOverview,
                               CommandPalette, WorkspaceSelector, ExportDialog
   db/                         database.ts (Y.Map-backed table API) + *-repo.ts
-  export/                     markdown.ts, graphml.ts, bundle.ts, workspace-zip.ts
+  export/                     markdown.ts, workspace-zip.ts, retired.ts
+                              (archive-only access to removed features' tables)
   lib/                        editor-* + highlight-plugin + code-theme +
-                              block-select + active-editor + auto-layout +
-                              pathfinding + nmap-parser + pane-layout + theme +
-                              typst-compiler (local WASM compile→SVG/PDF, shadow
-                              FS + custom fonts) + typst-language (CodeMirror
-                              Typst highlighting) + typst-assets (upload/fetch/
-                              crop/blur/border-detect) + crop-math (pure crop
-                              geometry) + blur-math (pure blur-region geometry
-                              + strength heuristics) + typst-placeholders (figure-slot
-                              scanning + source rewriting) + pane-resize (pane
-                              width clamping + layout persistence) +
-                              image-format (magic-number sniffing) +
-                              typst-source-map (preview click → source offset,
-                              prefers editable body over design regions) +
-                              typst-search (whole-document find/replace engine)
-                              + typst-geometry (page/figure box sizing) + utils
+                              block-select + active-editor +
+                              nmap-parser + pane-layout + theme +
+                              assets (upload/fetch/crop/blur/border-detect) +
+                              asset-image + asset-folders + crop-math (pure
+                              crop geometry) + blur-math (pure blur-region
+                              geometry + strength heuristics) + pane-resize
+                              (pane width clamping + layout persistence) +
+                              image-format (magic-number sniffing) + utils
   realtime/                   shared-doc.ts (shared Y.Doc + Y.Text registry),
                               yjs-providers.ts (per-page docs), page-snapshots.ts,
                               use-y-text.ts, PresenceAvatars.tsx
@@ -1047,7 +723,7 @@ server/
   index.mjs                   HTTP + WS entry, all REST routes, static serving
   auth.mjs                    PBKDF2 hashing + HMAC token sign/verify
   db.mjs                      bun:sqlite users + settings + assets + command_logs + page_versions, migrations
-  assets.mjs                  Typst image/font blob store (disk + metadata rows)
+  assets.mjs                  Image blob store (disk + metadata rows)
   history.mjs                 Page version history: GC-off twin per room, auto/named/restore versions, twin + version routes
   history-diff.mjs            Who changed a page body between two snapshots (pure, Yjs injected, unit-tested)
   cmdlog.mjs                  Command-log ingest + config (SQLite archive + CRDT live window)
@@ -1081,16 +757,17 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    rollback for bodies is via page snapshots instead.
 5. **Highlight marks are intentionally not persisted** (no CommonMark syntax).
 6. **Deletes cascade and are logged with a full snapshot** so they're restorable.
-7. **The server is dumb about domain data.** Don't add page/graph logic to the
+7. **The server is dumb about domain data.** Don't add page logic to the
    server; it only relays Yjs, serves static files, does auth/settings, and
-   stores opaque asset blobs. The three deliberate exceptions are the AI
-   assistant (which reads/writes the CRDT in-process),
+   stores opaque asset blobs. The deliberate exceptions are
+   [history.mjs](server/history.mjs) (per-page twin docs and their versions),
    [assets.mjs](server/assets.mjs), which is only *storage* (it knows a blob's size
    and mime, never what it means), and [cmdlog.mjs](server/cmdlog.mjs), which ingests
    externally-produced command records into SQLite + the CRDT (it validates and
-   stores, and knows nothing about what a command means). Server-side CRDT writes
-   must honour the Y.Text rule; command logs sidestep it by having **no** Y.Text
-   fields (all LWW JSON, like typst assets).
+   stores, and knows nothing about what a command means).
+   [yjs-data.mjs](server/yjs-data.mjs) is the only door into the shared doc and is
+   down to what those need. Server-side CRDT writes must honour the Y.Text rule;
+   nothing there writes one today (all LWW JSON, like image assets).
 8. **Binary content never goes in the CRDT.** Images and fonts are uploaded to
    the server and referenced from the shared doc by id; only small metadata
    records sync. Base64 blobs in the shared doc get broadcast to *and
@@ -1105,42 +782,28 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    the blur itself is downscale-then-gaussian (see
    [blur-math.ts](src/lib/blur-math.ts)) because a plain gaussian of readable
    text can sometimes be reversed.
-10. **Typst assets have no `Y.Text` fields, deliberately.** Filenames, crop
+10. **Image assets have no `Y.Text` fields, deliberately.** Filenames, crop
    rects, and blur regions are last-writer-wins JSON: concurrent
    character-by-character editing of a filename isn't a workflow worth
    supporting, so invariant 1 doesn't apply to `typstAssets`, nor to
-   `assetFolders` (the assets rail's folder tree): folders are organizational
-   only and never change an asset's `/assets/<name>` path, so nothing there
-   rewrites a document.
-11. **Preview and PDF must compile the same virtual path.** Both go through
-   `/main.typ` in [typst-compiler.ts](src/lib/typst-compiler.ts). If they
-   diverge, relative `#image(…)` paths resolve differently and PDF export
-   breaks *only for documents that use assets*, a nasty, late-surfacing bug.
-12. **Programmatic source edits go through `replaceYTextContent`**, which
+   `assetFolders` (the folder tree): folders are organizational only and never
+   change an asset's `/assets/<name>` path.
+11. **Programmatic Y.Text edits go through `replaceYTextContent`**, which
    splices a minimal delta. Never clear-and-reinsert a Y.Text: it deletes
    every character and re-adds it, destroying collaborators' cursors and
    making the change unmergeable with a concurrent edit.
-13. **Re-scan slots after any other source rewrite.** `ScreenshotSlot` carries
-   raw character offsets, so upgrading the helper (which shifts everything
-   below it) invalidates every offset measured beforehand. `ensureHelper()`
-   first, *then* `findScreenshotSlots()`, then `setSlotPath()`, matching
-   slots across the rewrite by their `index`, not their offsets.
-14. **Pane drags write to the DOM, not to React state.** `TypstView` sets the
+12. **Pane drags write to the DOM, not to React state.** A resize sets the
    pane's `style.width` directly per animation frame and commits to state
    once on pointer-up. A re-render mid-drag would reconcile the whole tab
-   every frame and (the real hazard) risk remounting the CodeMirror host,
+   every frame and (the real hazard) risk remounting an editor host,
    dropping the Yjs collab binding and every remote cursor with it.
-15. **Mounted bytes must match the extension they're mounted at.** Typst
-   selects its image decoder from the file extension, so PNG bytes at a
-   `.jpg` path fail with `Illegal start bytes: 8950`. `resolveAssetBytes()`
-   encodes crops to the format the *filename* claims (not always PNG) and
-   re-encodes uncropped bytes that disagree with their extension, so a
-   mislabelled upload self-heals. GIF and SVG are passed through untouched;
-   a canvas can't produce them. See [image-format.ts](src/lib/image-format.ts).
-16. **Only the preview may coalesce compiles.** `compileTypstSvg(src, {
-   coalesce: true })` skips a queued compile that a newer one has superseded.
-   Exports must never pass it: an export queued behind a preview would be
-   silently dropped and reported as a failure.
+13. **Stored bytes must match the extension they carry.** The decoder is
+   chosen from the file extension, so PNG bytes at a `.jpg` path fail.
+   `resolveAssetBytes()` encodes crops to the format the *filename* claims
+   (not always PNG) and re-encodes uncropped bytes that disagree with their
+   extension, so a mislabelled upload self-heals. GIF and SVG are passed
+   through untouched; a canvas can't produce them. See
+   [image-format.ts](src/lib/image-format.ts).
 17. **DB migrations must be idempotent.** Guard every `ALTER TABLE` with a column
    check (see the `prefs`/`avatar`/`is_admin` migration in `db.mjs`).
 18. **Set `AUTH_SECRET` and `YPERSISTENCE`** in any real deployment, or tokens and
@@ -1172,9 +835,9 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    the range/checkbox/date inputs the accent colour. The audit that
    introduced this is [docs/ui-audit-2026-08-28.md](docs/ui-audit-2026-08-28.md).
 23. **Tabs reconcile against the shared doc, and the active pane is always a
-   live leaf.** `reconcileTabs()` (app-store) prunes tabs whose page, graph
-   or scan no longer exists; it runs after the pages/graphs/nmapScans
-   reloads and after local deletes, and is a no-op until the shared doc has
+   live leaf.** `reconcileTabs()` (app-store) prunes tabs whose page or scan
+   no longer exists; it runs after the pages/nmapScans reloads and after
+   local deletes, and is a no-op until the shared doc has
    synced. Every layout change goes through `reconcileActive()` so
    `activePaneId`/`activeTabId` never point at a collapsed pane, and
    `moveTab` (pane-layout) removes, adds, then collapses, in that order. When
@@ -1184,8 +847,8 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    `seedMissingYTexts(getSharedDoc())` afterwards; a record without its
    `Y.Text` silently drops inline title edits until a reload. Deleting a
    record through `database.ts` drops its texts (`deleteTextsFor`).
-25. **First paint stays small.** Heavy tab views (graph, nmap, findings,
-   timeline, Typst, assistant, command log, history) are `React.lazy`
+25. **First paint stays small.** Heavy tab views (nmap, command log,
+   history, assets) are `React.lazy`
    imports behind one `Suspense` in `SplitContainer`; a new `TabKind` view
    should be too. No external font requests (the skin uses the system
    stack) and no multi-megabyte images in `public/` (the logo ships as
@@ -1204,10 +867,6 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
   `database.ts`; add store actions in `app-store.ts`; wire a subscription in
   `shared-bindings.ts`; pre-seed any `Y.Text` fields.
 - **New collaborative text field** → see invariant #1.
-- **New graph node type** → extend `NODE_TYPES` + a `*Data` interface + factory;
-  add `components/graph/nodes/<X>Node.tsx` and register it; add a palette entry;
-  add a property-fields case (graph `NodeProperties` and the page editor).
-- **New edge type** → add to `EDGE_TYPES`; it auto-appears in the type selector.
 - **New editor shortcut/action** → add to `KeybindAction` + `DEFAULT_KEYBINDS` +
   `KEYBIND_ACTIONS` in `editor-prefs.ts`; implement in `runAction()` in
   `editor-keybinds.ts`; add a button to the floating toolbar in `PageEditor.tsx`.
@@ -1217,8 +876,16 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
 - **New HTTP endpoint** → add a branch in `server/index.mjs`, gate with
   `authFromHeader`/`requireAdmin`, parse with `readJsonBody`, reply with
   `sendJson`.
+- **New tab kind** → add it to `TabKind` in `types/index.ts`, add a `lazy()`
+  render branch in `SplitContainer.tsx`, add icons in `TabBar.tsx` and the pane
+  chip, and add it to the `default:` list in `reconcileTabs()` so the tab
+  survives a doc sync.
 - **New export format** → add `src/export/<fmt>.ts`, export from `export/index.ts`,
   and include it in the workspace ZIP if appropriate.
+- **Retiring a feature** → delete its UI, repo, store slice, subscription and
+  `TABLE_NAMES` entry, then add its table(s) to `TABLES` in
+  `src/export/retired.ts` so the records still archive and re-import. Do not
+  delete the maps: a workspace ZIP or a backup may be the only copy left.
 
 ---
 
@@ -1229,7 +896,9 @@ src/                       Client (see "Key files map" above for detail)
 server/
   index.mjs                HTTP + WS entry
   auth.mjs                 PBKDF2 + HMAC token helpers
-  db.mjs                   bun:sqlite users + settings
+  db.mjs                   bun:sqlite users + settings + versions + commands
+  yjs-data.mjs             The only server-side door into the shared Yjs doc
+  history.mjs              Per-page GC-off twin + version timeline
   cmdlog.mjs               Command-log ingest + config
   backup.mjs, restore.mjs  Backup engine + restore CLI (with scheduler, backup-format, data-export)
 cmdlog-agent/              Standalone Python 3 command-capture agent (stdlib only)
@@ -1357,11 +1026,11 @@ All data lives in a single named Docker volume, `btct-data`, mounted at `/data`:
 | Data | Path | Survives `up -d --build` |
 | --- | --- | --- |
 | User accounts + per-account prefs + settings | `/data/data.sqlite` | yes |
-| Notes, pages, graphs, chains, nmap scans (Yjs LevelDB) | `/data/yjs/` | yes |
+| Notes, pages, nmap scans, assets metadata (Yjs LevelDB) | `/data/yjs/` | yes |
 | Activity log (every change, author + timestamp) | `/data/yjs/` | yes |
 | Page version timeline (who changed what, named versions) | `/data/data.sqlite` + `/data/history/` | yes |
-| Typst screenshots + custom fonts (raw bytes) | `/data/assets/` | yes |
-| Typst asset metadata (names, crop rects, blur regions, font families) | `/data/yjs/` | yes |
+| Screenshots (raw bytes) | `/data/assets/` | yes |
+| Asset metadata (names, folders, crop rects, blur regions) | `/data/yjs/` | yes |
 
 So **every code update, image rebuild, or container restart preserves all your
 data.** The only commands that destroy it are `docker compose down -v` or manually
@@ -1393,7 +1062,7 @@ drive; on Linux add `user:` to the service so the files are not root-owned.
 backups/btct-backup-20260823-101500/
   manifest.json                 what is inside + sha256 of every file
   sqlite/data.sqlite.gz         accounts, settings, chat sessions, asset index
-  yjs/btct-shared.yupdate.gz    workspace metadata (pages list, graphs, findings, ...)
+  yjs/btct-shared.yupdate.gz    workspace metadata (pages list, scans, assets, ...)
   yjs/<pageId>.yupdate.gz       one per page body
   assets/<id>                   uploaded screenshots and fonts
   history/<pageId>.ydoc         GC-off history twin per page (what version diffs render from)
@@ -1450,8 +1119,8 @@ For *per-workspace* portability (no users/SQLite) use the in-app
 
 BTCT records who did what to every entity and lets you roll back specific actions.
 
-**Activity log**: every create/update/delete/restore on a workspace, page,
-graph, node, edge, or attack chain writes a `changeLogs` entry into the shared
+**Activity log**: every create/update/delete/restore on a workspace or page
+writes a `changeLogs` entry into the shared
 doc with the author (captured at write time so it survives a user being
 renamed/removed), a millisecond timestamp, a **field-level delta** (prev + new
 for single-field updates, which is what makes it reversible), and a **full entity
@@ -1590,9 +1259,9 @@ bun install        # one-time
 bun run test       # vitest run
 ```
 
-Unit suites live in [src/test/](src/test/) (pure logic: pane layout, pathfinding,
-auto-layout, nmap parser, markdown/graphml export, editor-prefs shortcut parsing,
-etc.). The full build is `bun run build` (`tsc -b && vite build`).
+Unit suites live in [src/test/](src/test/) (pure logic: pane layout, nmap
+parser, markdown export, the retired-feature archive, editor-prefs shortcut
+parsing, crop/blur geometry, backup format, page history, etc.). The full build is `bun run build` (`tsc -b && vite build`).
 
 ---
 

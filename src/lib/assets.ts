@@ -1,22 +1,20 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Client side of the Typst asset pipeline: upload, fetch, crop, blur, and
-// hand the resulting bytes to the compiler's virtual filesystem.
+// Client side of the image-asset pipeline: upload, fetch, crop and redact.
 //
-// The crop is applied *here*, not in Typst. When an asset carries a crop
-// rect we decode the original, draw the selected region to a canvas, and
-// shadow the result into the compiler under the asset's filename. From the
-// document's point of view `#image("/assets/shot.png")` simply *is* the
-// framed image.
+// The crop and the blur are applied *here*, at read time, never to the
+// uploaded bytes. When an asset carries a crop rect we decode the original,
+// draw the selected region to a canvas, and hand back the result; the
+// original stays on the server untouched, so any framing or redaction can be
+// undone later.
 //
-// Because the crop rect carries the figure box's aspect ratio (see
-// crop-math.ts), the bytes drop into the box with no letterboxing and no
-// distortion: the crop editor's viewport and the rendered figure show the
-// same thing. A rect extending past the image edge is legal and renders as
-// the placeholder grey, baked in here so the two stay identical.
+// The crop rect carries the frame's aspect ratio (see crop-math.ts), so the
+// editor's viewport and what a note renders show the same thing. A rect
+// extending past the image edge is legal and fills with the placeholder
+// grey, baked in here so the two stay identical.
 //
 // Everything is cached by content identity: raw bytes by asset id (they're
-// immutable server-side) and cropped bytes by id + crop rect. Re-rendering
-// on every keystroke therefore costs nothing after the first decode.
+// immutable server-side) and rendered bytes by id + crop + blur. Re-rendering
+// therefore costs nothing after the first decode.
 // ─────────────────────────────────────────────────────────────────────────
 
 import { API_URL, useAuthStore } from '@/auth/auth-store';
@@ -35,10 +33,10 @@ import type { BlurRegion, CropRect, TypstAsset, TypstAssetKind } from '@/types';
 // Re-exported so callers have one import site for the asset pipeline.
 export { isFullFrame, normalizeCrop } from './crop-math';
 
-/** Directory the assets are mounted under inside the Typst virtual FS. */
+/** Path prefix an asset is addressed by. */
 export const ASSET_DIR = '/assets';
 
-/** The Typst path for an asset: what goes inside `#image("…")`. */
+/** The stable path an asset is referenced by. */
 export function assetPath(asset: Pick<TypstAsset, 'filename'>): string {
   return `${ASSET_DIR}/${asset.filename}`;
 }
@@ -204,7 +202,7 @@ async function canvasToBytes(canvas: HTMLCanvasElement, mime: string): Promise<U
 
 /**
  * `luma(245)`: the placeholder grey. Gaps are baked into the image rather
- * than left to Typst so the crop editor and the PDF agree exactly: what the
+ * than left to the renderer, so the crop editor and the note agree: what the
  * viewport shows is literally the bytes that get written.
  */
 export const GAP_FILL = '#f5f5f5';
@@ -321,7 +319,7 @@ function bakeBlurs(
  * Apply a normalized crop rect (and any blur regions) to image bytes.
  *
  * `targetFormat` must match the extension of the path these bytes will be
- * mounted at: Typst selects its decoder from the extension, so re-encoding a
+ * mounted at: the decoder is chosen from the extension, so re-encoding a
  * cropped `.jpg` as PNG produces "Illegal start bytes: 8950" at compile time.
  */
 export async function cropImageBytes(
@@ -380,7 +378,7 @@ export function blurredPreviewBytes(
 /**
  * The bytes to shadow into the compiler for this asset.
  *
- * Enforces the invariant that makes Typst's extension-based decoding safe:
+ * Enforces the invariant that makes extension-based decoding safe:
  * **the bytes mounted at a path are always in the format that path's
  * extension claims.** Two things can violate it: cropping (which re-encodes)
  * and a mislabelled upload (a PNG saved as `shot.jpg`), and both are fixed
@@ -534,26 +532,4 @@ export async function detectContentBounds(
   if (cw < sw * 0.05 || ch < sh * 0.05) return null;
 
   return normalizeCrop({ x: left / sw, y: top / sh, w: cw / sw, h: ch / sh });
-}
-
-// ── font metadata ────────────────────────────────────────────────────────
-
-/**
- * Read the family name out of a font file so the UI can tell the operator
- * exactly what to put in `#set text(font: "…")`.
- *
- * Uses typst.ts's own font parser rather than a separate OpenType library:
- * it's already loaded, and (more importantly) it reports the name the
- * *compiler* will match on. A name from a different parser could disagree
- * for fonts with several name-table entries, which would send the operator
- * chasing a font Typst can't find.
- */
-export async function readFontFamily(bytes: Uint8Array): Promise<string | null> {
-  try {
-    const { getFontInfo } = await import('./typst-compiler');
-    const info = await getFontInfo(bytes);
-    return info?.family ?? null;
-  } catch {
-    return null;
-  }
 }

@@ -27,8 +27,6 @@ export type KeybindAction =
   | 'focusLanguage'
   // Global (non-editor) shortcut: open the "active users / follow" window.
   | 'openFollowPanel'
-  // Global shortcut: quick-add a custom Attack Timeline event.
-  | 'quickAddEvent'
   // Editor shortcut: blur/crop the selected note image.
   | 'blurImage';
 
@@ -109,7 +107,6 @@ export const DEFAULT_KEYBINDS: Record<KeybindAction, string> = {
   // RETIRED_KEYBINDS below.
   focusLanguage: 'Mod-/',
   openFollowPanel: 'Mod-Shift-u',
-  quickAddEvent: 'Mod-Shift-e',
   blurImage: 'Mod-Shift-b',
 };
 
@@ -156,7 +153,6 @@ export const KEYBIND_ACTIONS: ReadonlyArray<{ id: KeybindAction; label: string }
   { id: 'highlight', label: 'Highlight (last color)' },
   { id: 'focusLanguage', label: 'Focus code language' },
   { id: 'openFollowPanel', label: 'Active users / follow' },
-  { id: 'quickAddEvent', label: 'Quick-add timeline event' },
   { id: 'blurImage', label: 'Blur / edit selected image' },
 ];
 

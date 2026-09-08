@@ -2,8 +2,8 @@
  * Wires the Zustand app store to Y.Map change events on the shared doc.
  *
  * Whenever another user (or this user from another tab) creates / updates
- * / deletes a workspace, page, graph, node, edge, change log, nmap scan,
- * nmap machine, or attack chain, the matching `load*()` action runs and
+ * / deletes a workspace, page, change log, nmap scan or nmap machine,
+ * the matching `load*()` action runs and
  * the UI re-renders.
  *
  * Coalesces bursts of changes via microtask debouncing so a multi-write
@@ -34,13 +34,10 @@ export function bindSharedSubscriptions(): () => void {
 
   unsubs.push(subscribeTable('workspaces',   debounce(() => { void s().loadWorkspaces(); })));
   unsubs.push(subscribeTable('pages',        debounce(() => { void s().loadPages().then(() => s().reconcileTabs()); })));
-  unsubs.push(subscribeTable('graphs',       debounce(() => { void s().loadGraphs().then(() => s().reconcileTabs()); })));
   unsubs.push(subscribeTable('changeLogs',   debounce(() => { void s().loadChangeLogs(); })));
   unsubs.push(subscribeTable('nmapScans',    debounce(() => { void s().loadNmapScans().then(() => s().reconcileTabs()); })));
-  unsubs.push(subscribeTable('attackChains', debounce(() => { void s().loadAttackChains(); })));
   unsubs.push(subscribeTable('typstAssets',  debounce(() => { void s().loadTypstAssets(); })));
   unsubs.push(subscribeTable('assetFolders', debounce(() => { void s().loadAssetFolders(); })));
-  unsubs.push(subscribeTable('timelineEvents', debounce(() => { void s().loadTimelineEvents(); })));
   unsubs.push(subscribeTable('commandLogs',  debounce(() => { void s().loadCommandLogs(); })));
 
   // Admin theme policy, mirrored into the doc by the server on every save
@@ -54,21 +51,6 @@ export function bindSharedSubscriptions(): () => void {
       useThemeStore.getState().applyServerBlur(e.current('blur') as PublicBlurSettings | undefined);
     }
   }));
-
-  // For graph nodes/edges + nmap machines we re-run the corresponding
-  // detail loader if a relevant entity is currently being viewed. The
-  // cheap shortcut is to re-run `loadGraphData` for every active graph
-  // tab and `loadNmapMachines` for the currently-open scan.
-  const reloadGraphData = debounce(() => {
-    const st = s();
-    const ids = new Set<string>();
-    for (const tab of st.tabs) {
-      if (tab.kind === 'graph') ids.add(tab.entityId);
-    }
-    for (const id of ids) void st.loadGraphData(id);
-  });
-  unsubs.push(subscribeTable('graphNodes', reloadGraphData));
-  unsubs.push(subscribeTable('graphEdges', reloadGraphData));
 
   // Reload only the scans whose machines actually changed: the event's
   // changed keys are machine ids, and each record (or a delete's oldValue)

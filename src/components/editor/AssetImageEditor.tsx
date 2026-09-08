@@ -3,11 +3,11 @@
 //   • the right-click menu over a note image (from the `imageMenu` store flag)
 //   • the crop/blur editor dialog (from the `editingAssetId` store flag)
 //
-// The editor is the same non-destructive PlaceScreenshotDialog the report and
-// the Assets Manager use, in `hidePlacement` mode: it edits the shared asset's
-// crop/blur metadata, never the original bytes, so a blur can always be
-// removed. The note image (asset_image node view) re-renders from the asset,
-// so the change shows in the note immediately.
+// The editor is the same non-destructive ImageEditorDialog the Assets Manager
+// uses: it edits the shared asset's crop/blur metadata, never the original
+// bytes, so a blur can always be removed. The note image (asset_image node
+// view) re-renders from the asset, so the change shows in the note
+// immediately.
 // ─────────────────────────────────────────────────────────────────────────
 
 import { Suspense, lazy, useEffect } from 'react';
@@ -17,8 +17,8 @@ import { Portal } from '@/components/ui/Portal';
 import { openAssetImageEditor } from '@/lib/note-image-paste';
 import { v4 as uuidv4 } from 'uuid';
 
-const PlaceScreenshotDialog = lazy(() =>
-  import('@/components/typst/PlaceScreenshotDialog').then((m) => ({ default: m.PlaceScreenshotDialog })),
+const ImageEditorDialog = lazy(() =>
+  import('@/components/assets/ImageEditorDialog').then((m) => ({ default: m.ImageEditorDialog })),
 );
 
 export function AssetImageEditor() {
@@ -74,13 +74,9 @@ export function AssetImageEditor() {
       {editingAsset && (
         <Portal>
           <Suspense fallback={null}>
-            <PlaceScreenshotDialog
+            <ImageEditorDialog
               asset={editingAsset}
-              source=""
-              hidePlacement
               onApply={(crop, blurs) => { void setTypstAssetCrop(editingAsset.id, crop, blurs); setEditingAssetId(null); }}
-              onUnplace={() => setEditingAssetId(null)}
-              onAddSlot={() => { /* no slots outside the report */ }}
               onRename={(stem) => { void renameTypstAsset(editingAsset.id, stem); }}
               onClose={() => setEditingAssetId(null)}
             />

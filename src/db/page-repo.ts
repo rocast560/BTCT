@@ -36,14 +36,6 @@ export const pageRepo = {
     return rows.map(normalize);
   },
 
-  async getBacklinks(pageId: string): Promise<{ nodes: import('@/types').GraphNode[]; edges: import('@/types').GraphEdge[] }> {
-    const [nodes, edges] = await Promise.all([
-      db.graphNodes.where('linkedPageId').equals(pageId).toArray(),
-      db.graphEdges.where('linkedPageId').equals(pageId).toArray(),
-    ]);
-    return { nodes, edges };
-  },
-
   async create(data: {
     workspaceId: string;
     parentId: string | null;

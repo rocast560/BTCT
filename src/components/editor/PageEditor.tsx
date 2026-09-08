@@ -52,15 +52,10 @@ import { normalizePageContent } from '@/export/markdown';
 import { getPageYContext, retainPageYContext } from '@/realtime/yjs-providers';
 import { textKey } from '@/realtime/shared-doc';
 import { useYTextInput } from '@/realtime/use-y-text';
-import { graphNodeRepo } from '@/db/graph-node-repo';
-import { graphEdgeRepo } from '@/db/graph-edge-repo';
 import { pageRepo } from '@/db/page-repo';
 import type {
-  Page, GraphNode, GraphEdge,
-  HostData, ServiceData, FindingData, PivotData,
+  Page,
 } from '@/types';
-import { Monitor, Key, Cog, Bug, ArrowRightLeft, ArrowLeft } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Minimal shape of Crepe's slash-menu builder.
@@ -81,15 +76,10 @@ export function PageEditor({ pageId }: { pageId: string }) {
   // Read the page reactively from the shared store so remote edits
   // (title, slug, tags, icon, content) propagate to this view in real time.
   const storePage = useAppStore((s) => s.pages.find((p) => p.id === pageId) ?? null);
-  // Only the node linked to this page matters; selecting the whole array
-  // re-rendered every open editor on every node move.
-  const linkedNodeFromStore = useAppStore((s) => s.graphNodes.find((n) => n.linkedPageId === pageId) ?? null);
-
-  // Graph node pages are deliberately excluded from `loadPages()` so they
-  // don't clutter the sidebar tree, which means double-clicking a graph
-  // node opens a tab whose page id isn't in the store. Fetch it from the
-  // repo so the editor can render. Subscribe to shared-doc page events
-  // so remote edits to a graph page also flow into this fallback copy.
+  // Legacy pages created for retired graph nodes are excluded from
+  // `loadPages()`, so a tab can point at a page id that is not in the
+  // store. Fetch it from the repo so the editor can still render, and
+  // follow shared-doc page events so remote edits reach this copy.
   const [fallbackPage, setFallbackPage] = useState<Page | null>(null);
   useEffect(() => {
     if (storePage) { setFallbackPage(null); return; }
@@ -103,7 +93,7 @@ export function PageEditor({ pageId }: { pageId: string }) {
     // Re-fetch only when the pages table identity actually changes. A bare
     // subscribe(refetch) fired on EVERY store write, including this
     // editor's own 400ms content save, doing a repo read + setState each
-    // time while a graph-node page is open.
+    // time such a page is open.
     const unsub = useAppStore.subscribe((state, prev) => {
       if (state.pages !== prev.pages) refetch();
     });
@@ -112,41 +102,13 @@ export function PageEditor({ pageId }: { pageId: string }) {
 
   const page = storePage ?? fallbackPage;
 
-  const linkedNode = useMemo<GraphNode | null>(() => {
-    if (!page || !page.isGraphPage) return null;
-    return linkedNodeFromStore;
-  }, [page, linkedNodeFromStore]);
-
-  // Fallback for graph nodes that haven't been loaded into the store yet
-  // (e.g. opening a page tab before its graph tab). Hit the repo once and
-  // hydrate via setLinkedNode-style local state only as a fallback.
-  const [fallbackNode, setFallbackNode] = useState<GraphNode | null>(null);
-  useEffect(() => {
-    if (!page || !page.isGraphPage || linkedNode) {
-      setFallbackNode(null);
-      return;
-    }
-    let cancelled = false;
-    void graphNodeRepo.getByLinkedPage(page.id).then((nodes) => {
-      if (!cancelled && nodes.length > 0) setFallbackNode(nodes[0]!);
-    });
-    return () => { cancelled = true; };
-  }, [page, linkedNode]);
-
   if (!page) return <div className="flex-1 p-4">Loading...</div>;
 
-  return <PageEditorInner page={page} linkedNode={linkedNode ?? fallbackNode} />;
+  return <PageEditorInner page={page} />;
 }
 
-function PageEditorInner({ page, linkedNode }: {
-  page: Page;
-  linkedNode: GraphNode | null;
-}) {
+function PageEditorInner({ page }: { page: Page }) {
   const updatePage = useAppStore((s) => s.updatePage);
-  const updateGraphNode = useAppStore((s) => s.updateGraphNode);
-  const openTab = useAppStore((s) => s.openTab);
-  const graphs = useAppStore((s) => s.graphs);
-  const setPendingFocusNodeId = useAppStore((s) => s.setPendingFocusNodeId);
   const [editingSlug, setEditingSlug] = useState(false);
 
   // Bind the title and slug inputs to Y.Text CRDTs so concurrent edits
@@ -165,30 +127,8 @@ function PageEditorInner({ page, linkedNode }: {
 
   // The slug input also runs a sanitizer (lowercase, hyphens) over the
   // user's typed value before committing it to the CRDT.
-  // The linked-node mirror is a full record rewrite plus a store-wide
-  // reload per call, so it must not run per keystroke; the trailing value
-  // after a pause is all the label needs.
-  const labelSyncTimer = useRef<number | null>(null);
-  useEffect(() => () => {
-    if (labelSyncTimer.current != null) window.clearTimeout(labelSyncTimer.current);
-  }, []);
-
   const handleTitleChange = (value: string) => {
     setTitleValue(value);
-    // Mirror the new title onto the linked graph node's label Y.Text so
-    // both stay in sync collaboratively.
-    if (linkedNode) {
-      // We do NOT have a Y.Text handle here: fall back to a straight
-      // record patch for the linked node's label; users almost never
-      // type into the page-title and the node-label simultaneously, and
-      // the linked node also has its own Y.Text in NodeProperties.
-      const nodeId = linkedNode.id;
-      if (labelSyncTimer.current != null) window.clearTimeout(labelSyncTimer.current);
-      labelSyncTimer.current = window.setTimeout(() => {
-        labelSyncTimer.current = null;
-        void updateGraphNode(nodeId, { label: value });
-      }, 500);
-    }
   };
 
   const handleSlugInputChange = (raw: string) => {
@@ -238,48 +178,11 @@ function PageEditorInner({ page, linkedNode }: {
     };
   }, [page.id, updatePage]);
 
-  const discoveredAt = useMemo(() => {
-    if (!page) return null;
-    if (page.isGraphPage) return page.createdAt;
-    return null;
-  }, [page]);
-
-  const handleNodeDataChange = useCallback((patch: Record<string, unknown>) => {
-    if (!linkedNode) return;
-    // Allow nested fields (e.g. host "Hostname") to also bump the node label
-    // and page title by passing a magic `__label` key in the patch.
-    const { __label, ...dataPatch } = patch as { __label?: unknown } & Record<string, unknown>;
-    const newData = { ...linkedNode.data, ...dataPatch };
-    const updates: Partial<GraphNode> = { data: newData };
-    if (typeof __label === 'string') {
-      updates.label = __label;
-      void updatePage(page.id, { title: __label });
-    }
-    void updateGraphNode(linkedNode.id, updates);
-  }, [linkedNode, updateGraphNode, updatePage, page.id]);
-
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-6 py-8">
         {/* Title */}
         <div className="mb-1 flex items-center gap-2">
-          {linkedNode && (() => {
-            const graph = graphs.find((g) => g.id === linkedNode.graphId);
-            if (!graph) return null;
-            return (
-              <button
-                type="button"
-                onClick={() => {
-                  setPendingFocusNodeId(linkedNode.id);
-                  openTab({ id: uuidv4(), kind: 'graph', entityId: graph.id, title: graph.name });
-                }}
-                title={`Back to ${graph.name}`}
-                className="flex shrink-0 items-center gap-1 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2.5 py-1 text-[10px] uppercase tracking-wider hover:bg-[hsl(var(--accent))]"
-              >
-                <ArrowLeft size={12} /> Narrative
-              </button>
-            );
-          })()}
           <span className="text-2xl">{page.icon}</span>
           <input
             ref={titleInputRef}
@@ -322,23 +225,6 @@ function PageEditorInner({ page, linkedNode }: {
             </span>
           ))}
         </div>
-
-        {/* Discovered at timestamp for graph pages */}
-        {discoveredAt && (
-          <div className="mb-4 text-xs text-[hsl(var(--muted-foreground))]">
-            Discovered: {new Date(discoveredAt).toLocaleString()}
-          </div>
-        )}
-
-        {/* Editable node data for graph-linked pages */}
-        {linkedNode && (
-          <NodeDataEditor node={linkedNode} onChange={handleNodeDataChange} />
-        )}
-
-        {/* Connected nodes for graph-linked pages */}
-        {linkedNode && (
-          <ConnectedNodes node={linkedNode} />
-        )}
 
         {/* Milkdown (Crepe) editor: Obsidian-style live-preview markdown. */}
         <MilkdownProvider>
@@ -934,339 +820,4 @@ function swatchCssColor(color: HighlightColor): string {
     case 'purple': return 'rgba(192, 132, 252, 0.65)';
     case 'red':    return 'rgba(248, 113, 113, 0.65)';
   }
-}
-
-// ── Inline node data editor (shown on graph-linked pages) ──
-
-
-const NODE_TYPE_LABELS: Record<string, string> = {
-  host: 'Host',
-  service: 'Service',
-  finding: 'Finding',
-  pivot: 'Pivot',
-};
-
-// Per-severity pill styling for the finding-properties header: kept in
-// sync with FindingNode's severityConfig so the same medium/high/etc.
-// badge appears on the graph card AND in the editor header.
-const SEVERITY_BADGE: Record<string, string> = {
-  critical: 'bg-[hsl(var(--status-purple))]/25 text-[hsl(var(--status-purple))]',
-  high:     'bg-[hsl(var(--status-red))]/25 text-[hsl(var(--status-red))]',
-  medium:   'bg-[hsl(var(--status-amber))]/25 text-[hsl(var(--status-amber))]',
-  low:      'bg-[hsl(var(--status-green))]/25 text-[hsl(var(--status-green))]',
-  info:     'bg-[hsl(var(--status-blue))]/25 text-[hsl(var(--status-blue))]',
-};
-
-function NodeDataEditor({ node, onChange }: { node: GraphNode; onChange: (patch: Record<string, unknown>) => void }) {
-  const findingData = node.type === 'finding' ? (node.data as FindingData | undefined) : null;
-  const severity = findingData?.severity ?? null;
-  return (
-    <div className="mb-6 overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
-      <div className="flex items-center gap-3 border-b border-[hsl(var(--border))] px-4 py-3">
-        {severity && (
-          <span className={`rounded-full px-3.5 py-1 text-xl font-bold uppercase tracking-wide ${SEVERITY_BADGE[severity] ?? SEVERITY_BADGE['info']}`}>
-            {severity}
-            {findingData && findingData.cvss > 0 ? ` · ${findingData.cvss.toFixed(1)}` : ''}
-          </span>
-        )}
-        <span className="text-2xl font-bold uppercase tracking-wider text-[hsl(var(--foreground))]">
-          {NODE_TYPE_LABELS[node.type] ?? node.type} Properties
-        </span>
-      </div>
-      <div className="grid gap-3 px-4 py-3">
-        {node.type === 'host' && <HostFields data={(node.data ?? {}) as HostData} onChange={onChange} />}
-        {node.type === 'service' && <ServiceFields data={(node.data ?? {}) as ServiceData} onChange={onChange} />}
-        {node.type === 'finding' && <FindingFields data={(node.data ?? {}) as FindingData} onChange={onChange} />}
-        {node.type === 'pivot' && <PivotFields data={(node.data ?? {}) as PivotData} onChange={onChange} />}
-      </div>
-    </div>
-  );
-}
-
-function InlineField({ label, value, onChange, mono }: { label: string; value: string; onChange: (v: string) => void; mono?: boolean }) {
-  return (
-    <div className="flex items-center gap-3">
-      <label className="w-28 shrink-0 text-xs text-[hsl(var(--muted-foreground))]">{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none focus:border-[hsl(var(--primary))] ${mono ? 'font-mono' : ''}`}
-      />
-    </div>
-  );
-}
-
-function HostFields({ data, onChange }: { data: HostData; onChange: (p: Record<string, unknown>) => void }) {
-  const [portsText, setPortsText] = useState((data.openPorts ?? []).join(', '));
-  const commitPorts = () => {
-    const parsed = portsText.split(',').map((p) => parseInt(p.trim(), 10)).filter((n) => !isNaN(n));
-    onChange({ openPorts: parsed });
-  };
-  return (
-    <>
-      <InlineField
-        label="Hostname"
-        value={data.hostname ?? ''}
-        onChange={(v) => onChange({ hostname: v, __label: v })}
-      />
-      <InlineField label="IP Address" value={data.ip ?? ''} onChange={(v) => onChange({ ip: v })} mono />
-      <InlineField label="OS" value={data.os ?? ''} onChange={(v) => onChange({ os: v })} />
-      <div className="flex items-center gap-3">
-        <label className="w-28 shrink-0 text-xs text-[hsl(var(--muted-foreground))]">Open Ports</label>
-        <input
-          value={portsText}
-          onChange={(e) => setPortsText(e.target.value)}
-          onBlur={commitPorts}
-          onKeyDown={(e) => { if (e.key === 'Enter') commitPorts(); }}
-          placeholder="80, 443, 8080"
-          className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 font-mono text-sm outline-none focus:border-[hsl(var(--primary))]"
-        />
-      </div>
-    </>
-  );
-}
-
-function ServiceFields({ data, onChange }: { data: ServiceData; onChange: (p: Record<string, unknown>) => void }) {
-  const [cvesText, setCvesText] = useState((data.cves ?? []).join(', '));
-  const commitCves = () => {
-    onChange({ cves: cvesText.split(',').map((s) => s.trim()).filter(Boolean) });
-  };
-  return (
-    <>
-      <InlineField label="Service Name" value={data.name ?? ''} onChange={(v) => onChange({ name: v })} />
-      <InlineField label="Version" value={data.version ?? ''} onChange={(v) => onChange({ version: v })} />
-      <InlineField label="Port" value={String(data.port ?? 0)} onChange={(v) => onChange({ port: parseInt(v, 10) || 0 })} mono />
-      <div className="flex items-center gap-3">
-        <label className="w-28 shrink-0 text-xs text-[hsl(var(--muted-foreground))]">CVEs</label>
-        <input
-          value={cvesText}
-          onChange={(e) => setCvesText(e.target.value)}
-          onBlur={commitCves}
-          onKeyDown={(e) => { if (e.key === 'Enter') commitCves(); }}
-          placeholder="CVE-2024-1234, CVE-2024-5678"
-          className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 font-mono text-sm outline-none focus:border-[hsl(var(--primary))]"
-        />
-      </div>
-    </>
-  );
-}
-
-function FindingFields({ data, onChange }: { data: FindingData; onChange: (p: Record<string, unknown>) => void }) {
-  const [cvssText, setCvssText] = useState(String(data.cvss ?? 0));
-  const [cvssFocused, setCvssFocused] = useState(false);
-  const [hostsText, setHostsText] = useState((data.hosts ?? []).join(', '));
-  const [refsText, setRefsText] = useState((data.references ?? []).join('\n'));
-  useEffect(() => { if (!cvssFocused) setCvssText(String(data.cvss ?? 0)); }, [data.cvss, cvssFocused]);
-  useEffect(() => { setHostsText((data.hosts ?? []).join(', ')); }, [data.hosts]);
-  useEffect(() => { setRefsText((data.references ?? []).join('\n')); }, [data.references]);
-  const commitCvss = () => {
-    setCvssFocused(false);
-    let num = parseFloat(cvssText);
-    if (isNaN(num)) num = 0;
-    num = Math.max(0, Math.min(10, num));
-    setCvssText(String(num));
-    onChange({ cvss: num });
-  };
-  const commitHosts = () => onChange({ hosts: hostsText.split(',').map((s) => s.trim()).filter(Boolean) });
-  const commitRefs = () => onChange({ references: refsText.split('\n').map((s) => s.trim()).filter(Boolean) });
-  const sevOptions: Array<FindingData['severity']> = ['critical', 'high', 'medium', 'low', 'info'];
-  return (
-    <>
-      <InlineField label="Title" value={data.title ?? ''} onChange={(v) => onChange({ title: v })} />
-      <InlineSelect label="Severity" value={data.severity ?? 'medium'} options={sevOptions} onChange={(v) => onChange({ severity: v })} />
-      <div className="flex items-center gap-3">
-        <label className="w-28 shrink-0 text-xs text-[hsl(var(--muted-foreground))]">CVSS</label>
-        <input
-          value={cvssText}
-          onChange={(e) => setCvssText(e.target.value)}
-          onFocus={() => setCvssFocused(true)}
-          onBlur={commitCvss}
-          onKeyDown={(e) => { if (e.key === 'Enter') commitCvss(); }}
-          className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 font-mono text-sm outline-none focus:border-[hsl(var(--primary))]"
-        />
-      </div>
-      <InlineField label="CVSS Vector" value={data.cvssVector ?? ''} onChange={(v) => onChange({ cvssVector: v })} mono />
-      <InlineSelect label="Likelihood" value={data.likelihood ?? 'info'} options={sevOptions} onChange={(v) => onChange({ likelihood: v })} />
-      <InlineSelect label="Impact" value={data.impact ?? 'info'} options={sevOptions} onChange={(v) => onChange({ impact: v })} />
-      <InlineTextArea label="Description" value={data.description ?? ''} onChange={(v) => onChange({ description: v })} rows={3} />
-      <InlineTextArea label="Business Impact" value={data.businessImpact ?? ''} onChange={(v) => onChange({ businessImpact: v })} rows={2} />
-      <InlineTextArea label="Exploit Steps" value={data.exploitSteps ?? ''} onChange={(v) => onChange({ exploitSteps: v })} rows={4} mono />
-      <InlineField label="MITRE ATT&CK" value={data.mitreAttack ?? ''} onChange={(v) => onChange({ mitreAttack: v })} />
-      <InlineField label="MITRE Mitigation" value={data.mitreMitigation ?? ''} onChange={(v) => onChange({ mitreMitigation: v })} />
-      <InlineTextArea label="Remediation" value={data.remediation ?? ''} onChange={(v) => onChange({ remediation: v })} rows={3} />
-      <div className="flex items-center gap-3">
-        <label className="w-28 shrink-0 text-xs text-[hsl(var(--muted-foreground))]">Hosts</label>
-        <input
-          value={hostsText}
-          onChange={(e) => setHostsText(e.target.value)}
-          onBlur={commitHosts}
-          onKeyDown={(e) => { if (e.key === 'Enter') commitHosts(); }}
-          placeholder="10.0.0.5, web01"
-          className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 font-mono text-sm outline-none focus:border-[hsl(var(--primary))]"
-        />
-      </div>
-      <InlineField label="Service" value={data.service ?? ''} onChange={(v) => onChange({ service: v })} />
-      <div className="flex items-start gap-3">
-        <label className="w-28 shrink-0 pt-1 text-xs text-[hsl(var(--muted-foreground))]">References</label>
-        <textarea
-          value={refsText}
-          onChange={(e) => setRefsText(e.target.value)}
-          onBlur={commitRefs}
-          placeholder="One URL or reference per line"
-          rows={3}
-          className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 font-mono text-sm outline-none focus:border-[hsl(var(--primary))] resize-y"
-        />
-      </div>
-    </>
-  );
-}
-
-function InlineSelect<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: readonly T[]; onChange: (v: T) => void }) {
-  return (
-    <div className="flex items-center gap-3">
-      <label className="w-28 shrink-0 text-xs text-[hsl(var(--muted-foreground))]">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
-        className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none focus:border-[hsl(var(--primary))] capitalize"
-      >
-        {options.map((opt) => (
-          <option key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function InlineTextArea({ label, value, onChange, rows = 3, mono }: { label: string; value: string; onChange: (v: string) => void; rows?: number; mono?: boolean }) {
-  return (
-    <div className="flex items-start gap-3">
-      <label className="w-28 shrink-0 pt-1 text-xs text-[hsl(var(--muted-foreground))]">{label}</label>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={rows}
-        className={`flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none focus:border-[hsl(var(--primary))] resize-y ${mono ? 'font-mono' : ''}`}
-      />
-    </div>
-  );
-}
-
-function PivotFields({ data, onChange }: { data: PivotData; onChange: (p: Record<string, unknown>) => void }) {
-  return (
-    <div className="flex items-start gap-3">
-      <label className="w-28 shrink-0 pt-1 text-xs text-[hsl(var(--muted-foreground))]">Description</label>
-      <textarea
-        value={data.description ?? ''}
-        onChange={(e) => onChange({ description: e.target.value })}
-        className="flex-1 border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1 text-sm outline-none focus:border-[hsl(var(--primary))]"
-        rows={3}
-      />
-    </div>
-  );
-}
-
-// ── Connected nodes section (shown below node properties on graph-linked pages) ──
-
-const NODE_ICON: Record<string, React.ReactNode> = {
-  host: <Monitor size={14} className="text-neutral-400" />,
-  credential: <Key size={14} className="text-neutral-400" />,
-  service: <Cog size={14} className="text-neutral-400" />,
-  finding: <Bug size={14} className="text-red-400" />,
-  pivot: <ArrowRightLeft size={14} className="text-neutral-400" />,
-};
-
-const NODE_BORDER_COLOR: Record<string, string> = {
-  host: 'border-neutral-600/60 hover:border-neutral-500/80',
-  credential: 'border-neutral-600/60 hover:border-neutral-500/80',
-  service: 'border-neutral-600/60 hover:border-neutral-500/80',
-  finding: 'border-red-800/60 hover:border-red-600/80',
-  pivot: 'border-neutral-600/60 hover:border-neutral-500/80',
-};
-
-interface ConnectedNodeInfo {
-  node: GraphNode;
-  edgeLabel: string;
-  direction: 'outgoing' | 'incoming';
-}
-
-function ConnectedNodes({ node }: { node: GraphNode }) {
-  const [connected, setConnected] = useState<ConnectedNodeInfo[]>([]);
-  const openTab = useAppStore((s) => s.openTab);
-
-  useEffect(() => {
-    void (async () => {
-      // Get all edges for this graph
-      const edges: GraphEdge[] = await graphEdgeRepo.getByGraph(node.graphId);
-      // Find edges connected to this node
-      const relevant = edges.filter(
-        (e) => e.sourceNodeId === node.id || e.targetNodeId === node.id,
-      );
-      if (relevant.length === 0) {
-        setConnected([]);
-        return;
-      }
-      // Collect unique connected node IDs
-      const peerIds = new Set<string>();
-      const edgeMap = new Map<string, { label: string; direction: 'outgoing' | 'incoming' }>();
-      for (const e of relevant) {
-        if (e.sourceNodeId === node.id) {
-          peerIds.add(e.targetNodeId);
-          edgeMap.set(e.targetNodeId, { label: e.label, direction: 'outgoing' });
-        } else {
-          peerIds.add(e.sourceNodeId);
-          edgeMap.set(e.sourceNodeId, { label: e.label, direction: 'incoming' });
-        }
-      }
-      // Fetch each connected node
-      const results: ConnectedNodeInfo[] = [];
-      for (const peerId of peerIds) {
-        const peerNode = await graphNodeRepo.getById(peerId);
-        if (peerNode) {
-          const info = edgeMap.get(peerId)!;
-          results.push({ node: peerNode, edgeLabel: info.label, direction: info.direction });
-        }
-      }
-      setConnected(results);
-    })();
-  }, [node.id, node.graphId]);
-
-  if (connected.length === 0) return null;
-
-  const handleClick = (target: GraphNode) => {
-    openTab({ id: uuidv4(), kind: 'page', entityId: target.linkedPageId, title: target.label });
-  };
-
-  return (
-    <div className="mb-6 overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
-      <div className="flex items-center gap-2 border-b border-[hsl(var(--border))] px-4 py-2">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
-          Connected Nodes
-        </span>
-        <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
-          ({connected.length})
-        </span>
-      </div>
-      <div className="grid gap-2 px-4 py-3 sm:grid-cols-2">
-        {connected.map((c) => (
-          <button
-            key={c.node.id}
-            onClick={() => handleClick(c.node)}
-            className={`flex items-start gap-3 rounded-lg border bg-[hsl(var(--background))] p-3 text-left transition-colors hover:bg-[hsl(var(--accent))] ${NODE_BORDER_COLOR[c.node.type] ?? 'border-[hsl(var(--border))]'}`}
-          >
-            <div className="mt-0.5 shrink-0">{NODE_ICON[c.node.type]}</div>
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold truncate">{c.node.label}</div>
-              <div className="mt-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
-                {c.direction === 'outgoing' ? '→' : '←'} {c.edgeLabel}
-              </div>
-              <div className="mt-0.5 text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-                {c.node.type}
-              </div>
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }

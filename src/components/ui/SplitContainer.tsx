@@ -3,18 +3,13 @@ import { useCallback, useRef, useState, memo, lazy, Suspense } from 'react';
 import { useAppStore } from '@/stores';
 import type { PaneNode, LeafPane, SplitPane, TabItem, DropPosition } from '@/types';
 const PageEditor = lazy(() => import('@/components/editor/PageEditor').then((m) => ({ default: m.PageEditor })));
-const GraphCanvas = lazy(() => import('@/components/graph/GraphCanvas').then((m) => ({ default: m.GraphCanvas })));
 const NmapScanView = lazy(() => import('@/components/nmap/NmapScanView').then((m) => ({ default: m.NmapScanView })));
 const NmapMachineView = lazy(() => import('@/components/nmap/NmapScanView').then((m) => ({ default: m.NmapMachineView })));
-const FindingsCollector = lazy(() => import('@/components/findings/FindingsCollector').then((m) => ({ default: m.FindingsCollector })));
-const AttackTimeline = lazy(() => import('@/components/findings/AttackTimeline').then((m) => ({ default: m.AttackTimeline })));
-const TypstView = lazy(() => import('@/components/typst/TypstView').then((m) => ({ default: m.TypstView })));
-const AiAssistant = lazy(() => import('@/components/ai/AiAssistant').then((m) => ({ default: m.AiAssistant })));
 const CommandLogView = lazy(() => import('@/components/cmdlog/CommandLogView').then((m) => ({ default: m.CommandLogView })));
 const HistoryView = lazy(() => import('@/components/history/HistoryView').then((m) => ({ default: m.HistoryView })));
-const AssetsManager = lazy(() => import('@/components/typst/AssetsManager').then((m) => ({ default: m.AssetsManager })));
+const AssetsManager = lazy(() => import('@/components/assets/AssetsManager').then((m) => ({ default: m.AssetsManager })));
 const ShortcutsView = lazy(() => import('@/components/help/ShortcutsView').then((m) => ({ default: m.ShortcutsView })));
-import { FileText, Network, Radar, Monitor, X, Bug, Clock, FileType2, Sparkles, Terminal, History } from 'lucide-react';
+import { FileText, Radar, Monitor, X, Terminal, History, Images, Keyboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export const TAB_DRAG_TYPE = 'application/x-btct-tab';
@@ -61,8 +56,8 @@ function PaneSplit({ split }: { split: SplitPane }) {
       // ratio to the store only on mouseup. Driving the store per mousemove
       // produced a new paneLayout object on every event, which (a) fired the
       // synchronous localStorage persist and (b) re-rendered every mounted
-      // tab view (Milkdown, React Flow, Typst). One rAF-throttled style
-      // write per frame instead. Mirrors TypstView's pane-resize pattern.
+      // tab view (Milkdown, CodeMirror). One rAF-throttled style write per
+      // frame instead.
       const dim = isH ? 'width' : 'height';
       let latest = split.ratio;
       let frame = 0;
@@ -248,18 +243,13 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
-        {/* Every tab view, including the note editor, loads on first use, so the graph,
-            Typst, assistant, nmap, command-log and history code stays out
-            of the initial bundle. */}
+        {/* Every tab view, including the note editor, loads on first use, so
+            the nmap, command-log, assets and history code stays out of the
+            initial bundle. */}
         <Suspense fallback={<div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">Loading…</div>}>
         {activeTab?.kind === 'page' && <PageEditor pageId={activeTab.entityId} />}
-        {activeTab?.kind === 'graph' && <GraphCanvas graphId={activeTab.entityId} />}
         {activeTab?.kind === 'nmap' && <NmapScanView scanId={activeTab.entityId} />}
         {activeTab?.kind === 'nmap-machine' && <NmapMachineView machineId={activeTab.entityId} />}
-        {activeTab?.kind === 'findings' && <FindingsCollector />}
-        {activeTab?.kind === 'timeline' && <AttackTimeline />}
-        {activeTab?.kind === 'typst' && <TypstView />}
-        {activeTab?.kind === 'ai' && <AiAssistant />}
         {activeTab?.kind === 'cmdlog' && <CommandLogView />}
         {activeTab?.kind === 'history' && <HistoryView pageId={activeTab.entityId} />}
         {activeTab?.kind === 'assets' && <AssetsManager />}
@@ -344,7 +334,7 @@ const PaneTabChip = memo(function PaneTabChip({
           )}
         />
       )}
-      {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'findings' ? <Bug size={9} /> : tab.kind === 'timeline' ? <Clock size={9} /> : tab.kind === 'typst' ? <FileType2 size={9} /> : tab.kind === 'ai' ? <Sparkles size={9} /> : tab.kind === 'cmdlog' ? <Terminal size={9} /> : tab.kind === 'history' ? <History size={9} /> : <Network size={9} />}
+      {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'cmdlog' ? <Terminal size={9} /> : tab.kind === 'history' ? <History size={9} /> : tab.kind === 'assets' ? <Images size={9} /> : <Keyboard size={9} />}
       <span className="max-w-[100px] truncate">{tab.title}</span>
       <button
         type="button"

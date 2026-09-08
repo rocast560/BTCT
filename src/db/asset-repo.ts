@@ -1,5 +1,5 @@
 /**
- * Repo for Typst asset *metadata*. The bytes are never touched here: they
+ * Repo for image-asset *metadata*. The bytes are never touched here: they
  * live on the server and are fetched/cached by `lib/typst-assets.ts`.
  *
  * Unlike most repos in this directory there are no Y.Text fields to pre-seed.
@@ -91,7 +91,7 @@ export const typstAssetRepo = {
 
   /**
    * True if `filename` is already taken in this workspace by a different
-   * asset. Two assets sharing a name would collide in the Typst virtual FS,
+   * asset. Two assets sharing a name would collide on one path,
    * with the second silently shadowing the first.
    */
   async filenameTaken(workspaceId: ID, filename: string, exceptId?: ID): Promise<boolean> {

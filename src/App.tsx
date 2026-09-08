@@ -6,7 +6,6 @@ import { RightSidebar } from '@/components/sidebar/RightSidebar';
 import { TabBar } from '@/components/ui/TabBar';
 import { SplitContainer } from '@/components/ui/SplitContainer';
 import { CommandPalette } from '@/components/ui/CommandPalette';
-const QuickAddEvent = lazy(() => import('@/components/findings/QuickAddEvent').then((m) => ({ default: m.QuickAddEvent })));
 const AssetImageEditor = lazy(() => import('@/components/editor/AssetImageEditor').then((m) => ({ default: m.AssetImageEditor })));
 import { useAuthStore } from '@/auth/auth-store';
 import { useThemeStore } from '@/stores/theme-store';
@@ -67,7 +66,6 @@ export function App() {
 }
 
 function AuthedApp() {
-  const quickAddOpen = useAppStore((s) => s.quickAddOpen);
   const editingAssetId = useAppStore((s) => s.editingAssetId);
   useEffect(() => {
     const sync = () => syncOpenPageDocs(useAppStore.getState().tabs
@@ -84,10 +82,8 @@ function AuthedApp() {
     loadWorkspaces,
     activeWorkspaceId,
     loadPages,
-    loadGraphs,
     loadChangeLogs,
     loadNmapScans,
-    loadAttackChains,
     leftSidebarOpen,
     rightSidebarOpen,
     workspaces,
@@ -95,10 +91,8 @@ function AuthedApp() {
     loadWorkspaces: s.loadWorkspaces,
     activeWorkspaceId: s.activeWorkspaceId,
     loadPages: s.loadPages,
-    loadGraphs: s.loadGraphs,
     loadChangeLogs: s.loadChangeLogs,
     loadNmapScans: s.loadNmapScans,
-    loadAttackChains: s.loadAttackChains,
     leftSidebarOpen: s.leftSidebarOpen,
     rightSidebarOpen: s.rightSidebarOpen,
     workspaces: s.workspaces,
@@ -153,12 +147,10 @@ function AuthedApp() {
   useEffect(() => {
     if (activeWorkspaceId) {
       void loadPages();
-      void loadGraphs();
       void loadChangeLogs();
       void loadNmapScans();
-      void loadAttackChains();
     }
-  }, [activeWorkspaceId, loadPages, loadGraphs, loadChangeLogs, loadNmapScans, loadAttackChains]);
+  }, [activeWorkspaceId, loadPages, loadChangeLogs, loadNmapScans]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -200,20 +192,6 @@ function AuthedApp() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Global "quick-add timeline event" shortcut (default Ctrl/⌘+Shift+E),
-  // user-configurable and read live from account prefs.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const shortcut = resolvePrefs(useAuthStore.getState().user).keybinds.quickAddEvent;
-      if (!matchShortcut(e, shortcut)) return;
-      e.preventDefault();
-      const st = useAppStore.getState();
-      st.setQuickAddOpen(!st.quickAddOpen);
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
   // Blur/crop the selected note image (default Ctrl/Cmd+Shift+B).
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -222,18 +200,6 @@ function AuthedApp() {
       if (!getActiveMilkdownEditor()) return;
       e.preventDefault();
       void import('@/lib/note-image-paste').then(({ blurSelectedImage }) => blurSelectedImage());
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
-  // Claude assistant shortcut: Ctrl/⌘+Shift+A opens/focuses the Claude tab.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
-        e.preventDefault();
-        useAppStore.getState().openTab({ id: crypto.randomUUID(), kind: 'ai', entityId: 'ai', title: 'Claude' });
-      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -386,7 +352,6 @@ function AuthedApp() {
       </div>
       {rightSidebarOpen && <RightSidebar />}
       <CommandPalette />
-      {quickAddOpen && <Suspense fallback={null}><QuickAddEvent /></Suspense>}
       {editingAssetId && <Suspense fallback={null}><AssetImageEditor /></Suspense>}
       <PresenceAvatars />
     </div>

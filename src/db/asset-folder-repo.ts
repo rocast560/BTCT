@@ -1,7 +1,7 @@
 /**
- * Repo for Typst asset folders: the hierarchy the assets panel shows.
+ * Repo for asset folders: the hierarchy the assets panel shows.
  *
- * Folders are organizational only. An asset's Typst path stays the flat
+ * Folders are organizational only. An asset's path stays the flat
  * `/assets/<filename>` wherever it sits, so nothing here ever touches a
  * document. Like `typstAssets` these records have no Y.Text fields (a
  * folder is renamed through a dialog, not co-typed), so they stay plain

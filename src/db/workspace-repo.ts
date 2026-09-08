@@ -33,13 +33,7 @@ export const workspaceRepo = {
   },
 
   async remove(id: string): Promise<void> {
-    await db.transaction('rw', [db.workspaces, db.pages, db.graphs, db.graphNodes, db.graphEdges], async () => {
-      const graphs = await db.graphs.where('workspaceId').equals(id).toArray();
-      for (const graph of graphs) {
-        await db.graphEdges.where('graphId').equals(graph.id).delete();
-        await db.graphNodes.where('graphId').equals(graph.id).delete();
-      }
-      await db.graphs.where('workspaceId').equals(id).delete();
+    await db.transaction('rw', [db.workspaces, db.pages], async () => {
       await db.pages.where('workspaceId').equals(id).delete();
       await db.workspaces.delete(id);
     });

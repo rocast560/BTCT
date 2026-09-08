@@ -19,13 +19,8 @@ import { usePresenceRoster, type PeerPresence } from './presence';
 
 const KIND_LABEL: Record<TabKind, string> = {
   page: 'Page',
-  graph: 'Graph',
   nmap: 'Nmap',
   'nmap-machine': 'Host',
-  findings: 'Findings',
-  timeline: 'Timeline',
-  typst: 'Typst',
-  ai: 'Claude',
   cmdlog: 'Command Log',
   history: 'History',
   assets: 'Assets',

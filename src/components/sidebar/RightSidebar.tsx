@@ -1,9 +1,6 @@
 import { lazy, Suspense, useState, useRef, useEffect } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
-import { NodeProperties } from '@/components/graph/NodeProperties';
-import { EdgeProperties } from '@/components/graph/EdgeProperties';
-import { BacklinksPanel } from '@/components/sidebar/BacklinksPanel';
 import { ChangeLogPanel } from '@/components/sidebar/ChangeLogPanel';
 import { PageHistoryPanel } from '@/components/sidebar/PageHistoryPanel';
 import { LastEditedBadge } from '@/components/sidebar/LastEditedBadge';
@@ -12,9 +9,7 @@ import { Portal } from '@/components/ui/Portal';
 import { PanelRightClose, AlertTriangle } from 'lucide-react';
 
 export function RightSidebar() {
-  const { selectedNodeId, selectedEdgeId, toggleRightSidebar, activeTabId, tabs, deleteDatabase } = useAppStore(useShallow((s) => ({
-    selectedNodeId: s.selectedNodeId,
-    selectedEdgeId: s.selectedEdgeId,
+  const { toggleRightSidebar, activeTabId, tabs, deleteDatabase } = useAppStore(useShallow((s) => ({
     toggleRightSidebar: s.toggleRightSidebar,
     activeTabId: s.activeTabId,
     tabs: s.tabs,
@@ -48,29 +43,16 @@ export function RightSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        {selectedNodeId && (
+        {activeTab && (activeTab.kind === 'page' || activeTab.kind === 'history') && (
           <>
-            <NodeProperties nodeId={selectedNodeId} />
-            <div className="mt-2"><LastEditedBadge target="node" targetId={selectedNodeId} /></div>
-          </>
-        )}
-        {selectedEdgeId && !selectedNodeId && (
-          <>
-            <EdgeProperties edgeId={selectedEdgeId} />
-            <div className="mt-2"><LastEditedBadge target="edge" targetId={selectedEdgeId} /></div>
-          </>
-        )}
-        {!selectedNodeId && !selectedEdgeId && activeTab && (activeTab.kind === 'page' || activeTab.kind === 'history') && (
-          <>
-            <BacklinksPanel pageId={activeTab.entityId} />
             <div className="mt-2"><LastEditedBadge target="page" targetId={activeTab.entityId} /></div>
             <div className="mt-5 border-t border-[hsl(var(--border))] pt-4">
               <PageHistoryPanel pageId={activeTab.entityId} />
             </div>
           </>
         )}
-        {!selectedNodeId && !selectedEdgeId && !activeTab && (
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">Select a node, edge, or open a page to see properties.</p>
+        {!activeTab && (
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">Open a page to see its properties.</p>
         )}
         <div className="mt-5 border-t border-[hsl(var(--border))] pt-4">
           <ChangeLogPanel />

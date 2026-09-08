@@ -1,9 +1,8 @@
-import { workspaceRepo, pageRepo, graphRepo, graphNodeRepo, graphEdgeRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, attackChainRepo, typstAssetRepo, commandLogRepo } from '@/db';
+import { workspaceRepo, pageRepo, changeLogRepo, nmapScanRepo, nmapMachineRepo, typstAssetRepo, commandLogRepo } from '@/db';
 import { create } from 'zustand';
-import type { Workspace, Page, Graph, GraphNode, GraphEdge, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, AttackChain, TypstAsset, AssetFolder, CustomTimelineEvent, NodeType, TypstAssetKind, CropRect, BlurRegion, CommandLogEntry } from '@/types';
-import { sharedTransact, getSharedDoc } from '@/realtime/shared-doc';
+import type { Workspace, Page, TabItem, ID, ChangeLogEntry, NmapScan, NmapMachine, PaneNode, DropPosition, TypstAsset, AssetFolder, TypstAssetKind, CropRect, BlurRegion, CommandLogEntry } from '@/types';
+import { getSharedDoc } from '@/realtime/shared-doc';
 import { assetFolderRepo } from '@/db/asset-folder-repo';
-import { timelineEventRepo } from '@/db/timeline-event-repo';
 import { isDescendantFolder } from '@/lib/asset-folders';
 import type { LogAuthor, LogDelta } from '@/db/changelog-repo';
 import { db } from '@/db/database';
@@ -79,28 +78,6 @@ interface AppState {
   updatePage: (id: ID, data: Partial<Omit<Page, 'id' | 'workspaceId' | 'createdAt'>>) => Promise<void>;
   deletePage: (id: ID) => Promise<void>;
 
-  // Graphs (Attack Narratives)
-  graphs: Graph[];
-  loadGraphs: () => Promise<void>;
-  createGraph: (name: string) => Promise<Graph>;
-  updateGraph: (id: ID, data: Partial<Pick<Graph, 'name'>>) => Promise<void>;
-  deleteGraph: (id: ID) => Promise<void>;
-
-  // Graph nodes
-  graphNodes: GraphNode[];
-  loadGraphData: (graphId: ID) => Promise<void>;
-  addGraphNode: (graphId: ID, type: GraphNode['type'], label: string, position: { x: number; y: number }) => Promise<GraphNode>;
-  updateGraphNode: (id: ID, data: Partial<Omit<GraphNode, 'id' | 'graphId' | 'createdAt'>>) => Promise<void>;
-  /** Batch position writes: one Yjs transaction, one store update. */
-  updateGraphNodePositions: (updates: Array<{ id: ID; position: { x: number; y: number } }>) => Promise<void>;
-  deleteGraphNode: (id: ID) => Promise<void>;
-
-  // Graph edges
-  graphEdges: GraphEdge[];
-  addGraphEdge: (graphId: ID, sourceNodeId: ID, targetNodeId: ID, edgeType: GraphEdge['edgeType']) => Promise<GraphEdge>;
-  updateGraphEdge: (id: ID, data: Partial<Omit<GraphEdge, 'id' | 'graphId' | 'createdAt'>>) => Promise<void>;
-  deleteGraphEdge: (id: ID) => Promise<void>;
-
   // Tabs
   tabs: TabItem[];
   activeTabId: string | null;
@@ -147,12 +124,6 @@ interface AppState {
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
 
-  // Selection (for right sidebar properties)
-  selectedNodeId: ID | null;
-  selectedEdgeId: ID | null;
-  setSelectedNode: (id: ID | null) => void;
-  setSelectedEdge: (id: ID | null) => void;
-
   // Search
   searchQuery: string;
   setSearchQuery: (query: string) => void;
@@ -183,24 +154,8 @@ interface AppState {
   loadNmapMachines: (scanId: ID) => Promise<void>;
   updateNmapMachine: (id: ID, data: Partial<Pick<NmapMachine, 'hostname' | 'os'>>) => Promise<void>;
   deleteNmapMachine: (id: ID) => Promise<void>;
-  linkMachineToNode: (machineId: ID, nodeId: ID) => Promise<void>;
-  unlinkMachine: (machineId: ID) => Promise<void>;
-  toggleMachinePort: (machineId: ID, port: number, enabled: boolean) => void;
 
   // Navigation
-  pendingFocusNodeId: string | null;
-  setPendingFocusNodeId: (nodeId: string | null) => void;
-
-  // Attack Chains
-  attackChains: AttackChain[];
-  loadAttackChains: () => Promise<void>;
-  createAttackChain: (graphId: ID, name: string, nodeIds: ID[]) => Promise<AttackChain>;
-  updateAttackChain: (id: ID, data: Partial<Pick<AttackChain, 'name' | 'nodeIds'>>) => Promise<void>;
-  deleteAttackChain: (id: ID) => Promise<void>;
-  addNodesToAttackChain: (id: ID, nodeIds: ID[]) => Promise<void>;
-  ensureAttackChainPage: (id: ID) => Promise<ID | null>;
-  pendingHighlightChainId: ID | null;
-  setPendingHighlightChainId: (id: ID | null) => void;
 
   // Typst assets (report screenshots + custom fonts)
   typstAssets: TypstAsset[];
@@ -223,13 +178,6 @@ interface AppState {
   // Command log (team pentest command activity: ingested server-side, read-only here)
   commandLogs: CommandLogEntry[];
   loadCommandLogs: () => Promise<void>;
-  // User-added Attack Timeline events (quick-add).
-  timelineEvents: CustomTimelineEvent[];
-  loadTimelineEvents: () => Promise<void>;
-  createTimelineEvent: (data: { kind: NodeType; title: string; details: string; timestamp: number; createdBy: number | null; createdByName: string }) => Promise<CustomTimelineEvent>;
-  deleteTimelineEvent: (id: ID) => Promise<void>;
-  quickAddOpen: boolean;
-  setQuickAddOpen: (open: boolean) => void;
   // Note-image blur/crop editor: the asset id currently being edited (from a
   // note image), and the right-click menu over a note image.
   editingAssetId: ID | null;
@@ -294,7 +242,7 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   setActiveWorkspace: (id) => {
-    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], graphs: [], graphNodes: [], graphEdges: [], attackChains: [], nmapScans: [], nmapMachines: [], typstAssets: [], assetFolders: [], commandLogs: [], timelineEvents: [] });
+    set({ activeWorkspaceId: id, tabs: [], activeTabId: null, paneLayout: createLeaf(), activePaneId: null, pages: [], nmapScans: [], nmapMachines: [], typstAssets: [], assetFolders: [], commandLogs: [] });
     // Reload workspace-scoped lists for the newly-active workspace so stale
     // entries from the previous workspace don't appear before the per-view
     // useEffects fire (and so newly-created scans never inherit the prior
@@ -302,7 +250,6 @@ export const useAppStore = create<AppState>((set, get) => {
     void get().loadNmapScans();
     void get().loadTypstAssets();
     void get().loadAssetFolders();
-    void get().loadTimelineEvents();
     void get().loadCommandLogs();
   },
 
@@ -320,18 +267,12 @@ export const useAppStore = create<AppState>((set, get) => {
       activeWorkspaceId: wasActive ? null : s.activeWorkspaceId,
       ...(wasActive ? {
         pages: [],
-        graphs: [],
-        graphNodes: [],
-        graphEdges: [],
         nmapScans: [],
         nmapMachines: [],
-        attackChains: [],
         tabs: [],
         activeTabId: null,
         paneLayout: createLeaf(),
         activePaneId: null,
-        selectedNodeId: null,
-        selectedEdgeId: null,
       } : {}),
     }));
   },
@@ -401,198 +342,6 @@ export const useAppStore = create<AppState>((set, get) => {
     log('delete', 'page', id, `Deleted page "${page?.title ?? id}"`, {
       prevValue: encodeValue(page),
       reversible: !!page,
-    });
-  },
-
-  // Graphs
-  graphs: [],
-
-  loadGraphs: async () => {
-    const wsId = get().activeWorkspaceId;
-    if (!wsId) return;
-    const graphs = await graphRepo.getByWorkspace(wsId);
-    set({ graphs });
-  },
-
-  createGraph: async (name) => {
-    const wsId = get().activeWorkspaceId;
-    if (!wsId) throw new Error('No active workspace');
-    const graph = await graphRepo.create({ workspaceId: wsId, name });
-    set((s) => ({ graphs: [...s.graphs, graph] }));
-    log('create', 'graph', graph.id, `Created narrative "${name}"`);
-    return graph;
-  },
-
-  updateGraph: async (id, data) => {
-    const prev = get().graphs.find((g) => g.id === id);
-    await graphRepo.update(id, data);
-    set((s) => ({
-      graphs: s.graphs.map((g) => (g.id === id ? { ...g, ...data, updatedAt: Date.now() } : g)),
-    }));
-    if (data.name && prev && prev.name !== data.name) {
-      log('update', 'graph', id, `Renamed narrative "${prev.name}" → "${data.name}"`, {
-        field: 'name',
-        prevValue: encodeValue(prev.name),
-        newValue: encodeValue(data.name),
-        reversible: true,
-      });
-    }
-  },
-
-  deleteGraph: async (id) => {
-    const graph = get().graphs.find((g) => g.id === id);
-    await graphRepo.remove(id);
-    // Cascade: delete any attack chains scoped to this graph
-    const chainsToDelete = get().attackChains.filter((c) => c.graphId === id);
-    for (const c of chainsToDelete) {
-      await attackChainRepo.remove(c.id);
-    }
-    set((s) => ({
-      graphs: s.graphs.filter((g) => g.id !== id),
-      attackChains: s.attackChains.filter((c) => c.graphId !== id),
-      tabs: s.tabs.filter((t) => !(t.kind === 'graph' && t.entityId === id)),
-      paneLayout: collapse(removeTabsWhere(s.paneLayout, (tid) => {
-        const tab = s.tabs.find((t) => t.id === tid);
-        return !!tab && tab.kind === 'graph' && tab.entityId === id;
-      })),
-    }));
-    get().reconcileTabs();
-    log('delete', 'graph', id, `Deleted narrative "${graph?.name ?? id}"`);
-  },
-
-  // Graph nodes
-  graphNodes: [],
-
-  loadGraphData: async (graphId) => {
-    const [nodes, edges] = await Promise.all([
-      graphNodeRepo.getByGraph(graphId),
-      graphEdgeRepo.getByGraph(graphId),
-    ]);
-    // Merge per-graph: keep nodes/edges belonging to OTHER graphs, replace
-    // the slice for this graphId. Replacing the whole array races with
-    // concurrent loadGraphData() calls for other open graph tabs (and
-    // with optimistic in-flight updates), which manifested as nodes
-    // briefly disappearing when dropping after a drag.
-    set((s) => ({
-      graphNodes: [...s.graphNodes.filter((n) => n.graphId !== graphId), ...nodes],
-      graphEdges: [...s.graphEdges.filter((e) => e.graphId !== graphId), ...edges],
-    }));
-  },
-
-  addGraphNode: async (graphId, type, label, position) => {
-    const wsId = get().activeWorkspaceId;
-    if (!wsId) throw new Error('No active workspace');
-    const node = await graphNodeRepo.create({ graphId, type, label, position, workspaceId: wsId });
-    set((s) => ({ graphNodes: [...s.graphNodes, node] }));
-    log('create', 'node', node.id, `Added ${type} node "${label}"`);
-    return node;
-  },
-
-  updateGraphNode: async (id, data) => {
-    const prev = get().graphNodes.find((n) => n.id === id);
-    await graphNodeRepo.update(id, data);
-    set((s) => ({
-      graphNodes: s.graphNodes.map((n) => (n.id === id ? { ...n, ...data, updatedAt: Date.now() } : n)),
-    }));
-    if (data.label && prev && prev.label !== data.label) {
-      log('update', 'node', id, `Renamed node "${prev.label}" → "${data.label}"`, {
-        field: 'label',
-        prevValue: encodeValue(prev.label),
-        newValue: encodeValue(data.label),
-        reversible: true,
-      });
-    }
-    // If host node hostname changed, sync to linked nmap machine
-    if (data.data && 'hostname' in data.data) {
-      const newHostname = (data.data as import('@/types').HostData).hostname;
-      const linkedMachine = get().nmapMachines.find((m) => m.linkedNodeId === id);
-      if (linkedMachine && linkedMachine.hostname !== newHostname) {
-        await nmapMachineRepo.update(linkedMachine.id, { hostname: newHostname });
-        set((s) => ({
-          nmapMachines: s.nmapMachines.map((m) => m.id === linkedMachine.id ? { ...m, hostname: newHostname, updatedAt: Date.now() } : m),
-        }));
-      }
-    }
-  },
-
-  updateGraphNodePositions: async (updates) => {
-    if (updates.length === 0) return;
-    // One Yjs transaction: peers receive a single update message for the
-    // whole layout instead of one per node (repo.update writes
-    // synchronously, so the nested transactions merge into this one).
-    sharedTransact(() => {
-      for (const u of updates) void graphNodeRepo.update(u.id, { position: u.position });
-    });
-    const now = Date.now();
-    const byId = new Map(updates.map((u) => [u.id, u.position]));
-    set((s) => ({
-      graphNodes: s.graphNodes.map((n) => {
-        const p = byId.get(n.id);
-        return p ? { ...n, position: p, updatedAt: now } : n;
-      }),
-    }));
-  },
-
-  deleteGraphNode: async (id) => {
-    const node = get().graphNodes.find((n) => n.id === id);
-    // Unlink any nmap machines connected to this node
-    await nmapMachineRepo.unlinkByNode(id);
-    await graphNodeRepo.remove(id);
-    // Remove this node id from any attack chains that reference it
-    const affectedChains = get().attackChains.filter((c) => c.nodeIds.includes(id));
-    for (const c of affectedChains) {
-      const next = c.nodeIds.filter((nid) => nid !== id);
-      await attackChainRepo.update(c.id, { nodeIds: next });
-    }
-    set((s) => ({
-      graphNodes: s.graphNodes.filter((n) => n.id !== id),
-      graphEdges: s.graphEdges.filter((e) => e.sourceNodeId !== id && e.targetNodeId !== id),
-      nmapMachines: s.nmapMachines.map((m) => m.linkedNodeId === id ? { ...m, linkedNodeId: undefined } : m),
-      attackChains: s.attackChains.map((c) => c.nodeIds.includes(id) ? { ...c, nodeIds: c.nodeIds.filter((nid) => nid !== id), updatedAt: Date.now() } : c),
-      selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
-    }));
-    log('delete', 'node', id, `Deleted node "${node?.label ?? id}"`, {
-      prevValue: encodeValue(node),
-      reversible: !!node,
-    });
-  },
-
-  // Graph edges
-  graphEdges: [],
-
-  addGraphEdge: async (graphId, sourceNodeId, targetNodeId, edgeType) => {
-    const edge = await graphEdgeRepo.create({ graphId, sourceNodeId, targetNodeId, edgeType });
-    set((s) => ({ graphEdges: [...s.graphEdges, edge] }));
-    log('create', 'edge', edge.id, `Added ${edgeType} edge`);
-    return edge;
-  },
-
-  updateGraphEdge: async (id, data) => {
-    const prev = get().graphEdges.find((e) => e.id === id);
-    await graphEdgeRepo.update(id, data);
-    set((s) => ({
-      graphEdges: s.graphEdges.map((e) => (e.id === id ? { ...e, ...data, updatedAt: Date.now() } : e)),
-    }));
-    if (data.label !== undefined && prev && prev.label !== data.label) {
-      log('update', 'edge', id, `Edge label "${prev.label ?? ''}" → "${data.label}"`, {
-        field: 'label',
-        prevValue: encodeValue(prev.label),
-        newValue: encodeValue(data.label),
-        reversible: true,
-      });
-    }
-  },
-
-  deleteGraphEdge: async (id) => {
-    const edge = get().graphEdges.find((e) => e.id === id);
-    await graphEdgeRepo.remove(id);
-    set((s) => ({
-      graphEdges: s.graphEdges.filter((e) => e.id !== id),
-      selectedEdgeId: s.selectedEdgeId === id ? null : s.selectedEdgeId,
-    }));
-    log('delete', 'edge', id, 'Deleted edge', {
-      prevValue: encodeValue(edge),
-      reversible: !!edge,
     });
   },
 
@@ -741,10 +490,9 @@ export const useAppStore = create<AppState>((set, get) => {
       switch (t.kind) {
         case 'page':
         case 'history': return c.tables.pages.has(t.entityId);
-        case 'graph': return c.tables.graphs.has(t.entityId);
         case 'nmap': return c.tables.nmapScans.has(t.entityId);
         case 'nmap-machine': return c.tables.nmapMachines.has(t.entityId);
-        default: return ['findings', 'timeline', 'typst', 'ai', 'cmdlog', 'assets', 'shortcuts'].includes(t.kind);
+        default: return ['cmdlog', 'assets', 'shortcuts'].includes(t.kind);
       }
     };
     set((s) => {
@@ -793,12 +541,6 @@ export const useAppStore = create<AppState>((set, get) => {
   commandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
 
-  // Selection
-  selectedNodeId: null,
-  selectedEdgeId: null,
-  setSelectedNode: (id) => set({ selectedNodeId: id, selectedEdgeId: null }),
-  setSelectedEdge: (id) => set({ selectedEdgeId: id, selectedNodeId: null }),
-
   // Search
   searchQuery: '',
   setSearchQuery: (query) => set({ searchQuery: query }),
@@ -832,18 +574,6 @@ export const useAppStore = create<AppState>((set, get) => {
         case 'page':
           await get().updatePage(entry.targetId, { [entry.field]: value } as Partial<Page>);
           break;
-        case 'graph':
-          await get().updateGraph(entry.targetId, { [entry.field]: value } as Partial<Pick<Graph, 'name'>>);
-          break;
-        case 'node':
-          await get().updateGraphNode(entry.targetId, { [entry.field]: value } as Partial<GraphNode>);
-          break;
-        case 'edge':
-          await get().updateGraphEdge(entry.targetId, { [entry.field]: value } as Partial<GraphEdge>);
-          break;
-        case 'attackChain':
-          await get().updateAttackChain(entry.targetId, { [entry.field]: value } as Partial<Pick<AttackChain, 'name' | 'nodeIds'>>);
-          break;
         default:
           return false;
       }
@@ -857,8 +587,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (!prev || typeof prev !== 'object') return false;
       try {
         // Recreate via the same Y.Map the original entity lived in. We
-        // reuse the original id so any references (graph nodes pointing
-        // at this page, attack chains referencing this node, etc.) keep
+        // reuse the original id so any references to it keep
         // resolving. Cast via `unknown` because the stored JSON is opaque
         // to the type system but the runtime shape matches the entity.
         switch (entry.target) {
@@ -866,30 +595,6 @@ export const useAppStore = create<AppState>((set, get) => {
             const rec = prev as unknown as Page;
             await db.pages.add(rec);
             set((s) => ({ pages: [...s.pages.filter((p) => p.id !== entry.targetId), rec] }));
-            break;
-          }
-          case 'graph': {
-            const rec = prev as unknown as Graph;
-            await db.graphs.add(rec);
-            set((s) => ({ graphs: [...s.graphs.filter((g) => g.id !== entry.targetId), rec] }));
-            break;
-          }
-          case 'node': {
-            const rec = prev as unknown as GraphNode;
-            await db.graphNodes.add(rec);
-            set((s) => ({ graphNodes: [...s.graphNodes.filter((n) => n.id !== entry.targetId), rec] }));
-            break;
-          }
-          case 'edge': {
-            const rec = prev as unknown as GraphEdge;
-            await db.graphEdges.add(rec);
-            set((s) => ({ graphEdges: [...s.graphEdges.filter((e) => e.id !== entry.targetId), rec] }));
-            break;
-          }
-          case 'attackChain': {
-            const rec = prev as unknown as AttackChain;
-            await db.attackChains.add(rec);
-            set((s) => ({ attackChains: [...s.attackChains.filter((c) => c.id !== entry.targetId), rec] }));
             break;
           }
           default:
@@ -992,182 +697,15 @@ export const useAppStore = create<AppState>((set, get) => {
     set((s) => ({
       nmapMachines: s.nmapMachines.map((m) => m.id === id ? { ...m, ...data, updatedAt: Date.now() } : m),
     }));
-    // Sync hostname to linked host node
-    if (data.hostname !== undefined) {
-      const machine = get().nmapMachines.find((m) => m.id === id);
-      if (machine?.linkedNodeId) {
-        const nodeId = machine.linkedNodeId;
-        const storeNode = get().graphNodes.find((n) => n.id === nodeId);
-        const nodeData = storeNode?.data ?? (await graphNodeRepo.getById(nodeId))?.data;
-        if (nodeData) {
-          const updatedData = { ...nodeData, hostname: data.hostname } as import('@/types').HostData;
-          await graphNodeRepo.update(nodeId, { data: updatedData });
-          set((s) => ({
-            graphNodes: s.graphNodes.map((n) => n.id === nodeId ? { ...n, data: updatedData, updatedAt: Date.now() } : n),
-          }));
-        }
-      }
-    }
   },
   deleteNmapMachine: async (id: ID) => {
-    const machine = get().nmapMachines.find((m) => m.id === id);
-    // Clear ports on linked host node before deleting
-    if (machine?.linkedNodeId) {
-      const nodeId = machine.linkedNodeId;
-      const storeNode = get().graphNodes.find((n) => n.id === nodeId);
-      const nodeData = storeNode?.data ?? (await graphNodeRepo.getById(nodeId))?.data;
-      if (nodeData) {
-        await graphNodeRepo.update(nodeId, { data: { ...nodeData, openPorts: [] } as import('@/types').HostData });
-        set((s) => ({
-          graphNodes: s.graphNodes.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, openPorts: [] } as import('@/types').HostData, updatedAt: Date.now() } : n),
-        }));
-      }
-    }
     await nmapMachineRepo.delete(id);
     set((s) => ({ nmapMachines: s.nmapMachines.filter((m) => m.id !== id) }));
     log('delete', 'page', id, 'Deleted nmap machine');
   },
-  linkMachineToNode: async (machineId: ID, nodeId: ID) => {
-    // Unlink any machine previously linked to this node
-    await nmapMachineRepo.unlinkByNode(nodeId);
-    // Link this machine
-    await nmapMachineRepo.link(machineId, nodeId);
-    const machine = get().nmapMachines.find((m) => m.id === machineId);
-    // Sync open ports and hostname to host node
-    if (machine) {
-      const openPorts = machine.ports.filter((p) => p.state === 'open').map((p) => p.port);
-      // Read node data from store or DB
-      const storeNode = get().graphNodes.find((n) => n.id === nodeId);
-      const nodeData = storeNode?.data ?? (await graphNodeRepo.getById(nodeId))?.data;
-      const hostname = machine.hostname || (nodeData as import('@/types').HostData | undefined)?.hostname || '';
-      await graphNodeRepo.update(nodeId, { data: { ...nodeData, openPorts, hostname } as import('@/types').HostData });
-      // Sync hostname back to machine if it was empty
-      if (!machine.hostname && hostname) {
-        await nmapMachineRepo.update(machine.id, { hostname });
-      }
-      set((s) => ({
-        nmapMachines: s.nmapMachines.map((m) => {
-          if (m.id === machineId) return { ...m, linkedNodeId: nodeId, hostname: hostname || m.hostname, updatedAt: Date.now() };
-          if (m.linkedNodeId === nodeId) return { ...m, linkedNodeId: undefined, updatedAt: Date.now() };
-          return m;
-        }),
-        graphNodes: s.graphNodes.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, openPorts, hostname } as import('@/types').HostData, updatedAt: Date.now() } : n),
-      }));
-    }
-    log('update', 'node', nodeId, `Linked nmap machine to host node`);
-  },
-  unlinkMachine: async (machineId: ID) => {
-    const machine = get().nmapMachines.find((m) => m.id === machineId);
-    if (!machine?.linkedNodeId) return;
-    const nodeId = machine.linkedNodeId;
-    await nmapMachineRepo.unlink(machineId);
-    // Clear open ports on the host node
-    const storeNode = get().graphNodes.find((n) => n.id === nodeId);
-    const nodeData = storeNode?.data ?? (await graphNodeRepo.getById(nodeId))?.data;
-    await graphNodeRepo.update(nodeId, { data: { ...nodeData, openPorts: [] } as import('@/types').HostData });
-    set((s) => ({
-      nmapMachines: s.nmapMachines.map((m) => m.id === machineId ? { ...m, linkedNodeId: undefined, updatedAt: Date.now() } : m),
-      graphNodes: s.graphNodes.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, openPorts: [] } as import('@/types').HostData, updatedAt: Date.now() } : n),
-    }));
-    log('update', 'node', nodeId, `Unlinked nmap machine from host node`);
-  },
-  toggleMachinePort: (machineId: ID, port: number, enabled: boolean) => {
-    const machine = get().nmapMachines.find((m) => m.id === machineId);
-    if (!machine?.linkedNodeId) return;
-    const nodeId = machine.linkedNodeId;
-    const node = get().graphNodes.find((n) => n.id === nodeId);
-    if (!node) {
-      // Node not in store: update DB directly
-      void graphNodeRepo.getById(nodeId).then((dbNode) => {
-        if (!dbNode) return;
-        const hostData = dbNode.data as import('@/types').HostData;
-        const openPorts = enabled
-          ? [...new Set([...hostData.openPorts, port])]
-          : hostData.openPorts.filter((p) => p !== port);
-        void graphNodeRepo.update(nodeId, { data: { ...hostData, openPorts } });
-      });
-      return;
-    }
-    const hostData = node.data as import('@/types').HostData;
-    const openPorts = enabled
-      ? [...new Set([...hostData.openPorts, port])]
-      : hostData.openPorts.filter((p) => p !== port);
-    void graphNodeRepo.update(nodeId, { data: { ...hostData, openPorts } });
-    set((s) => ({
-      graphNodes: s.graphNodes.map((n) => n.id === nodeId ? { ...n, data: { ...hostData, openPorts }, updatedAt: Date.now() } : n),
-    }));
-  },
-
-  // Navigation
-  pendingFocusNodeId: null,
-  setPendingFocusNodeId: (nodeId) => set({ pendingFocusNodeId: nodeId }),
-
-  // Attack Chains
-  attackChains: [],
-  loadAttackChains: async () => {
-    const wsId = get().activeWorkspaceId;
-    if (!wsId) return;
-    const chains = await attackChainRepo.getByWorkspace(wsId);
-    set({ attackChains: chains });
-  },
-  createAttackChain: async (graphId, name, nodeIds) => {
-    const wsId = get().activeWorkspaceId;
-    if (!wsId) throw new Error('No active workspace');
-    const chain = await attackChainRepo.create({ workspaceId: wsId, graphId, name, nodeIds });
-    set((s) => ({ attackChains: [...s.attackChains, chain] }));
-    log('create', 'graph', chain.id, `Created attack chain "${name}"`);
-    return chain;
-  },
-  updateAttackChain: async (id, data) => {
-    const prev = get().attackChains.find((c) => c.id === id);
-    await attackChainRepo.update(id, data);
-    set((s) => ({
-      attackChains: s.attackChains.map((c) => c.id === id ? { ...c, ...data, updatedAt: Date.now() } : c),
-    }));
-    if (data.name && prev && prev.name !== data.name) {
-      log('update', 'attackChain', id, `Renamed attack chain "${prev.name}" → "${data.name}"`, {
-        field: 'name',
-        prevValue: encodeValue(prev.name),
-        newValue: encodeValue(data.name),
-        reversible: true,
-      });
-    }
-  },
-  deleteAttackChain: async (id) => {
-    const chain = get().attackChains.find((c) => c.id === id);
-    await attackChainRepo.remove(id);
-    set((s) => ({ attackChains: s.attackChains.filter((c) => c.id !== id) }));
-    log('delete', 'attackChain', id, `Deleted attack chain "${chain?.name ?? id}"`, {
-      prevValue: encodeValue(chain),
-      reversible: !!chain,
-    });
-  },
-  addNodesToAttackChain: async (id, nodeIds) => {
-    const chain = get().attackChains.find((c) => c.id === id);
-    if (!chain) return;
-    const existing = new Set(chain.nodeIds);
-    const merged = [...chain.nodeIds, ...nodeIds.filter((nid) => !existing.has(nid))];
-    await attackChainRepo.update(id, { nodeIds: merged });
-    set((s) => ({
-      attackChains: s.attackChains.map((c) => c.id === id ? { ...c, nodeIds: merged, updatedAt: Date.now() } : c),
-    }));
-  },
-  ensureAttackChainPage: async (id) => {
-    const pageId = await attackChainRepo.ensurePage(id);
-    if (pageId) {
-      set((s) => ({
-        attackChains: s.attackChains.map((c) => c.id === id ? { ...c, linkedPageId: pageId, updatedAt: Date.now() } : c),
-      }));
-      // Refresh the page list so the new linked page is queryable.
-      void get().loadPages();
-    }
-    return pageId;
-  },
-  pendingHighlightChainId: null,
-  setPendingHighlightChainId: (id) => set({ pendingHighlightChainId: id }),
 
   // Typst assets. Only metadata lives in the shared doc: the bytes are on
-  // the server (see lib/typst-assets.ts + server/assets.mjs).
+  // the server (see lib/assets.ts + server/assets.mjs).
   typstAssets: [],
   loadTypstAssets: async () => {
     const wsId = get().activeWorkspaceId;
@@ -1256,57 +794,27 @@ export const useAppStore = create<AppState>((set, get) => {
     set({ commandLogs: await commandLogRepo.getByWorkspace(wsId) });
   },
 
-  // Quick-add timeline events.
-  timelineEvents: [],
-  quickAddOpen: false,
-  setQuickAddOpen: (open) => set({ quickAddOpen: open }),
   editingAssetId: null,
   setEditingAssetId: (id) => set({ editingAssetId: id }),
   imageMenu: null,
   setImageMenu: (menu) => set({ imageMenu: menu }),
-  loadTimelineEvents: async () => {
-    const wsId = get().activeWorkspaceId;
-    if (!wsId) return;
-    set({ timelineEvents: await timelineEventRepo.getByWorkspace(wsId) });
-  },
-  createTimelineEvent: async (data) => {
-    const wsId = get().activeWorkspaceId;
-    if (!wsId) throw new Error('No active workspace');
-    const event = await timelineEventRepo.create({ workspaceId: wsId, ...data });
-    set((s) => ({ timelineEvents: [...s.timelineEvents, event] }));
-    log('create', 'page', event.id, `Added timeline event "${event.title}" (${event.kind}) by ${event.createdByName}`);
-    return event;
-  },
-  deleteTimelineEvent: async (id) => {
-    const ev = get().timelineEvents.find((e) => e.id === id);
-    await timelineEventRepo.remove(id);
-    set((s) => ({ timelineEvents: s.timelineEvents.filter((e) => e.id !== id) }));
-    if (ev) log('delete', 'page', id, `Removed timeline event "${ev.title}"`);
-  },
-
   addTypstAsset: async (file: File, kind: TypstAssetKind, folderId?: ID | null) => {
     const wsId = get().activeWorkspaceId;
     if (!wsId) throw new Error('No active workspace');
-    const { uploadAsset, readImageSize, readFontFamily } = await import('@/lib/typst-assets');
+    const { uploadAsset, readImageSize } = await import('@/lib/assets');
 
     // Reserve a collision-free name *before* uploading so two screenshots
-    // dropped with the same name don't fight over one Typst VFS path.
+    // dropped with the same name don't fight over one asset path.
     const filename = await typstAssetRepo.uniqueFilename(wsId, file.name);
     const uploaded = await uploadAsset(file, { workspaceId: wsId, kind, filename });
 
-    // Best-effort enrichment: dimensions drive the crop UI's aspect ratio,
-    // and the font family is what the operator types into `#set text(font:)`.
-    // Neither is worth failing the upload over.
+    // Best-effort enrichment: the dimensions drive the crop editor's frame
+    // shape. Not worth failing the upload over.
     let width: number | null = null;
     let height: number | null = null;
-    let fontFamily: string | null = null;
     if (kind === 'image' && file.type !== 'image/svg+xml') {
       try { const s = await readImageSize(file); width = s.width; height = s.height; }
       catch { /* dimensions stay unknown; the cropper falls back to the rendered size */ }
-    }
-    if (kind === 'font') {
-      try { fontFamily = await readFontFamily(new Uint8Array(await file.arrayBuffer())); }
-      catch { /* family stays unknown; the UI shows the filename instead */ }
     }
 
     const asset = await typstAssetRepo.create({
@@ -1318,11 +826,11 @@ export const useAppStore = create<AppState>((set, get) => {
       size: uploaded.size,
       width,
       height,
-      fontFamily,
+      fontFamily: null,
       folderId: folderId ?? null,
     });
     set((s) => ({ typstAssets: [...s.typstAssets, asset] }));
-    log('create', 'page', asset.id, `Added Typst ${kind} "${asset.filename}"`);
+    log('create', 'page', asset.id, `Added ${kind} "${asset.filename}"`);
     return asset;
   },
   setTypstAssetCrop: async (id: ID, crop: CropRect | null, blurs?: BlurRegion[] | null) => {
@@ -1392,7 +900,7 @@ export const useAppStore = create<AppState>((set, get) => {
   },
   deleteTypstAsset: async (id: ID) => {
     const asset = get().typstAssets.find((a) => a.id === id);
-    const { deleteAssetBytes, forgetAsset } = await import('@/lib/typst-assets');
+    const { deleteAssetBytes, forgetAsset } = await import('@/lib/assets');
     // Drop the bytes first: if that fails we keep the record, leaving the
     // asset usable rather than stranding a document reference to a file the
     // compiler can no longer resolve.
@@ -1416,21 +924,15 @@ export const useAppStore = create<AppState>((set, get) => {
       workspaces: [],
       activeWorkspaceId: null,
       pages: [],
-      graphs: [],
-      graphNodes: [],
-      graphEdges: [],
       changeLogs: [],
       nmapScans: [],
       nmapMachines: [],
-      attackChains: [],
       typstAssets: [],
       commandLogs: [],
       tabs: [],
       activeTabId: null,
       paneLayout: createLeaf(),
       activePaneId: null,
-      selectedNodeId: null,
-      selectedEdgeId: null,
       searchQuery: '',
       searchResults: [],
     });

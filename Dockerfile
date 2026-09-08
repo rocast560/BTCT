@@ -58,9 +58,7 @@ COPY server/package.json /app/server/package.json
 COPY server/index.mjs   /app/server/index.mjs
 COPY server/auth.mjs    /app/server/auth.mjs
 COPY server/db.mjs      /app/server/db.mjs
-COPY server/ai.mjs      /app/server/ai.mjs
 COPY server/yjs-data.mjs /app/server/yjs-data.mjs
-COPY server/mcp.mjs     /app/server/mcp.mjs
 COPY server/assets.mjs  /app/server/assets.mjs
 COPY server/cmdlog.mjs  /app/server/cmdlog.mjs
 COPY server/scheduler.mjs     /app/server/scheduler.mjs

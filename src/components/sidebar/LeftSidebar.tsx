@@ -8,7 +8,6 @@ const ProfileEditor = lazy(() => import('@/components/sidebar/ProfileEditor').th
 const ThemePicker = lazy(() => import('@/components/sidebar/ThemePicker').then((m) => ({ default: m.ThemePicker })));
 import {
   ChevronRight,
-  Network,
   Plus,
   FilePlus,
   Search,
@@ -18,20 +17,15 @@ import {
   Trash2,
   Pencil,
   Radar,
-  Bug,
   FileText,
-  FileType2,
-  Clock,
-  Link2,
   Shield,
   LogOut,
   Palette,
-  Sparkles,
   Terminal,
   Images,
   Keyboard,
 } from 'lucide-react';
-import type { Page, Graph, NmapScan, AttackChain } from '@/types';
+import type { Page, NmapScan } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { cn } from '@/lib/utils';
 import { Portal } from '@/components/ui/Portal';
@@ -63,11 +57,8 @@ function isAncestor(candidateAncestor: string, target: string, pages: Page[]): b
 export function LeftSidebar() {
   const {
     pages,
-    graphs,
     createPage,
-    createGraph,
     deletePage,
-    deleteGraph,
     openTab,
     searchQuery,
     setSearchQuery,
@@ -84,19 +75,10 @@ export function LeftSidebar() {
     renameNmapScan,
     leftSidebarWidth,
     setLeftSidebarWidth,
-    updateGraph,
-    attackChains,
-    updateAttackChain,
-    deleteAttackChain,
-    ensureAttackChainPage,
-    setPendingHighlightChainId,
   } = useAppStore(useShallow((s) => ({
     pages: s.pages,
-    graphs: s.graphs,
     createPage: s.createPage,
-    createGraph: s.createGraph,
     deletePage: s.deletePage,
-    deleteGraph: s.deleteGraph,
     openTab: s.openTab,
     searchQuery: s.searchQuery,
     setSearchQuery: s.setSearchQuery,
@@ -113,19 +95,11 @@ export function LeftSidebar() {
     renameNmapScan: s.renameNmapScan,
     leftSidebarWidth: s.leftSidebarWidth,
     setLeftSidebarWidth: s.setLeftSidebarWidth,
-    updateGraph: s.updateGraph,
-    attackChains: s.attackChains,
-    updateAttackChain: s.updateAttackChain,
-    deleteAttackChain: s.deleteAttackChain,
-    ensureAttackChainPage: s.ensureAttackChainPage,
-    setPendingHighlightChainId: s.setPendingHighlightChainId,
   })));
 
   const [toolsExpanded, setToolsExpanded] = useState(true);
   const [pagesExpanded, setPagesExpanded] = useState(true);
-  const [narrativesExpanded, setNarrativesExpanded] = useState(true);
   const [nmapExpanded, setNmapExpanded] = useState(true);
-  const [chainsExpanded, setChainsExpanded] = useState(true);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
@@ -208,18 +182,8 @@ export function LeftSidebar() {
     openTab({ id: uuidv4(), kind: 'page', entityId: page.id, title: page.title });
   };
 
-  const handleCreateGraph = async () => {
-    if (!activeWorkspaceId) return;
-    const graph = await createGraph('New Attack Narrative');
-    openTab({ id: uuidv4(), kind: 'graph', entityId: graph.id, title: graph.name });
-  };
-
   const openPage = (page: Page) => {
     openTab({ id: uuidv4(), kind: 'page', entityId: page.id, title: page.title });
-  };
-
-  const openGraph = (graph: Graph) => {
-    openTab({ id: uuidv4(), kind: 'graph', entityId: graph.id, title: graph.name });
   };
 
   const openScan = (scan: NmapScan) => {
@@ -237,22 +201,6 @@ export function LeftSidebar() {
 
 
 
-  const openFindings = () => {
-    openTab({ id: uuidv4(), kind: 'findings', entityId: 'findings', title: 'Findings Collector' });
-  };
-
-  const openTimeline = () => {
-    openTab({ id: uuidv4(), kind: 'timeline', entityId: 'timeline', title: 'Attack Timeline' });
-  };
-
-  const openTypst = () => {
-    openTab({ id: uuidv4(), kind: 'typst', entityId: 'typst', title: 'Typst' });
-  };
-
-  const openAi = () => {
-    openTab({ id: uuidv4(), kind: 'ai', entityId: 'ai', title: 'Claude' });
-  };
-
   const openCommandLog = () => {
     openTab({ id: uuidv4(), kind: 'cmdlog', entityId: 'cmdlog', title: 'Command Log' });
   };
@@ -263,25 +211,6 @@ export function LeftSidebar() {
 
   const openShortcuts = () => {
     openTab({ id: uuidv4(), kind: 'shortcuts', entityId: 'shortcuts', title: 'Shortcuts' });
-  };
-
-  const openChain = async (chain: AttackChain) => {
-    // Left-click opens (or lazily creates) the chain's writeup page so the
-    // user can document the attack steps. Highlighting on the graph is now
-    // an explicit right-click action: see `highlightChain`.
-    let pageId = chain.linkedPageId;
-    if (!pageId) {
-      pageId = await ensureAttackChainPage(chain.id);
-    }
-    if (!pageId) return;
-    openTab({ id: uuidv4(), kind: 'page', entityId: pageId, title: chain.name });
-  };
-
-  const highlightChain = (chain: AttackChain) => {
-    const graph = graphs.find((g) => g.id === chain.graphId);
-    if (!graph) return;
-    setPendingHighlightChainId(chain.id);
-    openTab({ id: uuidv4(), kind: 'graph', entityId: graph.id, title: graph.name });
   };
 
   // ── Resize handle ──
@@ -380,38 +309,6 @@ export function LeftSidebar() {
             <div className="flex flex-col gap-1 px-2 pt-1">
               <button
                 data-op="nav"
-                onClick={openFindings}
-                className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--status-red))]/30 bg-[hsl(var(--status-red))]/10 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--status-red))]/20"
-              >
-                <Bug size={12} className="text-[hsl(var(--status-red))]" />
-                <span className="truncate">Findings</span>
-              </button>
-              <button
-                data-op="nav"
-                onClick={openTimeline}
-                className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--status-amber))]/30 bg-[hsl(var(--status-amber))]/10 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--status-amber))]/20"
-              >
-                <Clock size={12} className="text-[hsl(var(--status-amber))]" />
-                <span className="truncate">Attack Timeline</span>
-              </button>
-              <button
-                data-op="nav"
-                onClick={openAi}
-                className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--primary))]/30 bg-[hsl(var(--primary))]/10 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--primary))]/20"
-              >
-                <Sparkles size={12} className="text-[hsl(var(--primary))]" />
-                <span className="truncate">Claude Assistant</span>
-              </button>
-              <button
-                data-op="nav"
-                onClick={openTypst}
-                className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--status-purple))]/30 bg-[hsl(var(--status-purple))]/10 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--status-purple))]/20"
-              >
-                <FileType2 size={12} className="text-[hsl(var(--status-purple))]" />
-                <span className="truncate">Typst</span>
-              </button>
-              <button
-                data-op="nav"
                 onClick={openCommandLog}
                 className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--status-green))]/30 bg-[hsl(var(--status-green))]/10 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--status-green))]/20"
               >
@@ -478,68 +375,6 @@ export function LeftSidebar() {
               ))}
               {rootPages.length === 0 && (
                 <span className="px-2 py-1 text-xs text-[hsl(var(--muted-foreground))]">No notes yet</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Attack Narratives section */}
-        <div className="py-1">
-          <div className="flex w-full items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2">
-            <button
-              onClick={() => setNarrativesExpanded(!narrativesExpanded)}
-              className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--foreground))]"
-            >
-              Attack Narratives
-              <ChevronRight size={10} className={cn('transition-transform duration-150', narrativesExpanded && 'rotate-90')} />
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); void handleCreateGraph(); }} className="p-0.5 hover:bg-[hsl(var(--accent))] text-[hsl(var(--muted-foreground))]">
-              <Plus size={12} />
-            </button>
-          </div>
-          {narrativesExpanded && (
-            <div className="flex flex-col gap-1 px-2 pt-1">
-              {graphs.map((graph) => (
-                <NarrativeItem key={graph.id} graph={graph} openGraph={openGraph} deleteGraph={deleteGraph} updateGraph={updateGraph} />
-              ))}
-              {graphs.length === 0 && (
-                <span className="px-2 py-1 text-xs text-[hsl(var(--muted-foreground))]">No narratives yet</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Attack Chains section */}
-        <div className="py-1">
-          <div className="flex w-full items-center justify-between border-b border-[hsl(var(--border))] px-3 py-2">
-            <button
-              onClick={() => setChainsExpanded(!chainsExpanded)}
-              className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--foreground))]"
-            >
-              Attack Chains
-              <ChevronRight size={10} className={cn('transition-transform duration-150', chainsExpanded && 'rotate-90')} />
-            </button>
-          </div>
-          {chainsExpanded && (
-            <div className="flex flex-col gap-1 px-2 pt-1">
-              {attackChains.map((chain) => {
-                const graph = graphs.find((g) => g.id === chain.graphId);
-                return (
-                  <AttackChainItem
-                    key={chain.id}
-                    chain={chain}
-                    graphName={graph?.name ?? 'Unknown narrative'}
-                    openChain={openChain}
-                    highlightChain={highlightChain}
-                    renameChain={(id, name) => updateAttackChain(id, { name })}
-                    deleteChain={deleteAttackChain}
-                  />
-                );
-              })}
-              {attackChains.length === 0 && (
-                <span className="px-2 py-1 text-xs text-[hsl(var(--muted-foreground))]">
-                  Select 2+ nodes and right-click to create
-                </span>
               )}
             </div>
           )}
@@ -905,126 +740,6 @@ function PageTreeItem({
   );
 }
 
-// ── Narrative item with inline rename ──
-
-function NarrativeItem({
-  graph,
-  openGraph,
-  deleteGraph,
-  updateGraph,
-}: {
-  graph: import('@/types').Graph;
-  openGraph: (g: import('@/types').Graph) => void;
-  deleteGraph: (id: string) => Promise<void>;
-  updateGraph: (id: string, data: { name: string }) => Promise<void>;
-}) {
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [renaming, setRenaming] = useState(false);
-  const [nameValue, setNameValue] = useState(graph.name);
-  const isActive = useAppStore((s) => {
-    const tab = s.tabs.find((t) => t.id === s.activeTabId);
-    return tab?.kind === 'graph' && tab.entityId === graph.id;
-  });
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (renaming && inputRef.current) inputRef.current.focus();
-  }, [renaming]);
-
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const close = (e: MouseEvent) => {
-      if (menuRef.current && menuRef.current.contains(e.target as Node)) return;
-      setCtxMenu(null);
-    };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [ctxMenu]);
-
-  const commitRename = () => {
-    setRenaming(false);
-    const trimmed = nameValue.trim();
-    if (trimmed && trimmed !== graph.name) {
-      void updateGraph(graph.id, { name: trimmed });
-    } else {
-      setNameValue(graph.name);
-    }
-  };
-
-  return (
-    <div
-      data-active={isActive || undefined}
-      className={cn(
-        'group flex w-full items-center rounded-lg border border-[hsl(var(--status-amber))]/30 bg-[hsl(var(--status-amber))]/10 hover:bg-[hsl(var(--status-amber))]/20',
-        isActive && 'bg-[hsl(var(--status-amber))]/25',
-      )}
-      onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-    >
-      {renaming ? (
-        <div className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5">
-          <Network size={12} className="shrink-0 text-[hsl(var(--status-amber))]" />
-          <input
-            ref={inputRef}
-            value={nameValue}
-            onChange={(e) => setNameValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitRename();
-              if (e.key === 'Escape') { setRenaming(false); setNameValue(graph.name); }
-            }}
-            onBlur={commitRename}
-            className="min-w-0 flex-1 border-b border-[hsl(var(--primary))] bg-transparent text-[11px] outline-none"
-          />
-        </div>
-      ) : (
-        <button
-          onClick={() => openGraph(graph)}
-          className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5 text-[11px]"
-        >
-          <Network size={12} className="text-[hsl(var(--status-amber))]" />
-          <span className="truncate">{graph.name}</span>
-        </button>
-      )}
-      {confirmDelete && (
-        <Portal><ConfirmDeleteDialog
-          name={graph.name}
-          kind="attack narrative"
-          onConfirm={() => { setConfirmDelete(false); void deleteGraph(graph.id); }}
-          onCancel={() => setConfirmDelete(false)}
-        /></Portal>
-      )}
-      {ctxMenu && (
-        <div
-          ref={menuRef}
-          className="fixed z-50 min-w-[160px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
-          style={{ left: ctxMenu.x, top: ctxMenu.y }}
-        >
-          <button
-            onClick={() => { setCtxMenu(null); setNameValue(graph.name); setRenaming(true); }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
-          >
-            <Pencil size={12} /> Rename
-          </button>
-          <button
-            onClick={() => { setCtxMenu(null); openGraph(graph); }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
-          >
-            Open
-          </button>
-          <div className="my-1 border-t border-[hsl(var(--border))]" />
-          <button
-            onClick={() => { setCtxMenu(null); setConfirmDelete(true); }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[hsl(var(--destructive))] hover:bg-[hsl(var(--accent))]"
-          >
-            <Trash2 size={12} /> Delete
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function NmapScanItem({
   scan,
   openScan,
@@ -1178,131 +893,6 @@ function ConfirmDeleteDialog({
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ── Attack Chain item with inline rename ──
-
-function AttackChainItem({
-  chain,
-  graphName,
-  openChain,
-  highlightChain,
-  renameChain,
-  deleteChain,
-}: {
-  chain: AttackChain;
-  graphName: string;
-  openChain: (c: AttackChain) => void;
-  highlightChain: (c: AttackChain) => void;
-  renameChain: (id: string, name: string) => Promise<void>;
-  deleteChain: (id: string) => Promise<void>;
-}) {
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [renaming, setRenaming] = useState(false);
-  const [nameValue, setNameValue] = useState(chain.name);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (renaming && inputRef.current) inputRef.current.focus();
-  }, [renaming]);
-
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const close = (e: MouseEvent) => {
-      if (menuRef.current && menuRef.current.contains(e.target as Node)) return;
-      setCtxMenu(null);
-    };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [ctxMenu]);
-
-  const commitRename = () => {
-    setRenaming(false);
-    const trimmed = nameValue.trim();
-    if (trimmed && trimmed !== chain.name) {
-      void renameChain(chain.id, trimmed);
-    } else {
-      setNameValue(chain.name);
-    }
-  };
-
-  return (
-    <div
-      className="group flex w-full items-center rounded-lg border border-[hsl(var(--status-red))]/30 bg-[hsl(var(--status-red))]/10 hover:bg-[hsl(var(--status-red))]/20"
-      onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-    >
-      {renaming ? (
-        <div className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5">
-          <Link2 size={12} className="shrink-0 text-[hsl(var(--status-red))]" />
-          <input
-            ref={inputRef}
-            value={nameValue}
-            onChange={(e) => setNameValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitRename();
-              if (e.key === 'Escape') { setRenaming(false); setNameValue(chain.name); }
-            }}
-            onBlur={commitRename}
-            className="min-w-0 flex-1 border-b border-[hsl(var(--primary))] bg-transparent text-[11px] outline-none"
-          />
-        </div>
-      ) : (
-        <button
-          onClick={() => openChain(chain)}
-          className="flex flex-1 items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px]"
-          title={`${chain.nodeIds.length} nodes · in ${graphName}`}
-        >
-          <Link2 size={12} className="shrink-0 text-[hsl(var(--status-red))]" />
-          <span className="truncate">{chain.name}</span>
-        </button>
-      )}
-
-      {confirmDelete && (
-        <Portal><ConfirmDeleteDialog
-          name={chain.name}
-          kind="attack chain"
-          onConfirm={() => { setConfirmDelete(false); void deleteChain(chain.id); }}
-          onCancel={() => setConfirmDelete(false)}
-        /></Portal>
-      )}
-
-      {ctxMenu && (
-        <div
-          ref={menuRef}
-          className="fixed z-50 min-w-[160px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
-          style={{ left: ctxMenu.x, top: ctxMenu.y }}
-        >
-          <button
-            onClick={() => { setCtxMenu(null); openChain(chain); }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
-          >
-            Open writeup
-          </button>
-          <button
-            onClick={() => { setCtxMenu(null); highlightChain(chain); }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
-          >
-            Highlight on Narrative
-          </button>
-          <button
-            onClick={() => { setCtxMenu(null); setNameValue(chain.name); setRenaming(true); }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
-          >
-            <Pencil size={12} /> Rename
-          </button>
-          <div className="my-1 border-t border-[hsl(var(--border))]" />
-          <button
-            onClick={() => { setCtxMenu(null); setConfirmDelete(true); }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[hsl(var(--destructive))] hover:bg-[hsl(var(--accent))]"
-          >
-            <Trash2 size={12} /> Delete
-          </button>
-        </div>
-      )}
     </div>
   );
 }

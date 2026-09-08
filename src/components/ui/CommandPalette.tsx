@@ -3,17 +3,15 @@ import { useShallow } from 'zustand/react/shallow';
 import { Command } from 'cmdk';
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { FileText, FileType2, Network, Plus, Settings, Users, Sparkles, Terminal, Images, Keyboard } from 'lucide-react';
+import { FileText, Plus, Settings, Users, Terminal, Images, Keyboard } from 'lucide-react';
 
 export function CommandPalette() {
   const {
     commandPaletteOpen,
     setCommandPaletteOpen,
     pages,
-    graphs,
     openTab,
     createPage,
-    createGraph,
     activeWorkspaceId,
     toggleDarkMode,
     setFollowPanelOpen,
@@ -21,10 +19,8 @@ export function CommandPalette() {
     commandPaletteOpen: s.commandPaletteOpen,
     setCommandPaletteOpen: s.setCommandPaletteOpen,
     pages: s.pages,
-    graphs: s.graphs,
     openTab: s.openTab,
     createPage: s.createPage,
-    createGraph: s.createGraph,
     activeWorkspaceId: s.activeWorkspaceId,
     toggleDarkMode: s.toggleDarkMode,
     setFollowPanelOpen: s.setFollowPanelOpen,
@@ -67,33 +63,6 @@ export function CommandPalette() {
                 className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
               >
                 <Plus size={14} /> New Page
-              </Command.Item>
-              <Command.Item
-                onSelect={async () => {
-                  if (!activeWorkspaceId) return;
-                  const graph = await createGraph('New Attack Narrative');
-                  openTab({ id: uuidv4(), kind: 'graph', entityId: graph.id, title: graph.name });
-                  setCommandPaletteOpen(false);
-                }}
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
-              >
-                <Plus size={14} /> New Attack Narrative
-              </Command.Item>
-              <Command.Item
-                onSelect={() => {
-                  if (!activeWorkspaceId) return;
-                  openTab({ id: uuidv4(), kind: 'typst', entityId: 'typst', title: 'Typst' });
-                  setCommandPaletteOpen(false);
-                }}
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
-              >
-                <FileType2 size={14} /> Open Typst Document
-              </Command.Item>
-              <Command.Item
-                onSelect={() => { openTab({ id: uuidv4(), kind: 'ai', entityId: 'ai', title: 'Claude' }); setCommandPaletteOpen(false); }}
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
-              >
-                <Sparkles size={14} /> Ask Claude (AI Assistant)
               </Command.Item>
               <Command.Item
                 onSelect={() => { openTab({ id: uuidv4(), kind: 'cmdlog', entityId: 'cmdlog', title: 'Command Log' }); setCommandPaletteOpen(false); }}
@@ -145,23 +114,6 @@ export function CommandPalette() {
               </Command.Group>
             )}
 
-            {graphs.length > 0 && (
-              <Command.Group heading="Attack Narratives" className="mb-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-[hsl(var(--muted-foreground))]">
-                {graphs.map((graph) => (
-                  <Command.Item
-                    key={graph.id}
-                    value={graph.name}
-                    onSelect={() => {
-                      openTab({ id: uuidv4(), kind: 'graph', entityId: graph.id, title: graph.name });
-                      setCommandPaletteOpen(false);
-                    }}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
-                  >
-                    <Network size={14} /> {graph.name}
-                  </Command.Item>
-                ))}
-              </Command.Group>
-            )}
           </Command.List>
         </Command>
       </div>

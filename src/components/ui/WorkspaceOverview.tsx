@@ -1,14 +1,14 @@
-import { ArrowUpRight, FileText, Network, FileType2, Clock } from 'lucide-react';
+import { ArrowUpRight, FileText, Images, Radar, Terminal } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/stores';
 import type { TabKind } from '@/types';
 
 /** Small native-CSS landing view; no charts, polling, or extra UI libraries. */
 export function WorkspaceOverview() {
-  const { workspaces, activeWorkspaceId, pages, graphs, nmapScans, attackChains, openTab } = useAppStore(useShallow((s) => ({
+  const { workspaces, activeWorkspaceId, pages, nmapScans, typstAssets, openTab } = useAppStore(useShallow((s) => ({
     workspaces: s.workspaces, activeWorkspaceId: s.activeWorkspaceId,
-    pages: s.pages, graphs: s.graphs, nmapScans: s.nmapScans,
-    attackChains: s.attackChains, openTab: s.openTab,
+    pages: s.pages, nmapScans: s.nmapScans, typstAssets: s.typstAssets,
+    openTab: s.openTab,
   })));
   const workspace = workspaces.find((w) => w.id === activeWorkspaceId);
   const localPages = pages.filter((p) => p.workspaceId === activeWorkspaceId);
@@ -18,13 +18,12 @@ export function WorkspaceOverview() {
     <div className="op-overview"><div className="op-overview-inner">
       <div className="op-eyebrow">BTCT / Workspace overview</div>
       <h1>{workspace?.name ?? 'Your workspace'}</h1>
-      <p className="op-overview-subtitle">Connect the evidence. Document the path. Build the report.</p>
+      <p className="op-overview-subtitle">Capture the evidence. Keep the notes. Build the report.</p>
       <div className="op-metrics">
         {[
           [localPages.length, 'Pages'],
-          [graphs.filter((g) => g.workspaceId === activeWorkspaceId).length, 'Narratives'],
           [nmapScans.filter((s) => s.workspaceId === activeWorkspaceId).length, 'Scan groups'],
-          [attackChains.filter((c) => c.workspaceId === activeWorkspaceId).length, 'Attack chains'],
+          [typstAssets.filter((a) => a.workspaceId === activeWorkspaceId && !a.deletedAt).length, 'Assets'],
         ].map(([value, label]) => <div className="op-metric" key={label}><strong>{value}</strong><span>{label}</span></div>)}
       </div>
       <div className="op-overview-columns">
@@ -39,9 +38,11 @@ export function WorkspaceOverview() {
         <section>
           <h2 className="op-section-heading">Workspace tools</h2>
           <div className="op-actions">
-            <button className="op-action" onClick={() => open('findings', 'findings', 'Findings')}><Network size={18} /><span><strong>Review findings</strong><small>Prioritize evidence and impact</small></span><ArrowUpRight size={14} /></button>
-            <button className="op-action" onClick={() => open('timeline', 'timeline', 'Timeline')}><Clock size={18} /><span><strong>Trace the timeline</strong><small>Follow the sequence of events</small></span><ArrowUpRight size={14} /></button>
-            <button className="op-action" onClick={() => open('typst', 'typst', 'Report')}><FileType2 size={18} /><span><strong>Build the report</strong><small>Turn your notes into a deliverable</small></span><ArrowUpRight size={14} /></button>
+            <button className="op-action" onClick={() => open('assets', 'assets', 'Assets')}><Images size={18} /><span><strong>Manage screenshots</strong><small>Crop and redact the evidence</small></span><ArrowUpRight size={14} /></button>
+            <button className="op-action" onClick={() => open('cmdlog', 'cmdlog', 'Command Log')}><Terminal size={18} /><span><strong>Read the command log</strong><small>What the team actually ran</small></span><ArrowUpRight size={14} /></button>
+            {nmapScans.length > 0 && nmapScans[0] && (
+              <button className="op-action" onClick={() => open('nmap', nmapScans[0]!.id, nmapScans[0]!.name)}><Radar size={18} /><span><strong>Open a scan group</strong><small>Hosts, ports and NSE output</small></span><ArrowUpRight size={14} /></button>
+            )}
           </div>
         </section>
       </div>

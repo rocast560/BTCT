@@ -31,16 +31,6 @@ db.exec(`
     value TEXT NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS chat_sessions (
-    id         TEXT PRIMARY KEY,
-    user_id    INTEGER NOT NULL,
-    title      TEXT NOT NULL,
-    messages   TEXT NOT NULL,          -- JSON array of { role, content }
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_chat_user ON chat_sessions(user_id, updated_at DESC);
-
   -- Binary assets (Typst report screenshots + custom fonts). Only the
   -- metadata lives here; the bytes are files under ASSETS_DIR keyed by id.
   -- The workspace-facing record (display name, crop rect) is in the shared
@@ -219,74 +209,6 @@ export function getSetting(key) {
 
 export function setSetting(key, value) {
   upsertSettingStmt.run({ $key: key, $value: value });
-}
-
-// ── Claude chat sessions (per-account, durable conversation history) ──
-const listChatStmt = db.prepare(
-  `SELECT id, title, created_at, updated_at FROM chat_sessions
-   WHERE user_id = ? ORDER BY updated_at DESC`,
-);
-const getChatStmt = db.prepare(
-  `SELECT id, title, messages, created_at, updated_at FROM chat_sessions
-   WHERE id = ? AND user_id = ?`,
-);
-const upsertChatStmt = db.prepare(
-  `INSERT INTO chat_sessions (id, user_id, title, messages, created_at, updated_at)
-   VALUES ($id, $user_id, $title, $messages, $created_at, $updated_at)
-   ON CONFLICT(id) DO UPDATE SET
-     title = excluded.title,
-     messages = excluded.messages,
-     updated_at = excluded.updated_at
-   WHERE chat_sessions.user_id = excluded.user_id`,
-);
-const deleteChatStmt = db.prepare(
-  `DELETE FROM chat_sessions WHERE id = ? AND user_id = ?`,
-);
-// Keep only the newest N sessions per user.
-const pruneChatStmt = db.prepare(
-  `DELETE FROM chat_sessions WHERE user_id = ? AND id NOT IN (
-     SELECT id FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?
-   )`,
-);
-const CHAT_KEEP = 100;
-const countChatStmt = db.prepare(
-  `SELECT COUNT(*) AS n FROM chat_sessions WHERE user_id = ?`,
-);
-
-export function listChatSessions(userId) {
-  return listChatStmt.all(userId).map((r) => ({
-    id: r.id, title: r.title, createdAt: r.created_at, updatedAt: r.updated_at,
-  }));
-}
-
-export function getChatSession(userId, id) {
-  const r = getChatStmt.get(id, userId);
-  if (!r) return null;
-  let messages = [];
-  try { const p = JSON.parse(r.messages); if (Array.isArray(p)) messages = p; } catch { /* corrupt → empty */ }
-  return { id: r.id, title: r.title, messages, createdAt: r.created_at, updatedAt: r.updated_at };
-}
-
-export function saveChatSession(userId, { id, title, messages, createdAt, updatedAt }) {
-  const now = Date.now();
-  upsertChatStmt.run({
-    $id: id,
-    $user_id: userId,
-    $title: String(title || 'New chat').slice(0, 200),
-    $messages: JSON.stringify(messages ?? []),
-    $created_at: Number(createdAt) || now,
-    $updated_at: Number(updatedAt) || now,
-  });
-  // The prune subquery scans the user's sessions; only run it when the
-  // cap is actually exceeded (the client saves after every assistant turn).
-  if ((countChatStmt.get(userId)?.n ?? 0) > CHAT_KEEP) {
-    pruneChatStmt.run(userId, userId, CHAT_KEEP);
-  }
-  return { id, title, createdAt: Number(createdAt) || now, updatedAt: Number(updatedAt) || now };
-}
-
-export function deleteChatSession(userId, id) {
-  deleteChatStmt.run(id, userId);
 }
 
 // ── binary assets (Typst images + fonts) ──

@@ -18,8 +18,10 @@ import {
   type ThemePrefs,
 } from '@/lib/editor-prefs';
 
-// Restrained blue accent for the operations interface.
-export const DEFAULT_THEME_COLOR = '#7db4dc';
+// Neutral dark grey accent. The interface carries no brand colour of its
+// own: status colours (red/amber/green) stay meaningful because nothing
+// else competes with them. An account can still pick a colour in Profile.
+export const DEFAULT_THEME_COLOR = '#6b7280';
 
 export interface Hsl {
   h: number; // 0-360

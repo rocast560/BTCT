@@ -63,17 +63,9 @@ function revealRemoteCaret(userId: number): void {
 
 /** Mirror a teammate's focus into the local view. */
 function applyFocus(focus: FocusPayload, userId: number): void {
-  const store = useAppStore.getState();
   const precise = precisionFor(userId) === 'precise';
 
   switch (focus.kind) {
-    case 'graph': {
-      // Set the pending focus BEFORE opening so GraphCanvas's mount effect
-      // picks it up and animates to the node (same path as "Go to Node").
-      if (precise && focus.nodeId) store.setPendingFocusNodeId(focus.nodeId);
-      openAndPlace({ id: uuidv4(), kind: 'graph', entityId: focus.entityId, title: focus.title || 'Graph' });
-      break;
-    }
     case 'page': {
       openAndPlace({ id: uuidv4(), kind: 'page', entityId: focus.entityId, title: focus.title || 'Page' });
       if (precise) revealRemoteCaret(userId);
@@ -89,7 +81,7 @@ function applyFocus(focus: FocusPayload, userId: number): void {
       break;
     }
     default: {
-      // findings / timeline / typst: singleton or entity-backed tabs.
+      // typst / cmdlog / assets / shortcuts: singleton or entity-backed tabs.
       openAndPlace({ id: uuidv4(), kind: focus.kind, entityId: focus.entityId, title: focus.title || focus.kind });
     }
   }

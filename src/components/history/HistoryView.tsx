@@ -27,7 +27,7 @@ import { useAuthStore } from '@/auth/auth-store';
 import { highlightPlugin } from '@/lib/highlight-plugin';
 import { withYChange, ychangeDomAttrs } from '@/lib/history-schema';
 import { assetImageSchema } from '@/lib/asset-image';
-import { resolveAssetBytes, fetchAssetBytes } from '@/lib/typst-assets';
+import { resolveAssetBytes, fetchAssetBytes } from '@/lib/assets';
 import { cn } from '@/lib/utils';
 import {
   filterVersions,

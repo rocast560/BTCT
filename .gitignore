@@ -7,3 +7,6 @@ server/backups/
 # Local isolated preview credentials and artifacts
 .preview/
 .env.preview
+
+# Local (non-Docker) run: sqlite, yjs leveldb, history twins, backups.
+.localrun/

@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Shield, X, Trash2, Plus, KeyRound, Sparkles, Plug, Copy, RefreshCw, Terminal, HardDrive, Play, EyeOff, Timer } from 'lucide-react';
+import { Shield, X, Trash2, Plus, KeyRound, Copy, RefreshCw, Terminal, HardDrive, Play, EyeOff, Timer } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   useAuthStore,
   type AdminUserRow,
-  type AiConfig,
-  type McpConfig,
   type CmdlogConfig,
   type BackupConfig,
   type BackupConfigInput,
@@ -139,12 +137,6 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
               {error}
             </div>
           )}
-
-          {/* Claude AI Assistant configuration */}
-          <AiConfigSection />
-
-          {/* MCP server configuration */}
-          <McpConfigSection />
 
           {/* Command-log ingest configuration */}
           <CmdlogConfigSection />
@@ -313,257 +305,6 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
 }
 
 /**
- * Where the admin pastes the Anthropic API key and picks the assistant mode.
- * The key is write-only: the server never returns it, so the field renders
- * empty and we only surface a "Connected ✓ / Not configured" status.
- */
-function AiConfigSection() {
-  const aiGetConfig = useAuthStore((s) => s.aiGetConfig);
-  const aiSaveConfig = useAuthStore((s) => s.aiSaveConfig);
-  const aiTestConnection = useAuthStore((s) => s.aiTestConnection);
-
-  const [cfg, setCfg] = useState<AiConfig | null>(null);
-  const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('claude-opus-4-8');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    void aiGetConfig().then((c) => { setCfg(c); setModel(c.model); }).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const save = async (patch: Parameters<typeof aiSaveConfig>[0], note: string) => {
-    setBusy(true); setErr(null); setMsg(null);
-    try {
-      const c = await aiSaveConfig(patch);
-      setCfg(c); setModel(c.model);
-      setMsg(note);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'save failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const test = async () => {
-    setBusy(true); setErr(null); setMsg(null);
-    try {
-      const r = await aiTestConnection();
-      setMsg(`Connection OK (${r.model})`);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'test failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/70">
-        <Sparkles size={12} className="text-[hsl(var(--primary))]" /> Claude AI Assistant
-      </div>
-
-      {/* API key */}
-      <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/50">Anthropic API key</label>
-      <div className="flex items-center gap-2">
-        <input
-          type="password"
-          placeholder={cfg?.configured ? '•••••••••• (saved)' : 'sk-ant-…'}
-          autoComplete="off"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          className="flex-1 rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs outline-none focus:border-white/30"
-        />
-        <button
-          onClick={() => { void save({ apiKey }, 'API key saved'); setApiKey(''); }}
-          disabled={busy || !apiKey.trim()}
-          className="rounded-md bg-white/90 px-3 py-1.5 text-xs font-medium text-black hover:bg-white disabled:opacity-40"
-        >
-          Save key
-        </button>
-      </div>
-      <div className="mt-1 text-[11px]">
-        {cfg?.configured
-          ? <span className="text-[hsl(var(--status-green,142_71%_45%))]" style={{ color: '#4ade80' }}>Connected ✓</span>
-          : <span className="text-white/50">Not configured</span>}
-      </div>
-
-      {/* Mode + enable */}
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <span className="text-[11px] text-white/60">Mode</span>
-        <div className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-white/10 p-0.5">
-          {(['view', 'edit'] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => void save({ mode: m }, `Mode set to ${m}`)}
-              disabled={busy}
-              className={`min-w-[76px] whitespace-nowrap rounded-md px-3 py-1 text-[11px] font-medium ${cfg?.mode === m ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]' : 'text-white/60 hover:bg-white/10'}`}
-            >
-              {m === 'view' ? 'View only' : 'Edit'}
-            </button>
-          ))}
-        </div>
-        <label className="ml-auto flex items-center gap-2 text-[11px] text-white/70">
-          <input
-            type="checkbox"
-            checked={!!cfg?.enabled}
-            onChange={(e) => void save({ enabled: e.target.checked }, e.target.checked ? 'Assistant enabled' : 'Assistant disabled')}
-          />
-          Enabled
-        </label>
-      </div>
-
-      {/* Model + test */}
-      <div className="mt-3 flex items-center gap-2">
-        <input
-          type="text"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          className="flex-1 rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs outline-none focus:border-white/30"
-        />
-        <button
-          onClick={() => void save({ model }, 'Model saved')}
-          disabled={busy}
-          className="rounded-md border border-white/10 px-2.5 py-1.5 text-[11px] hover:bg-white/10 disabled:opacity-40"
-        >
-          Save model
-        </button>
-        <button
-          onClick={() => void test()}
-          disabled={busy || !cfg?.configured}
-          className="rounded-md border border-white/10 px-2.5 py-1.5 text-[11px] hover:bg-white/10 disabled:opacity-40"
-        >
-          Test
-        </button>
-      </div>
-
-      {(msg || err) && (
-        <div className={`mt-2 text-[11px] ${err ? 'text-[hsl(var(--status-red))]' : 'text-white/60'}`}>
-          {err || msg}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Admin config for the hosted MCP server: enable it, toggle read-only vs edit
- * permissions, and reveal/copy/regenerate the bearer token an MCP client (e.g.
- * Claude Code CLI) uses to connect.
- */
-function McpConfigSection() {
-  const mcpGetConfig = useAuthStore((s) => s.mcpGetConfig);
-  const mcpSaveConfig = useAuthStore((s) => s.mcpSaveConfig);
-  const mcpRegenerateToken = useAuthStore((s) => s.mcpRegenerateToken);
-
-  const [cfg, setCfg] = useState<McpConfig | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [revealed, setRevealed] = useState(false);
-
-  useEffect(() => {
-    void mcpGetConfig().then(setCfg).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const token = cfg?.token || '';
-  const connectCmd = `claude mcp add --transport http btct ${origin}/mcp --header "Authorization: Bearer ${token || '<token>'}"`;
-
-  const save = async (patch: Parameters<typeof mcpSaveConfig>[0], note: string) => {
-    setBusy(true); setErr(null); setMsg(null);
-    try { setCfg(await mcpSaveConfig(patch)); setMsg(note); }
-    catch (e) { setErr(e instanceof Error ? e.message : 'save failed'); }
-    finally { setBusy(false); }
-  };
-  const regen = async () => {
-    setBusy(true); setErr(null); setMsg(null);
-    try {
-      const { token: t } = await mcpRegenerateToken();
-      setCfg((c) => (c ? { ...c, token: t, configured: true } : c));
-      setRevealed(true); setMsg('Token regenerated');
-    } catch (e) { setErr(e instanceof Error ? e.message : 'failed'); }
-    finally { setBusy(false); }
-  };
-  const copy = (text: string) => {
-    try { void navigator.clipboard.writeText(text); setMsg('Copied'); } catch { /* ignore */ }
-  };
-
-  return (
-    <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
-      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/70">
-        <Plug size={12} className="text-[hsl(var(--primary))]" /> MCP Server
-      </div>
-      <p className="mb-2 text-[10px] text-white/50">
-        Let an external MCP client (e.g. Claude Code CLI) read all workspace context. Turn on Edit permissions to also let it make changes.
-      </p>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-2 text-[11px] text-white/70">
-          <input
-            type="checkbox"
-            checked={!!cfg?.enabled}
-            onChange={(e) => void save({ enabled: e.target.checked }, e.target.checked ? 'MCP enabled' : 'MCP disabled')}
-          />
-          Enabled
-        </label>
-        <span className="ml-2 text-[11px] text-white/60">Edit permissions</span>
-        <div className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-white/10 p-0.5">
-          {(['read', 'edit'] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => void save({ mode: m }, `MCP mode: ${m}`)}
-              disabled={busy}
-              className={`min-w-[76px] whitespace-nowrap rounded-md px-3 py-1 text-[11px] font-medium ${cfg?.mode === m ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]' : 'text-white/60 hover:bg-white/10'}`}
-            >
-              {m === 'read' ? 'Read-only' : 'Edit'}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="mt-1 text-[11px]">
-        {cfg?.configured
-          ? <span style={{ color: '#4ade80' }}>Connected ✓</span>
-          : <span className="text-white/50">Not configured: enable to generate a token</span>}
-      </div>
-
-      {cfg?.configured && (
-        <div className="mt-3 space-y-2">
-          <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/50">Access token (treat like a password)</label>
-            <div className="flex items-center gap-1.5">
-              <input
-                readOnly
-                type={revealed ? 'text' : 'password'}
-                value={token}
-                className="flex-1 rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs outline-none"
-              />
-              <button onClick={() => setRevealed((r) => !r)} className="rounded-md border border-white/10 px-2 py-1.5 text-[10px] hover:bg-white/10">{revealed ? 'Hide' : 'Reveal'}</button>
-              <button onClick={() => copy(token)} title="Copy token" className="rounded-md border border-white/10 p-1.5 hover:bg-white/10"><Copy size={11} /></button>
-              <button onClick={() => void regen()} disabled={busy} title="Regenerate" className="rounded-md border border-white/10 p-1.5 hover:bg-white/10"><RefreshCw size={11} /></button>
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/50">Connect (Claude Code CLI)</label>
-            <div className="flex items-start gap-1.5">
-              <code className="flex-1 overflow-x-auto whitespace-pre rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-[10px] text-white/80">{connectCmd}</code>
-              <button onClick={() => copy(connectCmd)} title="Copy command" className="rounded-md border border-white/10 p-1.5 hover:bg-white/10"><Copy size={11} /></button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {(msg || err) && (
-        <div className={`mt-2 text-[11px] ${err ? 'text-[hsl(var(--status-red))]' : 'text-white/60'}`}>{err || msg}</div>
-      )}
-    </div>
-  );
-}
-
-/**
  * Admin config for the team command log: enable ingest (mints the shared
  * bearer token operators launch the capture agent with), edit the whitelist of
  * tools that get logged, pick the default target workspace, and copy a
@@ -698,7 +439,7 @@ function CmdlogConfigSection() {
 // ── Backups ─────────────────────────────────────────────────────────────
 //
 // Consistent snapshots of the whole instance into the host folder mounted
-// at BACKUP_DIR (server/backup.mjs). Toggles save immediately (the MCP
+// at BACKUP_DIR (server/backup.mjs). Toggles save immediately (the cmdlog
 // section's pattern); the interval commits on blur/Enter. Nothing is deleted
 // automatically, so the inventory below is the retention tool.
 
@@ -729,7 +470,7 @@ const INCLUDE_LABELS: ReadonlyArray<{ key: keyof BackupConfig['includes']; label
   { key: 'sqlite', label: 'Accounts & settings', hint: 'SQLite: users, prefs, settings, chat sessions, asset index' },
   { key: 'yjsShared', label: 'Workspace metadata', hint: 'the shared doc: pages list, graphs, findings, chains, nmap, change log' },
   { key: 'yjsPages', label: 'Page bodies', hint: 'one Yjs document per page' },
-  { key: 'assets', label: 'Uploaded assets', hint: 'Typst screenshots and fonts' },
+  { key: 'assets', label: 'Uploaded assets', hint: 'Screenshots used by notes' },
   { key: 'history', label: 'Version history', hint: 'per-page history twins behind version diffs' },
 ];
 

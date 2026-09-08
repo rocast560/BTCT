@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Pure helpers for the Typst asset folder hierarchy.
+// Pure helpers for the asset folder hierarchy.
 //
 // Folders are organizational only: an asset keeps its flat `/assets/<name>`
 // path in the compiler's virtual filesystem no matter where it sits in the

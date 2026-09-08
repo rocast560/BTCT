@@ -1,5 +1,5 @@
 /* Operations: solid surfaces, native CSS, and no compositing effects.
-   Never reset transforms globally: graphs and report SVGs use them for layout. */
+   Never reset transforms globally: report SVGs use them for layout. */
 html[data-ui-theme="operations"] {
   --radius: 4px;
   --radius-sm: 3px;

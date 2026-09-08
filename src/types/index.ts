@@ -24,7 +24,9 @@ export interface Page {
    *  string; the array shape exists only for legacy seed/fixture compatibility. */
   content: PartialBlockContent;
   sortOrder: number;
-  isGraphPage: boolean; // true = auto-created for a graph node, hidden from page tree
+  /** Legacy: pages auto-created for retired graph nodes. Always false for new
+   *  pages; kept so archived workspaces still round-trip through import. */
+  isGraphPage: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -33,103 +35,6 @@ export interface Page {
 // by pageRepo.create/update and converted to markdown before persistence.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type PartialBlockContent = string | readonly Record<string, any>[];
-
-// ---- Graph ----
-export interface Graph {
-  id: ID;
-  workspaceId: ID;
-  name: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-// ---- Graph Node Types ----
-export const NODE_TYPES = ['host', 'credential', 'service', 'finding', 'pivot'] as const;
-export type NodeType = (typeof NODE_TYPES)[number];
-
-export interface HostData {
-  hostname: string;
-  ip: string;
-  os: string;
-  openPorts: number[];
-}
-
-export interface CredentialData {
-  username: string;
-  secret: string;
-  source: string;
-}
-
-export interface ServiceData {
-  name: string;
-  version: string;
-  port: number;
-  cves: string[];
-}
-
-export type Likelihood = 'critical' | 'high' | 'medium' | 'low' | 'info';
-export type Impact = 'critical' | 'high' | 'medium' | 'low' | 'info';
-
-export interface FindingData {
-  title: string;
-  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
-  cvss: number;
-  cvssVector: string;
-  likelihood: Likelihood;
-  impact: Impact;
-  description: string;
-  businessImpact: string;
-  exploitSteps: string;
-  mitreAttack: string;
-  mitreMitigation: string;
-  remediation: string;
-  hosts: string[];
-  service: string;
-  references: string[];
-}
-
-export interface PivotData {
-  description: string;
-}
-
-export type NodeDataMap = {
-  host: HostData;
-  credential: CredentialData;
-  service: ServiceData;
-  finding: FindingData;
-  pivot: PivotData;
-};
-
-export type AnyNodeData = HostData | CredentialData | ServiceData | FindingData | PivotData;
-
-export interface GraphNode {
-  id: ID;
-  graphId: ID;
-  type: NodeType;
-  label: string;
-  position: { x: number; y: number };
-  data: AnyNodeData;
-  linkedPageId: ID;
-  discoveredAt: number;
-  createdAt: number;
-  updatedAt: number;
-}
-
-// ---- Graph Edge Types ----
-export const EDGE_TYPES = ['AdminTo', 'HasSession', 'MemberOf', 'Exploits', 'PivotsTo', 'Custom'] as const;
-export type EdgeType = (typeof EDGE_TYPES)[number];
-
-export interface GraphEdge {
-  id: ID;
-  graphId: ID;
-  sourceNodeId: ID;
-  targetNodeId: ID;
-  edgeType: EdgeType;
-  label: string;
-  linkedPageId: ID | null;
-  createdAt: number;
-  updatedAt: number;
-}
 
 // ---- Typst assets (report screenshots + custom fonts) ----
 
@@ -226,29 +131,8 @@ export interface AssetFolder {
   updatedAt: number;
 }
 
-/**
- * A user-added Attack Timeline event (quick-add, Ctrl/Cmd+Shift+E). Typed like
- * a graph node (host/service/credential/pivot/finding) and timestamped to the
- * moment the user chose; carries who added it so the timeline can attribute it.
- * Plain LWW JSON, no Y.Text fields (like typstAssets).
- */
-export interface CustomTimelineEvent {
-  id: ID;
-  workspaceId: ID;
-  kind: NodeType;
-  title: string;
-  details: string;
-  /** User-chosen event time (epoch ms) that places it on the timeline. */
-  timestamp: number;
-  /** Account id that added it (null if unknown), and the name shown. */
-  createdBy: number | null;
-  createdByName: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
 // ---- UI State Types ----
-export type TabKind = 'page' | 'graph' | 'nmap' | 'nmap-machine' | 'findings' | 'timeline' | 'typst' | 'ai' | 'cmdlog' | 'history' | 'assets' | 'shortcuts';
+export type TabKind = 'page' | 'nmap' | 'nmap-machine' | 'cmdlog' | 'history' | 'assets' | 'shortcuts';
 
 export interface TabItem {
   id: string;
@@ -281,7 +165,7 @@ export type DropPosition = 'center' | 'left' | 'right' | 'top' | 'bottom';
 
 // ---- Change Log ----
 export type ChangeAction = 'create' | 'update' | 'delete' | 'restore';
-export type ChangeTarget = 'page' | 'graph' | 'node' | 'edge' | 'attackChain' | 'workspace';
+export type ChangeTarget = 'page' | 'workspace';
 
 export interface ChangeLogEntry {
   id: ID;
@@ -407,68 +291,4 @@ export interface NmapScan {
   name: string;
   importedAt: number;
   rawXml?: string;
-}
-
-// ---- Attack Chain ----
-// Ordered sequence of GraphNode IDs (all within the same Graph) that the user
-// has marked as belonging to a named attack chain. When the chain is selected
-// it is highlighted on the canvas using the red "chain" path style.
-// `linkedPageId` points at a hidden Page (isGraphPage: true) that holds the
-// editable narrative / step-by-step writeup for the chain.
-export interface AttackChain {
-  id: ID;
-  workspaceId: ID;
-  graphId: ID;
-  name: string;
-  nodeIds: ID[];
-  linkedPageId: ID | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-// ---- Default data factories ----
-export function defaultHostData(): HostData {
-  return { hostname: '', ip: '', os: '', openPorts: [] };
-}
-
-export function defaultCredentialData(): CredentialData {
-  return { username: '', secret: '', source: '' };
-}
-
-export function defaultServiceData(): ServiceData {
-  return { name: '', version: '', port: 0, cves: [] };
-}
-
-export function defaultFindingData(): FindingData {
-  return {
-    title: '',
-    severity: 'info',
-    cvss: 0,
-    cvssVector: '',
-    likelihood: 'info',
-    impact: 'info',
-    description: '',
-    businessImpact: '',
-    exploitSteps: '',
-    mitreAttack: '',
-    mitreMitigation: '',
-    remediation: '',
-    hosts: [],
-    service: '',
-    references: [],
-  };
-}
-
-export function defaultPivotData(): PivotData {
-  return { description: '' };
-}
-
-export function defaultNodeData(type: NodeType): AnyNodeData {
-  switch (type) {
-    case 'host': return defaultHostData();
-    case 'credential': return defaultCredentialData();
-    case 'service': return defaultServiceData();
-    case 'finding': return defaultFindingData();
-    case 'pivot': return defaultPivotData();
-  }
 }

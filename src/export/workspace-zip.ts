@@ -1,11 +1,9 @@
-import type { RetiredRecon, RetiredRecord } from './retired-recon';
+import { RETIRED_TABLES, emptyRetired, type RetiredData, type RetiredRecord } from './retired';
 import JSZip from 'jszip';
 import * as Y from 'yjs';
 import type {
-  Workspace, Page, Graph, GraphNode, GraphEdge,
-  AttackChain, ChangeLogEntry, NmapScan, NmapMachine, PageSnapshot,
+  Workspace, Page, ChangeLogEntry, NmapScan, NmapMachine, PageSnapshot,
 } from '@/types';
-import { toGraphML } from './graphml';
 import { pageToMarkdown } from './markdown';
 import { getPageYContext, withPageYContext } from '@/realtime/yjs-providers';
 
@@ -15,18 +13,17 @@ import { getPageYContext, withPageYContext } from '@/realtime/yjs-providers';
  * fidelity of collab history, formatting marks, embedded blocks).
  *
  * Backwards-compatible: the importer reads the legacy v1 layout as well
- * (workspace + pages + graphs/nodes/edges), so older zips still load.
+ * (workspace + pages + graphs/nodes/edges), so older zips still load. The
+ * tables behind removed features ride along in `retired` (see ./retired),
+ * so a ZIP written here is still a full archive of what earlier builds
+ * stored.
  */
 export interface WorkspaceExportData {
-  retiredRecon?: RetiredRecon;
+  retired?: RetiredData;
   schemaVersion: 2;
   exportedAt: number;
   workspace: Workspace;
   pages: Page[];
-  graphs: Graph[];
-  graphNodes: GraphNode[];
-  graphEdges: GraphEdge[];
-  attackChains: AttackChain[];
   changeLogs: ChangeLogEntry[];
   nmapScans: NmapScan[];
   nmapMachines: NmapMachine[];
@@ -50,45 +47,33 @@ export async function exportWorkspaceZip(data: WorkspaceExportData): Promise<Blo
     workspaceId: data.workspace.id,
     counts: {
       pages: data.pages.length,
-      graphs: data.graphs.length,
-      graphNodes: data.graphNodes.length,
-      graphEdges: data.graphEdges.length,
-      attackChains: data.attackChains.length,
       changeLogs: data.changeLogs.length,
       nmapScans: data.nmapScans.length,
       nmapMachines: data.nmapMachines.length,
       pageSnapshots: data.pageSnapshots.length,
       pageYjsUpdates: Object.keys(data.pageYjsUpdates).length,
+      retired: Object.fromEntries(RETIRED_TABLES.map((t) => [t, data.retired?.[t].length ?? 0])),
     },
   }, null, 2));
 
   zip.file('workspace.json',     JSON.stringify(data.workspace,     null, 2));
   zip.file('pages.json',         JSON.stringify(data.pages,         null, 2));
-  zip.file('graphs.json',        JSON.stringify(data.graphs,        null, 2));
-  zip.file('graphNodes.json',    JSON.stringify(data.graphNodes,    null, 2));
-  zip.file('graphEdges.json',    JSON.stringify(data.graphEdges,    null, 2));
-  zip.file('attackChains.json',  JSON.stringify(data.attackChains,  null, 2));
   zip.file('changeLogs.json',    JSON.stringify(data.changeLogs,    null, 2));
   zip.file('nmapScans.json',     JSON.stringify(data.nmapScans,     null, 2));
   zip.file('nmapMachines.json',  JSON.stringify(data.nmapMachines,  null, 2));
   zip.file('pageSnapshots.json', JSON.stringify(data.pageSnapshots, null, 2));
 
-  for (const key of ['siteMaps', 'siteMapNodes', 'siteMapEdges'] as const) {
-    if (data.retiredRecon?.[key].length) zip.file(`${key}.json`, JSON.stringify(data.retiredRecon[key]));
+  // Retired-feature tables keep their original top-level filenames, so a
+  // zip from this build still imports into an older one.
+  for (const key of RETIRED_TABLES) {
+    if (data.retired?.[key].length) zip.file(`${key}.json`, JSON.stringify(data.retired[key]));
   }
 
-  // Human-readable companion outputs (markdown + GraphML) preserved from v1.
+  // Human-readable companion output (markdown) preserved from v1.
   const pagesFolder = zip.folder('pages')!;
   for (const page of data.pages) {
     const safe = page.title.replace(/[/\\?%*:|"<>]/g, '_') || page.id;
     pagesFolder.file(`${safe}.md`, pageToMarkdown(page));
-  }
-  const graphsFolder = zip.folder('graphs')!;
-  for (const graph of data.graphs) {
-    const nodes = data.graphNodes.filter((n) => n.graphId === graph.id);
-    const edges = data.graphEdges.filter((e) => e.graphId === graph.id);
-    const safe = graph.name.replace(/[/\\?%*:|"<>]/g, '_') || graph.id;
-    graphsFolder.file(`${safe}.graphml`, toGraphML(nodes, edges, graph.name));
   }
 
   // Raw Yjs binary updates per page: base64 inside JSON so the zip
@@ -135,28 +120,23 @@ export async function parseWorkspaceZip(blob: Blob): Promise<WorkspaceExportData
   };
 
   const pages         = await readJson<Page>        ('pages.json',         'pages/_index.json');
-  const graphs        = await readJson<Graph>       ('graphs.json',        'graphs/_index.json');
-  let   graphNodes    = await readJson<GraphNode>   ('graphNodes.json');
-  let   graphEdges    = await readJson<GraphEdge>   ('graphEdges.json');
-  const attackChains  = await readJson<AttackChain> ('attackChains.json');
   const changeLogs    = await readJson<ChangeLogEntry>('changeLogs.json');
   const nmapScans     = await readJson<NmapScan>    ('nmapScans.json');
   const nmapMachines  = await readJson<NmapMachine> ('nmapMachines.json');
   const pageSnapshots = await readJson<PageSnapshot>('pageSnapshots.json');
 
-  const retiredRecon: RetiredRecon = {
-    siteMaps: await readJson<RetiredRecord>('siteMaps.json'),
-    siteMapNodes: await readJson<RetiredRecord>('siteMapNodes.json'),
-    siteMapEdges: await readJson<RetiredRecord>('siteMapEdges.json'),
-  };
+  const retired: RetiredData = emptyRetired();
+  for (const key of RETIRED_TABLES) {
+    retired[key] = await readJson<RetiredRecord>(`${key}.json`, key === 'graphs' ? 'graphs/_index.json' : undefined);
+  }
 
-  // v1 fallback: per-graph node/edge JSONs split by folder
-  if (graphNodes.length === 0 && graphEdges.length === 0) {
-    for (const graph of graphs) {
+  // v1 fallback: per-graph node/edge JSONs split by folder.
+  if (retired.graphNodes.length === 0 && retired.graphEdges.length === 0) {
+    for (const graph of retired.graphs) {
       const n = await zip.file(`graphs/${graph.id}/nodes.json`)?.async('string');
       const e = await zip.file(`graphs/${graph.id}/edges.json`)?.async('string');
-      if (n) graphNodes = graphNodes.concat(JSON.parse(n) as GraphNode[]);
-      if (e) graphEdges = graphEdges.concat(JSON.parse(e) as GraphEdge[]);
+      if (n) retired.graphNodes = retired.graphNodes.concat(JSON.parse(n) as RetiredRecord[]);
+      if (e) retired.graphEdges = retired.graphEdges.concat(JSON.parse(e) as RetiredRecord[]);
     }
   }
 
@@ -171,16 +151,12 @@ export async function parseWorkspaceZip(blob: Blob): Promise<WorkspaceExportData
     exportedAt: Date.now(),
     workspace,
     pages,
-    graphs,
-    graphNodes,
-    graphEdges,
-    attackChains,
     changeLogs,
     nmapScans,
     nmapMachines,
     pageSnapshots,
     pageYjsUpdates,
-    retiredRecon,
+    retired,
   };
 }
 
