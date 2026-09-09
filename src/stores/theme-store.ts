@@ -17,6 +17,7 @@ import { create } from 'zustand';
 import { useAuthStore } from '@/auth/auth-store';
 import { applyThemeColor, DEFAULT_THEME_COLOR } from '@/lib/theme';
 import { resolveThemePrefs, type ThemePrefs } from '@/lib/editor-prefs';
+import { DEFAULT_BLUR_STRENGTH } from '@/lib/blur-math';
 
 function apiUrl(): string {
   if (typeof window === 'undefined') return 'http://127.0.0.1:1234';
@@ -76,7 +77,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   lock: false,
   updatedAt: 0,
   loaded: false,
-  blurDefaults: { gaussian: 1, pixelate: 1 },
+  blurDefaults: { gaussian: DEFAULT_BLUR_STRENGTH, pixelate: DEFAULT_BLUR_STRENGTH },
   blurUpdatedAt: 0,
 
   applyServerTheme: (data) => {

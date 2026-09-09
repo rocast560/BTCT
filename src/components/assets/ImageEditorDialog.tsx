@@ -21,6 +21,7 @@ import {
 import type { BlurRegion, BlurStyle, CropRect, TypstAsset } from '@/types';
 import {
   blursKey,
+  DEFAULT_BLUR_STYLE,
   effectiveStrength,
   effectiveStyle,
   MAX_STRENGTH,
@@ -171,8 +172,10 @@ export function ImageEditorDialog({
     [adminBlur, authUser],
   );
   const [selectedBlur, setSelectedBlur] = useState<number | null>(null);
-  const [blurStyle, setBlurStyle] = useState<BlurStyle>('gaussian');
-  const [blurStrength, setBlurStrength] = useState(() => defaultStrengths.gaussian);
+  // Pixelate by default: a mosaic reads unambiguously as "redacted" in a
+  // report, where a gaussian can look like a focus artefact.
+  const [blurStyle, setBlurStyle] = useState<BlurStyle>(DEFAULT_BLUR_STYLE);
+  const [blurStrength, setBlurStrength] = useState(() => defaultStrengths[DEFAULT_BLUR_STYLE]);
 
   const patchSelected = useCallback((patch: Partial<BlurRegion>) => {
     if (selectedBlur === null) return;

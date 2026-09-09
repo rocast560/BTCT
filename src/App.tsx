@@ -66,7 +66,12 @@ export function App() {
 }
 
 function AuthedApp() {
+  // `AssetImageEditor` hosts BOTH the note-image right-click menu and the
+  // crop/redact dialog, so it has to be mounted for either flag. Keying it on
+  // `editingAssetId` alone meant a right-click set `imageMenu` with nothing
+  // mounted to draw it, and the menu never appeared.
   const editingAssetId = useAppStore((s) => s.editingAssetId);
+  const imageMenu = useAppStore((s) => s.imageMenu);
   useEffect(() => {
     const sync = () => syncOpenPageDocs(useAppStore.getState().tabs
       .filter((t) => t.kind === 'page' || t.kind === 'history').map((t) => t.entityId));
@@ -352,7 +357,7 @@ function AuthedApp() {
       </div>
       {rightSidebarOpen && <RightSidebar />}
       <CommandPalette />
-      {editingAssetId && <Suspense fallback={null}><AssetImageEditor /></Suspense>}
+      {(editingAssetId || imageMenu) && <Suspense fallback={null}><AssetImageEditor /></Suspense>}
       <PresenceAvatars />
     </div>
   );

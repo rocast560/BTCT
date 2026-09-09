@@ -15,7 +15,7 @@
 // account has saved so a brand-new / never-customized account still works.
 // ─────────────────────────────────────────────────────────────────────────
 
-import { MAX_STRENGTH, MIN_STRENGTH } from './blur-math';
+import { DEFAULT_BLUR_STRENGTH, MAX_STRENGTH, MIN_STRENGTH } from './blur-math';
 
 export type KeybindAction =
   | 'bold'
@@ -270,8 +270,8 @@ export function resolveBlurStrengthPolicy(
       ? Math.min(Math.max(v, MIN_STRENGTH), MAX_STRENGTH)
       : fallback;
   return {
-    gaussian: pick(user.gaussian, pick(admin?.gaussian, 1)),
-    pixelate: pick(user.pixelate, pick(admin?.pixelate, 1)),
+    gaussian: pick(user.gaussian, pick(admin?.gaussian, DEFAULT_BLUR_STRENGTH)),
+    pixelate: pick(user.pixelate, pick(admin?.pixelate, DEFAULT_BLUR_STRENGTH)),
   };
 }
 

@@ -177,10 +177,13 @@ every note that uses it.
   puts the whole image inside it, and **Auto-trim** detects a screenshot's
   border and re-frames to the content.
 - **Redaction**: switch to blur mode and drag rectangles over anything
-  sensitive. Each region has its own style (gaussian or pixelate) and strength;
-  the blur is downscale-then-gaussian, because a plain gaussian over readable
-  text can sometimes be reversed. Admins set a workspace default strength and
-  each account can override it.
+  sensitive. A new region starts as **pixelate at 40%**, and each region can
+  be switched to gaussian or given its own strength (25% to 300%). Pixelate
+  floors its block size at 8px however light the strength, so the lightest
+  setting is still past the point mosaic-reversal tooling works; the gaussian
+  path downscales before it blurs, because a plain gaussian over readable text
+  can sometimes be reversed. Admins set a workspace default strength per style
+  and each account can override it.
 - **Nothing is destructive.** The crop and the redaction rectangles are
   metadata on the asset record, applied when the bytes are read. The upload is
   never overwritten, so you can reopen an image at any time, adjust a redaction
@@ -242,7 +245,7 @@ command (unbounded, queried over REST with filters) and mirrors only the most re
 stays bounded while no history is ever lost.
 
 ### Lightweight operations interface
-The Operations interface uses solid slate panels, compact tables, crisp borders and system fonts. It replaces the translucent Glass skin and removes continuous decorative glow, animated backgrounds and backdrop blur. Dark/light mode, custom accent colours and editor colours remain available.
+The Operations interface uses solid neutral-grey panels, compact tables, crisp borders and system fonts. Every surface token is zero-saturation, so the only hues on screen are the status colours (red, amber, green, purple), the code-syntax themes and whatever accent an account picks for itself. It replaces the translucent Glass skin and removes continuous decorative glow, animated backgrounds and backdrop blur. Dark/light mode, custom accent colours and editor colours remain available.
 
 The workspace overview shows real page, scan and asset counts, recently updated pages, and direct links to the report, the command log and a scan group. Heavy editors, exports, image tools and account panels load when opened. History polling and the minute clock pause while the browser tab is hidden. Icons share a single bundle to reduce startup requests.
 
@@ -354,7 +357,7 @@ below for the full mechanics:
   heading colours on everyone (users' own choices are kept but ignored until
   unlocked). Saved server-side and pushed to every connected client live. Plus
   a per-client **dark/light** toggle.
-- **Interface**: Operations, with solid surfaces, compact navigation, restrained status colours and no continuous decorative effects. Both dark and light palettes are supported. See [Interface themes](#interface-themes).
+- **Interface**: Operations, with solid neutral-grey surfaces, compact navigation, restrained status colours and no continuous decorative effects. Both dark and light palettes are supported. See [Interface themes](#interface-themes).
 
 ## Keyboard shortcuts & gestures
 
@@ -590,7 +593,7 @@ tear down the Yjs collab binding.
 ### Interface themes
 BTCT ships the Operations look, declared in [src/themes/registry.ts](src/themes/registry.ts). [src/themes/operations.css](src/themes/operations.css) styles the shell and editor using native CSS over the shared base styles. The attribute `data-ui-theme="operations"` is set in `index.html` before first paint and reinforced by `main.tsx`.
 
-Surfaces are opaque and typography uses installed system fonts. Selection and focus use borders and colour rather than motion. The stylesheet does not reset report transforms. Reduced-motion preferences also suppress progress animations and transitions. Custom workspace accents and per-user note/code colours remain CSS-variable updates and never rebuild the editor.
+Surfaces are opaque neutral grey (no blue or slate tint anywhere in the chrome) and typography uses installed system fonts. Selection and focus use borders and colour rather than motion. The stylesheet does not reset report transforms. Reduced-motion preferences also suppress progress animations and transitions. Custom workspace accents and per-user note/code colours remain CSS-variable updates and never rebuild the editor.
 
 ### Server & HTTP API reference
 
@@ -792,11 +795,15 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
    splices a minimal delta. Never clear-and-reinsert a Y.Text: it deletes
    every character and re-adds it, destroying collaborators' cursors and
    making the change unmergeable with a concurrent edit.
-12. **Pane drags write to the DOM, not to React state.** A resize sets the
-   pane's `style.width` directly per animation frame and commits to state
-   once on pointer-up. A re-render mid-drag would reconcile the whole tab
-   every frame and (the real hazard) risk remounting an editor host,
-   dropping the Yjs collab binding and every remote cursor with it.
+12. **Drags write to the DOM, not to React state.** A pane resize sets
+   `style.width` directly per animation frame and commits to state once on
+   pointer-up; a re-render mid-drag would reconcile the whole tab every frame
+   and (the real hazard) risk remounting an editor host, dropping the Yjs
+   collab binding and every remote cursor with it. The crop window's blur and
+   pan gestures follow the same rule for cost: a pointer fires up to 1000
+   events a second at a 60 Hz display. And never put a `backdrop-filter` on
+   an element a drag resizes, which makes the compositor re-blur everything
+   behind it on every sample.
 13. **Stored bytes must match the extension they carry.** The decoder is
    chosen from the file extension, so PNG bytes at a `.jpg` path fail.
    `resolveAssetBytes()` encodes crops to the format the *filename* claims

@@ -284,7 +284,7 @@ export function LeftSidebar() {
               onClick={() => openPage(p)}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm outline-none hover:bg-[hsl(var(--accent))] focus:bg-transparent focus-visible:bg-[hsl(var(--accent))]/60"
             >
-              <FileText size={12} className="text-[hsl(var(--status-blue))]" />
+              <FileText size={12} className="text-[hsl(var(--muted-foreground))]" />
               <span className="truncate">{p.title}</span>
             </button>
           ))}
@@ -596,8 +596,8 @@ function PageTreeItem({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          'flex w-full items-center rounded-lg border border-[hsl(var(--status-blue))]/30 bg-[hsl(var(--status-blue))]/10 hover:bg-[hsl(var(--status-blue))]/20',
-          isActive && 'bg-[hsl(var(--status-blue))]/25',
+          'flex w-full items-center rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/40 hover:bg-[hsl(var(--accent))]',
+          isActive && 'border-[hsl(var(--primary))]/50 bg-[hsl(var(--accent))]',
           dragOver && 'ring-2 ring-[hsl(var(--primary))] ring-offset-1 ring-offset-[hsl(var(--background))]',
         )}
         onContextMenu={(e) => {
@@ -632,7 +632,7 @@ function PageTreeItem({
           </div>
         ) : renaming ? (
           <div className="flex flex-1 items-center gap-1.5 px-1 py-1.5">
-            <FileText size={12} className="shrink-0 text-[hsl(var(--status-blue))]" />
+            <FileText size={12} className="shrink-0 text-[hsl(var(--muted-foreground))]" />
             <input
               ref={nameRef}
               value={nameValue}
@@ -650,7 +650,7 @@ function PageTreeItem({
             onClick={() => openPage(page)}
             className="flex flex-1 items-center gap-1.5 px-1 py-1.5 pr-2.5 text-[11px]"
           >
-            <FileText size={12} className="text-[hsl(var(--status-blue))]" />
+            <FileText size={12} className="text-[hsl(var(--muted-foreground))]" />
             <span className="truncate">{page.title}</span>
           </button>
         )}

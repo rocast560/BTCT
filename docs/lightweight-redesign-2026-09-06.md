@@ -180,13 +180,113 @@ tab, which was by a wide margin the largest single memory event in the app on a
 The Docker image also loses ~29 MB of payload, and the build no longer gzips
 28 MB of wasm at image-build time.
 
-### Accent colour
+### Colour: the interface is neutral grey now
 
-`DEFAULT_THEME_COLOR` went from the Operations blue `#7db4dc` to a neutral dark
-grey `#6b7280`, in `src/lib/theme.ts` and the matching server default in
-`server/index.mjs`. The `--primary` fallbacks in `index.css` (which paint before
-the theme store loads) moved off the old signature red to the same grey, so
-first paint no longer flashes a colour the app does not use. The status colours
-(red, amber, green, purple) are untouched: with no brand colour competing with
-them, they now carry all the meaning. Any account can still pick its own accent
-in Profile, and the old blue is still in the swatch list.
+First pass moved `DEFAULT_THEME_COLOR` off the Operations blue `#7db4dc` to
+`#6b7280`. That was not enough, and the reason is worth writing down: `#6b7280`
+is Tailwind's `gray-500`, which is hue 220. It is a *blue* grey. So was every
+surface in the interface: `operations.css` painted the canvas, panels, borders
+and hover states at hue 206 to 213, and the sidebar tinted every page row and
+every file glyph with `--status-blue`, which is not a status.
+
+All of it is zero-saturation now, at the same lightness values, so contrast is
+unchanged:
+
+| Token | Before | After |
+|---|---|---|
+| `--op-canvas` | `#10161d` | `#171717` |
+| `--op-panel` | `#171f28` | `#1f1f1f` |
+| `--op-raised` | `#1d2833` | `#292929` |
+| `--op-border` | `#2b3947` | `#3b3b3b` |
+| `--op-muted` | `#9aabbc` | `#ababab` |
+| `--op-text` | `#e2e9f0` | `#e8e8e8` |
+| `--op-blue` (now `--op-accent`) | `#7db4dc` | `#adadad` |
+| `--op-hover` | `#223140` | `#313131` |
+| dark surface HSL | hue 210 to 212, 20 to 31% sat | `0 0%` |
+| light `--op-*` | hue 206 to 213 | neutral |
+| `DEFAULT_THEME_COLOR` | `#7db4dc` | `#737373` |
+| `--ring` fallback | the old signature red | `0 0% 45%` |
+
+The sidebar's page rows used `--status-blue` for their border, background,
+active state and file icon. They use `--border`/`--muted`/`--accent` now, with
+the account accent marking the active row. `--status-blue` survives in exactly
+one place: the Windows glyph on an nmap host, where blue means Windows.
+
+What deliberately keeps its colour: the status palette (red, amber, green,
+purple), the code-syntax themes (GitHub-dark for most languages, the terminal
+palette for shell and PowerShell) and the editor's text-highlight swatches.
+Those carry meaning or are user content. With no brand colour competing with
+them, they are now the only hues on screen. Any account can still pick its own
+accent in Profile, and the old blue is still in the swatch list.
+
+---
+
+## 2026-09-08: the blur drag was doing 400 renders a second
+
+Drawing a redaction rectangle stuttered, and got worse the more rectangles were
+already on the image. Two causes, both in `FigureViewport`:
+
+1. Every `pointermove` called `setState`, so React re-rendered the viewport per
+   pointer sample. A mouse reports at 125 to 1000 Hz; a display shows 60. Each
+   render restyled two full-size `<img>` elements and re-laid-out one outline
+   per committed region, which is why more regions meant more lag.
+2. The in-flight rectangle carried `backdrop-filter: blur(6px)` and changed
+   size on every one of those samples. A backdrop filter whose geometry moves
+   forces the compositor to re-blur everything behind it, and behind it were
+   both images plus a 9999px box-shadow overlay.
+
+Both now follow invariant #3c, the rule the pane resizer already used: write
+geometry **straight to the DOM, once per animation frame**, and touch React
+state only when the gesture ends. The draft rectangle is a permanently mounted
+node positioned by hand. The pan and wheel-zoom gestures got the same treatment,
+coalescing their `onCropChange` calls to one per frame.
+
+### Measured
+
+A synthetic 400-event drag, timed in jsdom, which does no layout, paint or
+compositing at all. The real browser cost was strictly worse than these numbers
+on both sides, and the compositor half of cause 2 does not appear here.
+
+| Drag | Before | After |
+|---|---|---|
+| 400 moves, no existing regions | 387.6 ms (0.97 ms/event), 402 React commits | 29.7 ms (0.074 ms/event), 0 commits |
+| 400 moves, 12 existing regions | 1288.3 ms (3.22 ms/event), 402 React commits | 22.1 ms (0.055 ms/event), 0 commits |
+| 400-move pan | 400 `onCropChange` calls | 1 per frame |
+
+13x faster on an empty image, 58x with a dozen regions already drawn. At
+3.2 ms per event a 60 Hz frame could absorb five samples; a 400 Hz mouse sends
+seven per frame, so the queue never drained. That is the stutter.
+
+`src/test/viewport-drag.test.tsx` locks it in by counting work rather than
+milliseconds, so it holds on any machine: zero React commits during a blur
+drag, no `backdrop-filter` on the draft, fewer crop updates than moves, and the
+region still commits with the right geometry. Three of its five assertions fail
+against the previous component.
+
+### The one deliberate visual change
+
+The draft rectangle no longer previews a live blur while you drag; it is a
+translucent purple wash with a solid border. The real, stronger blur is baked
+and shown the instant you release, which is what it always did. Restoring the
+live preview means paying the per-frame backdrop re-blur again.
+
+### Looked at and left alone
+
+The sidebar resize (`LeftSidebar`), the note-image resize handle
+(`lib/image-resize.ts`) and the editor toolbar's scroll/selection listener
+(`PageEditor`) were already writing straight to the DOM or coalescing per
+frame. Invariant #8 (never subscribe to the store without a selector) has no
+violations. The crop window was the only place that had drifted.
+
+### Candidates not implemented, because they cannot be measured here
+
+Thumbnails in the Assets tab call `resolveAssetBytes`, which bakes a **full
+resolution** crop and blur for a card rendered at 150 px. It is cached per
+asset and framing, so it costs once, but the first paint of a tab holding a
+dozen redacted screenshots does a dozen full-size canvas decodes and keeps a
+dozen full-size PNGs in memory, which matters most on exactly the small host
+this branch targets. Capping the rendered size for thumbnails is the obvious
+fix and probably a large win. It is not done here because jsdom has no canvas:
+there is no way to verify it in this environment, and the crop and blur
+pipeline is not somewhere to make an unverified change. The same applies to
+`loading="lazy"` and `decoding="async"` on the thumbnail images.

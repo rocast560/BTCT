@@ -546,7 +546,7 @@ export const AssetsPanel = memo(function AssetsPanel() {
               className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-1.5 text-[11px]"
               title="Assets outside any folder"
             >
-              <ImagePlus size={12} className="shrink-0 text-[hsl(var(--status-blue))]" />
+              <ImagePlus size={12} className="shrink-0 text-[hsl(var(--muted-foreground))]" />
               <span className="truncate font-medium">All assets</span>
               {rootCount > 0 && (
                 <span className="ml-auto shrink-0 rounded-full bg-[hsl(var(--muted))] px-1.5 text-[9px] text-[hsl(var(--muted-foreground))]">

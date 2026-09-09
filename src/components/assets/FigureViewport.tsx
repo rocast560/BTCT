@@ -17,6 +17,12 @@
 // committed regions arrive already baked into `imageUrl` (the dialog renders
 // them through the real pipeline), so this component only draws the in-flight
 // draft and, in blur mode, an outline with a delete button per region.
+//
+// Both gestures follow invariant #3c: a pointer can fire several hundred
+// events a second, so a drag writes geometry **straight to the DOM, once per
+// animation frame**, and commits to React state only on pointer-up. Re-
+// rendering per event meant a style recalc and layout over two full-size
+// images for every sample, most of which the browser never got to paint.
 // ─────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -95,10 +101,65 @@ export function FigureViewport({
   // ── panning / blur drawing ─────────────────────────────────────────────
   const dragRef = useRef<{ x: number; y: number; start: CropRect } | null>(null);
 
-  // A blur draft, in normalized frame coordinates. Ref for the handlers,
-  // state for the overlay render.
-  const blurDraftRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
-  const [blurDraft, setBlurDraft] = useState<typeof blurDraftRef.current>(null);
+  // A blur draft, in normalized frame coordinates. The rectangle is a real
+  // DOM node we position by hand: nothing here goes through React until the
+  // drag commits, so a fast mouse cannot outrun the render loop.
+  type Draft = { x0: number; y0: number; x1: number; y1: number };
+  const blurDraftRef = useRef<Draft | null>(null);
+  const draftElRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef(0);
+  const frameRef = useRef(frame);
+  frameRef.current = frame;
+
+  // Pan / zoom coalescing. `onCropChange` re-renders the dialog above us, so
+  // a raw pointermove or wheel burst would queue far more renders than the
+  // display can show. One per frame, latest value wins.
+  const pendingCropRef = useRef<CropRect | null>(null);
+  const cropRafRef = useRef(0);
+  const onCropChangeRef = useRef(onCropChange);
+  onCropChangeRef.current = onCropChange;
+
+  const flushCrop = useCallback(() => {
+    cropRafRef.current = 0;
+    const next = pendingCropRef.current;
+    pendingCropRef.current = null;
+    if (next) onCropChangeRef.current(next);
+  }, []);
+
+  const queueCrop = useCallback((next: CropRect) => {
+    pendingCropRef.current = next;
+    // Keep the ref current within the burst so the next sample builds on the
+    // value we are about to commit, not on a stale render's crop.
+    cropRef.current = next;
+    if (!cropRafRef.current) cropRafRef.current = requestAnimationFrame(flushCrop);
+  }, [flushCrop]);
+
+  /** Paint the draft rectangle from the ref. One style write per frame. */
+  const paintDraft = useCallback(() => {
+    rafRef.current = 0;
+    const el = draftElRef.current;
+    const d = blurDraftRef.current;
+    if (!el) return;
+    if (!d) { el.style.display = 'none'; return; }
+    const { width, height } = frameRef.current;
+    el.style.display = 'block';
+    el.style.left = `${Math.min(d.x0, d.x1) * width}px`;
+    el.style.top = `${Math.min(d.y0, d.y1) * height}px`;
+    el.style.width = `${Math.abs(d.x1 - d.x0) * width}px`;
+    el.style.height = `${Math.abs(d.y1 - d.y0) * height}px`;
+  }, []);
+
+  const scheduleDraft = useCallback(() => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(paintDraft);
+  }, [paintDraft]);
+
+  // A drag interrupted by an unmount must not leave a frame callback holding
+  // a detached node, nor a crop update that lands after teardown.
+  useEffect(() => () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (cropRafRef.current) cancelAnimationFrame(cropRafRef.current);
+  }, []);
 
   const framePoint = useCallback((e: React.PointerEvent): { fx: number; fy: number } => {
     const rect = (e.currentTarget as Element).getBoundingClientRect();
@@ -112,23 +173,22 @@ export function FigureViewport({
     e.preventDefault();
     if (blurMode) {
       const { fx, fy } = framePoint(e);
-      const draft = { x0: fx, y0: fy, x1: fx, y1: fy };
-      blurDraftRef.current = draft;
-      setBlurDraft(draft);
+      blurDraftRef.current = { x0: fx, y0: fy, x1: fx, y1: fy };
+      paintDraft();
     } else {
       dragRef.current = { x: e.clientX, y: e.clientY, start: crop };
     }
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-  }, [crop, blurMode, framePoint]);
+  }, [crop, blurMode, framePoint, paintDraft]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (blurMode) {
       const draft = blurDraftRef.current;
       if (!draft) return;
       const { fx, fy } = framePoint(e);
-      const next = { ...draft, x1: fx, y1: fy };
-      blurDraftRef.current = next;
-      setBlurDraft(next);
+      draft.x1 = fx;
+      draft.y1 = fy;
+      scheduleDraft();
       return;
     }
     const drag = dragRef.current;
@@ -137,8 +197,11 @@ export function FigureViewport({
     // right, which means the visible window moves *left* across it.
     const dx = -((e.clientX - drag.x) / frame.width) * drag.start.w;
     const dy = -((e.clientY - drag.y) / frame.height) * drag.start.h;
-    onCropChange(panCrop(drag.start, dx, dy));
-  }, [frame.width, frame.height, onCropChange, blurMode, framePoint]);
+    // Every sample is measured from the gesture's start, so dropping the
+    // intermediate ones loses nothing: the last one before the frame boundary
+    // is the truth.
+    queueCrop(panCrop(drag.start, dx, dy));
+  }, [frame.width, frame.height, blurMode, framePoint, scheduleDraft, queueCrop]);
 
   const endDrag = useCallback((e: React.PointerEvent) => {
     const draft = blurDraftRef.current;
@@ -156,11 +219,17 @@ export function FigureViewport({
         onSelectBlur?.(i === -1 ? null : i);
       }
       blurDraftRef.current = null;
-      setBlurDraft(null);
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
+      paintDraft();
+    }
+    if (dragRef.current && cropRafRef.current) {
+      // Land the final position now rather than a frame later.
+      cancelAnimationFrame(cropRafRef.current);
+      flushCrop();
     }
     dragRef.current = null;
     (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
-  }, [onAddBlur, onSelectBlur, blurs]);
+  }, [onAddBlur, onSelectBlur, blurs, paintDraft, flushCrop]);
 
   // ── wheel zoom ─────────────────────────────────────────────────────────
   // Registered natively rather than via onWheel so it can be non-passive and
@@ -177,11 +246,11 @@ export function FigureViewport({
       const anchorX = frame.width > 0 ? (e.clientX - frameLeft) / frame.width : 0.5;
       const anchorY = frame.height > 0 ? (e.clientY - frameTop) / frame.height : 0.5;
       const factor = Math.exp(e.deltaY * 0.0015);
-      onCropChange(zoomCrop(cropRef.current, factor, anchorX, anchorY));
+      queueCrop(zoomCrop(cropRef.current, factor, anchorX, anchorY));
     };
     host.addEventListener('wheel', onWheel, { passive: false });
     return () => host.removeEventListener('wheel', onWheel);
-  }, [frame.width, frame.height, onCropChange]);
+  }, [frame.width, frame.height, queueCrop]);
 
   return (
     <div
@@ -279,20 +348,15 @@ export function FigureViewport({
             );
           })}
 
-          {/* The in-flight drag, previewed with a live CSS blur. The real
-              (stronger) blur is baked when the drag commits. */}
-          {blurDraft && (
-            <div
-              className="pointer-events-none absolute z-10 rounded-sm border-2 border-[hsl(var(--status-purple))]"
-              style={{
-                left: Math.min(blurDraft.x0, blurDraft.x1) * frame.width,
-                top: Math.min(blurDraft.y0, blurDraft.y1) * frame.height,
-                width: Math.abs(blurDraft.x1 - blurDraft.x0) * frame.width,
-                height: Math.abs(blurDraft.y1 - blurDraft.y0) * frame.height,
-                backdropFilter: 'blur(6px)',
-              }}
-            />
-          )}
+          {/* The in-flight drag. Always mounted and positioned by hand (see
+              the header note): mounting per drag would cost a React render on
+              the first move, and a backdrop-filter here would cost a full
+              backdrop re-blur on every one. The real blur lands on release. */}
+          <div
+            ref={draftElRef}
+            aria-hidden
+            className="pointer-events-none absolute z-10 hidden rounded-sm border-2 border-[hsl(var(--status-purple))] bg-[hsl(var(--status-purple))]/25"
+          />
         </div>
       )}
     </div>

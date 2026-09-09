@@ -18,7 +18,7 @@
   --card-foreground:   0 0% 12%;
   --popover:           0 0% 100%;
   --popover-foreground:0 0% 12%;
-  --primary:          220 9% 46%;            /* neutral grey (runtime theme overrides) */
+  --primary:            0 0% 45%;            /* neutral grey (runtime theme overrides) */
   --primary-foreground: 0 0% 100%;
   --secondary:         0 0% 93%;
   --secondary-foreground: 0 0% 12%;
@@ -30,7 +30,7 @@
   --destructive-foreground: 0 0% 100%;
   --border:            0 0% 88%;
   --input:             0 0% 88%;
-  --ring:               0 78% 52%;
+  --ring:               0 0% 45%;
 
   --status-green:      123 56% 60%;
   --status-blue:       213 87% 60%;
@@ -70,7 +70,7 @@
   --card-foreground:   0 0% 96%;
   --popover:           0 0% 15%;             /* overlay: menus, modals */
   --popover-foreground:0 0% 96%;
-  --primary:          220 9% 46%;            /* neutral grey (runtime theme overrides) */
+  --primary:            0 0% 45%;            /* neutral grey (runtime theme overrides) */
   --primary-foreground: 0 0% 100%;
   --secondary:         0 0% 16%;
   --secondary-foreground: 0 0% 96%;
@@ -82,7 +82,7 @@
   --destructive-foreground: 0 0% 100%;
   --border:            0 0% 22%;             /* subtle but visible hairline */
   --input:             0 0% 18%;
-  --ring:               0 84% 60%;
+  --ring:               0 0% 45%;
 
   --status-green:      123 60% 68%;
   --status-blue:       213 87% 66%;

@@ -56,7 +56,7 @@ import {
 } from './history.mjs';
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-const DEFAULT_THEME_COLOR = '#6b7280'; // neutral dark grey (see src/lib/theme.ts)
+const DEFAULT_THEME_COLOR = '#737373'; // neutral dark grey (see src/lib/theme.ts)
 
 // ── Theme policy (note heading colours + hard-lock) ─────────────────────
 // Same shape the client's resolveThemePrefs() accepts:
@@ -106,18 +106,21 @@ function clampBlurStrength(v, fallback) {
 
 // Workspace default strength for new blur (redaction) regions, per style.
 // A user's own prefs.blurDefaults wins over this; it is only the fallback.
+// Mirrors DEFAULT_BLUR_STRENGTH in src/lib/blur-math.ts (the server is plain
+// .mjs with no build step, so it cannot import it). Keep the two in step.
+const DEFAULT_BLUR_STRENGTH = 0.4;
 function publicBlurSettings() {
-  let blurDefaults = { gaussian: 1, pixelate: 1 };
+  let blurDefaults = { gaussian: DEFAULT_BLUR_STRENGTH, pixelate: DEFAULT_BLUR_STRENGTH };
   try {
     const raw = getSetting('blur_defaults');
     if (raw) {
       const parsed = JSON.parse(raw);
       blurDefaults = {
-        gaussian: clampBlurStrength(parsed?.gaussian, 1),
-        pixelate: clampBlurStrength(parsed?.pixelate, 1),
+        gaussian: clampBlurStrength(parsed?.gaussian, DEFAULT_BLUR_STRENGTH),
+        pixelate: clampBlurStrength(parsed?.pixelate, DEFAULT_BLUR_STRENGTH),
       };
     }
-  } catch { /* malformed row: fall back to 1x */ }
+  } catch { /* malformed row: fall back to the built-in default */ }
   return { blurDefaults, blurUpdatedAt: Number(getSetting('blur_updated_at') || 0) };
 }
 

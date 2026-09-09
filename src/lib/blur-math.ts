@@ -27,6 +27,24 @@ export const MIN_REGION_SIZE = 0.005;
 export const MIN_STRENGTH = 0.25;
 export const MAX_STRENGTH = 3;
 
+/**
+ * What a newly drawn region starts at when neither the account nor the admin
+ * has set a default: pixelate at 0.4 (the UI reads it as 40%).
+ *
+ * This is the *new region* default only. It is deliberately not the fallback
+ * inside `effectiveStrength`/`effectiveStyle` below, which exist to render
+ * records written before those fields did, and must keep reproducing what
+ * those records already look like. Changing them would silently re-render
+ * every redaction anyone has ever saved.
+ *
+ * 0.4 is lighter than the old 1, but pixelate floors its block size at 8px
+ * (see `pixelParams`) precisely so the lightest settings stay past the point
+ * where mosaic-reversal tooling works, so it is a lighter look, not a weaker
+ * redaction.
+ */
+export const DEFAULT_BLUR_STYLE: BlurStyle = 'pixelate';
+export const DEFAULT_BLUR_STRENGTH = 0.4;
+
 /** A region's style, with the pre-style default for older records. */
 export function effectiveStyle(region: BlurRegion): BlurStyle {
   return region.style ?? 'gaussian';

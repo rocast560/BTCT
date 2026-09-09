@@ -1,35 +1,39 @@
-/* Operations: solid surfaces, native CSS, and no compositing effects.
+/* Operations: solid neutral-grey surfaces, native CSS, no compositing
+   effects. Every surface token is zero-saturation on purpose: the status
+   colours (red, amber, green, purple) are the only hues in the interface, so
+   nothing competes with them for meaning. The account accent (--primary) is
+   the one colour a user can introduce.
    Never reset transforms globally: report SVGs use them for layout. */
 html[data-ui-theme="operations"] {
   --radius: 4px;
   --radius-sm: 3px;
   --sidebar-width: 248px;
   --properties-width: 280px;
-  --op-canvas: #10161d;
-  --op-panel: #171f28;
-  --op-raised: #1d2833;
-  --op-border: #2b3947;
-  --op-muted: #9aabbc;
-  --op-text: #e2e9f0;
-  --op-blue: #7db4dc;
-  --op-hover: #223140;
+  --op-canvas: #171717;
+  --op-panel: #1f1f1f;
+  --op-raised: #292929;
+  --op-border: #3b3b3b;
+  --op-muted: #ababab;
+  --op-text: #e8e8e8;
+  --op-accent: #adadad;
+  --op-hover: #313131;
   --op-font: "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
 }
 html[data-ui-theme="operations"].dark {
-  --background: 212 29% 9%;
-  --foreground: 211 30% 91%;
-  --card: 212 27% 12%;
-  --card-foreground: 211 30% 91%;
-  --popover: 211 28% 16%;
-  --popover-foreground: 211 30% 91%;
-  --secondary: 212 25% 18%;
-  --secondary-foreground: 211 30% 91%;
-  --muted: 212 25% 18%;
-  --muted-foreground: 211 20% 67%;
-  --accent: 211 31% 20%;
-  --accent-foreground: 211 30% 91%;
-  --border: 210 25% 23%;
-  --input: 210 25% 23%;
+  --background: 0 0% 9%;
+  --foreground: 0 0% 91%;
+  --card: 0 0% 12%;
+  --card-foreground: 0 0% 91%;
+  --popover: 0 0% 16%;
+  --popover-foreground: 0 0% 91%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 91%;
+  --muted: 0 0% 18%;
+  --muted-foreground: 0 0% 67%;
+  --accent: 0 0% 20%;
+  --accent-foreground: 0 0% 91%;
+  --border: 0 0% 23%;
+  --input: 0 0% 23%;
   --status-green: 154 43% 63%;
   --status-blue: 207 62% 69%;
   --status-purple: 256 48% 74%;
@@ -37,14 +41,14 @@ html[data-ui-theme="operations"].dark {
   --status-red: 3 65% 70%;
 }
 html[data-ui-theme="operations"]:not(.dark) {
-  --op-canvas: #eff3f6;
-  --op-panel: #f8fafc;
+  --op-canvas: #f2f2f2;
+  --op-panel: #fafafa;
   --op-raised: #fff;
-  --op-border: #cbd5df;
-  --op-muted: #526477;
-  --op-text: #243343;
-  --op-blue: #285f8c;
-  --op-hover: #e1eaf2;
+  --op-border: #d4d4d4;
+  --op-muted: #636363;
+  --op-text: #333333;
+  --op-accent: #595959;
+  --op-hover: #eaeaea;
 }
 html[data-ui-theme="operations"] body {
   background: var(--op-canvas);
@@ -101,13 +105,13 @@ html[data-ui-theme="operations"] [data-op="nav"]:hover {
 }
 html[data-ui-theme="operations"] [data-ui="sidebar"] [data-active="true"] {
   background: var(--op-hover);
-  border-left: 2px solid var(--op-blue);
+  border-left: 2px solid var(--op-accent);
 }
 html[data-ui-theme="operations"] :is(button, [role="button"], [role="tab"], a) {
   transition: background-color 80ms linear, color 80ms linear, border-color 80ms linear;
 }
 html[data-ui-theme="operations"] :is(button, [role="tab"], input, textarea, select, a):focus-visible {
-  outline: 2px solid var(--op-blue);
+  outline: 2px solid var(--op-accent);
   outline-offset: 2px;
 }
 html[data-ui-theme="operations"] :is([class~="rounded-2xl"], [class~="rounded-xl"]) { border-radius: 5px; }
@@ -173,7 +177,7 @@ html[data-ui-theme="operations"] [data-ui="tabbar"] [class~="rounded-full"] { bo
 .op-brand { display: flex; align-items: center; gap: 10px; }
 .op-brand-mark {
   width: 27px; height: 27px; display: grid; place-items: center;
-  border: 1px solid var(--op-blue); color: var(--op-blue);
+  border: 1px solid var(--op-accent); color: var(--op-accent);
   font-family: monospace; font-weight: 700; font-size: 12px;
 }
 .op-brand-name { font-size: 12px; letter-spacing: .15em; font-weight: 600; }
@@ -181,7 +185,7 @@ html[data-ui-theme="operations"] [data-ui="tabbar"] [class~="rounded-full"] { bo
 .op-login { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(320px, 460px); gap: 80px; align-items: center; width: min(1100px, 90vw); }
 .op-login-intro h1 { max-width: 550px; margin: 36px 0 16px; font-size: clamp(28px, 3.2vw, 44px); line-height: 1.15; font-weight: 400; letter-spacing: -.025em; }
 .op-login-intro p { max-width: 440px; color: var(--op-muted); font-size: 15px; line-height: 1.7; }
-.op-login-capabilities { display: flex; flex-wrap: wrap; gap: 20px; border-top: 1px solid var(--op-border); padding-top: 24px; margin-top: 36px; color: var(--op-blue); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.op-login-capabilities { display: flex; flex-wrap: wrap; gap: 20px; border-top: 1px solid var(--op-border); padding-top: 24px; margin-top: 36px; color: var(--op-accent); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
 .op-overview { width: 100%; height: 100%; overflow: auto; padding: clamp(24px, 4vw, 56px); }
 .op-overview-inner { max-width: 1120px; margin: 0 auto; }
 .op-eyebrow { color: var(--op-muted); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
@@ -195,16 +199,16 @@ html[data-ui-theme="operations"] [data-ui="tabbar"] [class~="rounded-full"] { bo
 .op-overview-columns { display: grid; grid-template-columns: 1.4fr 1fr; gap: 32px; }
 .op-section-heading { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; border-bottom: 1px solid var(--op-border); padding-bottom: 14px; margin-bottom: 4px; color: var(--op-muted); }
 .op-recent { display: flex; gap: 12px; align-items: center; width: 100%; text-align: left; padding: 16px 4px; border-bottom: 1px solid var(--op-border); }
-.op-recent svg { color: var(--op-blue); flex-shrink: 0; }
+.op-recent svg { color: var(--op-accent); flex-shrink: 0; }
 .op-recent small { margin-left: auto; color: var(--op-muted); font-size: 11px; }
 .op-recent:hover { background: var(--op-hover); }
 .op-actions { display: grid; gap: 10px; margin-top: 16px; }
 .op-action { display: flex; align-items: center; gap: 12px; padding: 16px; border: 1px solid var(--op-border); background: var(--op-panel); text-align: left; }
-.op-action svg { color: var(--op-blue); }
+.op-action svg { color: var(--op-accent); }
 .op-action span { flex: 1; }
 .op-action strong { display: block; font-size: 12px; font-weight: 500; }
 .op-action small { display: block; margin-top: 5px; color: var(--op-muted); font-size: 11px; }
-.op-action:hover { background: var(--op-hover); border-color: var(--op-blue); }
+.op-action:hover { background: var(--op-hover); border-color: var(--op-accent); }
 .op-footer { margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--op-border); display: flex; justify-content: space-between; gap: 16px; color: var(--op-muted); font-size: 10px; letter-spacing: .06em; }
 @media (max-width: 850px) {
   .op-login { display: block; max-width: 440px; }
