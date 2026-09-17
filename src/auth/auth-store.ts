@@ -185,6 +185,22 @@ async function getJson<T>(path: string, token?: string | null): Promise<T> {
   return data as T;
 }
 
+async function patchJson<T>(path: string, body: unknown, token?: string | null): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string } & Record<string, unknown>;
+  if (!res.ok) {
+    throw new Error(data.error || `request failed (${res.status})`);
+  }
+  return data as T;
+}
+
 async function deleteJson<T>(path: string, token?: string | null): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: 'DELETE',
@@ -213,6 +229,7 @@ interface AuthState {
   adminCreateUser: (username: string, password: string, isAdmin: boolean) => Promise<AdminUserRow>;
   adminDeleteUser: (id: number) => Promise<void>;
   adminResetPassword: (id: number, password: string) => Promise<void>;
+  adminRenameUser: (id: number, username: string) => Promise<AdminUserRow>;
   // Self-service profile editing for any authenticated user.
   updateProfile: (changes: { color?: string; prefs?: EditorPrefs }) => Promise<AuthUser>;
   // Command-log ingest config (admin only) + archive query (any user).
@@ -340,6 +357,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   adminResetPassword: async (id, password) => {
     const token = get().token;
     await postJson<{ ok: true }>(`/api/admin/users/${id}/password`, { password }, token);
+  },
+
+  adminRenameUser: async (id, username) => {
+    const token = get().token;
+    const data = await patchJson<{ user: AdminUserRow }>(`/api/admin/users/${id}`, { username }, token);
+    // Renaming yourself changes what's shown in the sidebar profile immediately;
+    // the JWT's own username claim stays stale until next login, but auth checks
+    // re-fetch the user by id, never trust that claim, so this is display-only.
+    const me = get().user;
+    if (me && me.id === id) {
+      const updated = { ...me, username: data.user.username };
+      localStorage.setItem(USER_KEY, JSON.stringify(updated));
+      set({ user: updated });
+    }
+    return data.user;
   },
 
   updateProfile: async (changes) => {

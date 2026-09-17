@@ -43,6 +43,9 @@
   --radius-sm:         6px;
   --sidebar-width:     280px;
   --properties-width:  320px;
+  /* Note content column width. `applyNoteWidth` (src/lib/editor-prefs.ts)
+     overrides this per account; 48rem matches the original fixed width. */
+  --note-width:        48rem;
 
   /* Code-block syntax colors: the GitHub Dark palette. `applyCodeAccent`
      (src/lib/code-theme.ts) only retints --code-keyword/--code-accent per
@@ -697,6 +700,29 @@ button:focus-visible {
 .milkdown-host .ProseMirror .milkdown-image-block.pm-img-sized img {
   width: 100% !important;
   height: auto !important;
+}
+/* Page reference chip (page_ref node): an inline, clickable link to a subnote
+   created via the /page slash command. Shows the target page's live title. */
+.milkdown-host .ProseMirror .page-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  background: hsl(var(--muted));
+  color: hsl(var(--primary));
+  font-size: 0.8em;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+.milkdown-host .ProseMirror .page-ref-chip:hover,
+.milkdown-host .ProseMirror .page-ref-chip.ProseMirror-selectednode {
+  background: hsl(var(--accent));
+}
+.milkdown-host .ProseMirror .page-ref-chip--missing {
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
 }
 /* Handle: a small square at the bottom-right corner. Shown when the image is
    selected or hovered so the affordance is always discoverable. Purely visual

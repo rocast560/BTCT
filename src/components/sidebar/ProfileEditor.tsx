@@ -5,11 +5,14 @@ import {
   resolvePrefs,
   resolveBlurStrengthPolicy,
   isThemeCustomized,
+  applyNoteWidth,
+  NOTE_WIDTHS,
   type BlurDefaults,
   type EditorPrefs,
   type FollowPrefs,
   type FollowPrecision,
   type ThemePrefs,
+  type NoteWidth,
 } from '@/lib/editor-prefs';
 import { MAX_STRENGTH, MIN_STRENGTH } from '@/lib/blur-math';
 import { applyCodeAccent } from '@/lib/code-accent';
@@ -37,6 +40,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
   const [follow, setFollow] = useState<FollowPrefs>(resolved.follow);
   const [theme, setTheme] = useState<ThemePrefs>(resolved.theme);
   const [blurDefaults, setBlurDefaults] = useState<BlurDefaults>(resolved.blurDefaults);
+  const [noteWidth, setNoteWidth] = useState<NoteWidth>(resolved.noteWidth);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -71,16 +75,22 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
   const initialHeadings = useRef(
     resolveEffectiveHeadings({ headings: adminHeadings, lock: themeLock }, resolved.theme).headings,
   );
+  const initialNoteWidth = useRef(resolved.noteWidth);
   const saved = useRef(false);
   useEffect(() => () => {
     if (!saved.current) {
       applyCodeAccent(initialCodeAccent.current);
       applyHeadingColors(initialHeadings.current);
+      applyNoteWidth(initialNoteWidth.current);
     }
   }, []);
   const handleCodeAccentChange = (v: string) => {
     setCodeAccent(v);
     if (HEX_RE.test(v)) applyCodeAccent(v);
+  };
+  const handleNoteWidthChange = (w: NoteWidth) => {
+    setNoteWidth(w);
+    applyNoteWidth(w);
   };
   const handleThemeChange = (t: ThemePrefs) => {
     setTheme(t);
@@ -96,7 +106,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
       format: 'btct-prefs',
       version: 1,
       exportedAt: new Date().toISOString(),
-      prefs: { codeAccent, keybinds, follow, theme, blurDefaults },
+      prefs: { codeAccent, keybinds, follow, theme, blurDefaults, noteWidth },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -125,6 +135,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
       setKeybinds(next.keybinds);
       setFollow(next.follow);
       setBlurDefaults(next.blurDefaults);
+      handleNoteWidthChange(next.noteWidth);
       handleThemeChange(next.theme);
       setError(null);
       setNotice(`Loaded ${file.name}. Review, then Save to apply.`);
@@ -139,7 +150,8 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
     JSON.stringify(keybinds) !== JSON.stringify(resolved.keybinds) ||
     JSON.stringify(follow) !== JSON.stringify(resolved.follow) ||
     JSON.stringify(theme) !== JSON.stringify(resolved.theme) ||
-    JSON.stringify(blurDefaults) !== JSON.stringify(resolved.blurDefaults);
+    JSON.stringify(blurDefaults) !== JSON.stringify(resolved.blurDefaults) ||
+    noteWidth !== resolved.noteWidth;
 
   const handleSave = async () => {
     if (!HEX_RE.test(color)) {
@@ -153,7 +165,7 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await updateProfile({ color, prefs: { codeAccent, keybinds, follow, theme, blurDefaults } });
+      await updateProfile({ color, prefs: { codeAccent, keybinds, follow, theme, blurDefaults, noteWidth } });
       saved.current = true;
       onClose();
     } catch (err) {
@@ -338,6 +350,14 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
+          {/* Note width: how wide the note content column renders. */}
+          <div>
+            <label className="mb-1 block text-[10px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+              Note Width
+            </label>
+            <NoteWidthToggle value={noteWidth} onChange={handleNoteWidthChange} />
+          </div>
+
           {/* Following: how precisely to mirror a teammate when you follow
               them. Applies to graphs (their node), pages (their cursor), and
               nmap (their host). */}
@@ -441,6 +461,41 @@ export function ProfileEditor({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+const NOTE_WIDTH_LABELS: Record<NoteWidth, string> = {
+  narrow: 'Narrow',
+  default: 'Default',
+  wide: 'Wide',
+  full: 'Full',
+};
+
+/** Four-way segmented toggle for the note content column's width preset. */
+function NoteWidthToggle({
+  value,
+  onChange,
+}: {
+  value: NoteWidth;
+  onChange: (w: NoteWidth) => void;
+}) {
+  return (
+    <div className="flex overflow-hidden rounded-md border border-[hsl(var(--input))]">
+      {NOTE_WIDTHS.map((w) => (
+        <button
+          key={w}
+          type="button"
+          onClick={() => onChange(w)}
+          className={`flex-1 px-2 py-1 text-[10px] transition ${
+            value === w
+              ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
+              : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]'
+          }`}
+        >
+          {NOTE_WIDTH_LABELS[w]}
+        </button>
+      ))}
     </div>
   );
 }

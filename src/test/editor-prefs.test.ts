@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_CODE_ACCENT,
   DEFAULT_KEYBINDS,
+  DEFAULT_NOTE_WIDTH,
   resolvePrefs,
+  resolveNoteWidth,
   parseShortcut,
   matchShortcut,
   shortcutFromEvent,
@@ -44,6 +46,18 @@ describe('resolvePrefs', () => {
   it('keeps a valid code accent', () => {
     const prefs = resolvePrefs({ prefs: { codeAccent: '#00ff88' } });
     expect(prefs.codeAccent).toBe('#00ff88');
+  });
+
+  it('falls back to the default note width for a user with no prefs', () => {
+    expect(resolvePrefs(null).noteWidth).toBe(DEFAULT_NOTE_WIDTH);
+  });
+
+  it('keeps a valid stored note width', () => {
+    expect(resolvePrefs({ prefs: { noteWidth: 'wide' } }).noteWidth).toBe('wide');
+  });
+
+  it('drops a malformed note width', () => {
+    expect(resolvePrefs({ prefs: { noteWidth: 'huge' as never } }).noteWidth).toBe(DEFAULT_NOTE_WIDTH);
   });
 
   it('includes the openFollowPanel keybind by default', () => {
@@ -98,6 +112,22 @@ describe('resolvePrefs', () => {
       prefs: { follow: { panePlacement: 'sideways' } } as never,
     }).follow;
     expect(follow.panePlacement).toBeNull();
+  });
+});
+
+describe('resolveNoteWidth', () => {
+  it('accepts each valid preset', () => {
+    expect(resolveNoteWidth('narrow')).toBe('narrow');
+    expect(resolveNoteWidth('default')).toBe('default');
+    expect(resolveNoteWidth('wide')).toBe('wide');
+    expect(resolveNoteWidth('full')).toBe('full');
+  });
+
+  it('falls back to the default for anything else', () => {
+    expect(resolveNoteWidth('huge')).toBe(DEFAULT_NOTE_WIDTH);
+    expect(resolveNoteWidth(null)).toBe(DEFAULT_NOTE_WIDTH);
+    expect(resolveNoteWidth(undefined)).toBe(DEFAULT_NOTE_WIDTH);
+    expect(resolveNoteWidth(42)).toBe(DEFAULT_NOTE_WIDTH);
   });
 });
 

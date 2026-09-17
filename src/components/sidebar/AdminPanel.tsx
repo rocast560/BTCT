@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Shield, X, Trash2, Plus, KeyRound, Copy, RefreshCw, Terminal, HardDrive, Play, EyeOff, Timer } from 'lucide-react';
+import { Shield, X, Trash2, Plus, KeyRound, Pencil, Copy, RefreshCw, Terminal, HardDrive, Play, EyeOff, Timer } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   useAuthStore,
@@ -16,8 +16,9 @@ import { useThemeStore } from '@/stores/theme-store';
 
 /**
  * Admin-only modal panel for managing user accounts. Lists every user, lets
- * an admin create new accounts, reset passwords, and delete users (except
- * themselves and the last remaining admin: those are blocked server-side).
+ * an admin create new accounts, rename any account (including their own),
+ * reset passwords, and delete users (except themselves and the last
+ * remaining admin: those are blocked server-side).
  */
 export function AdminPanel({ onClose }: { onClose: () => void }) {
   const me = useAuthStore((s) => s.user);
@@ -25,6 +26,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const adminCreateUser = useAuthStore((s) => s.adminCreateUser);
   const adminDeleteUser = useAuthStore((s) => s.adminDeleteUser);
   const adminResetPassword = useAuthStore((s) => s.adminResetPassword);
+  const adminRenameUser = useAuthStore((s) => s.adminRenameUser);
 
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +40,10 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   // Reset-password inline state per user id
   const [resettingId, setResettingId] = useState<number | null>(null);
   const [resetPwd, setResetPwd] = useState('');
+
+  // Rename inline state per user id (mutually exclusive with reset-password)
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const [pendingDelete, setPendingDelete] = useState<{ id: number; username: string } | null>(null);
 
   const refresh = async () => {
@@ -83,6 +89,23 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
       setResetPwd('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'reset failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitRename = async (id: number) => {
+    setError(null);
+    const username = renameValue.trim();
+    if (!username) return setError('username is required');
+    setBusy(true);
+    try {
+      await adminRenameUser(id, username);
+      setRenamingId(null);
+      setRenameValue('');
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'rename failed');
     } finally {
       setBusy(false);
     }
@@ -264,8 +287,39 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                               Cancel
                             </button>
                           </div>
+                        ) : renamingId === u.id ? (
+                          <div className="flex items-center justify-end gap-1">
+                            <input
+                              type="text"
+                              autoFocus
+                              placeholder="New username"
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              className="w-32 rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs outline-none focus:border-white/30"
+                            />
+                            <button
+                              onClick={() => void submitRename(u.id)}
+                              disabled={busy}
+                              className="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-black hover:bg-white disabled:opacity-50"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={() => { setRenamingId(null); setRenameValue(''); }}
+                              className="rounded-md px-2 py-1 text-[11px] text-white/60 hover:bg-white/10"
+                            >
+                              Cancel
+                            </button>
+                          </div>
                         ) : (
                           <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => { setRenamingId(u.id); setRenameValue(u.username); }}
+                              className="rounded-md p-1 text-white/60 hover:bg-white/10 hover:text-white"
+                              title="Rename user"
+                            >
+                              <Pencil size={13} />
+                            </button>
                             <button
                               onClick={() => { setResettingId(u.id); setResetPwd(''); }}
                               className="rounded-md p-1 text-white/60 hover:bg-white/10 hover:text-white"

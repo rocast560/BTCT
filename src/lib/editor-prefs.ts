@@ -74,6 +74,18 @@ export interface BlurDefaults {
   pixelate: number | null;
 }
 
+/** How wide the note content column renders. 'default' matches the original fixed width. */
+export type NoteWidth = 'narrow' | 'default' | 'wide' | 'full';
+export const NOTE_WIDTHS: readonly NoteWidth[] = ['narrow', 'default', 'wide', 'full'];
+
+/** CSS `max-width` value per preset; 'full' has no cap (the page's own padding still applies). */
+export const NOTE_WIDTH_CSS: Record<NoteWidth, string> = {
+  narrow: '40rem',
+  default: '48rem',
+  wide: '64rem',
+  full: 'none',
+};
+
 export interface EditorPrefs {
   /** #RRGGBB base color for code-block syntax highlighting. */
   codeAccent: string;
@@ -85,6 +97,8 @@ export interface EditorPrefs {
   theme: ThemePrefs;
   /** Default strength for new blur regions (null = workspace default). */
   blurDefaults: BlurDefaults;
+  /** How wide the note content column renders. */
+  noteWidth: NoteWidth;
 }
 
 // GitHub Dark's keyword color. The rest of the code palette is fixed GitHub
@@ -135,12 +149,15 @@ export const DEFAULT_BLUR_DEFAULTS: BlurDefaults = Object.freeze({
   pixelate: null,
 }) as BlurDefaults;
 
+export const DEFAULT_NOTE_WIDTH: NoteWidth = 'default';
+
 export const DEFAULT_EDITOR_PREFS: EditorPrefs = {
   codeAccent: DEFAULT_CODE_ACCENT,
   keybinds: { ...DEFAULT_KEYBINDS },
   follow: { ...DEFAULT_FOLLOW_PREFS, precisionByUserId: {} },
   theme: { headingColor: null, headings: {} },
   blurDefaults: { gaussian: null, pixelate: null },
+  noteWidth: DEFAULT_NOTE_WIDTH,
 };
 
 // Human-readable labels + display order for the keybinds dialog.
@@ -240,7 +257,19 @@ export function resolvePrefs(user: MaybeUser | null | undefined): EditorPrefs {
 
   const theme = resolveThemePrefs(stored.theme);
   const blurDefaults = resolveBlurDefaults(stored.blurDefaults);
-  return { codeAccent, keybinds, follow, theme, blurDefaults };
+  const noteWidth = resolveNoteWidth(stored.noteWidth);
+  return { codeAccent, keybinds, follow, theme, blurDefaults, noteWidth };
+}
+
+/** Validate a stored noteWidth value: anything not one of the presets falls back to the default. */
+export function resolveNoteWidth(raw: unknown): NoteWidth {
+  return (NOTE_WIDTHS as readonly unknown[]).includes(raw) ? (raw as NoteWidth) : DEFAULT_NOTE_WIDTH;
+}
+
+/** Change the note content column's width without touching any open editor. */
+export function applyNoteWidth(width: NoteWidth): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.style.setProperty('--note-width', NOTE_WIDTH_CSS[width]);
 }
 
 /** Validate a stored blurDefaults blob: numbers clamp to range, junk inherits. */

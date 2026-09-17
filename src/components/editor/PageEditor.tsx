@@ -44,6 +44,8 @@ import {
   TABLE_ICON,
   tableHeaderStatePlugin,
 } from '@/lib/table-plugin';
+import { tableKeysPlugin } from '@/lib/table-keys';
+import { pageRefSchema, pageRefView, insertPageRef, PAGE_REF_ICON } from '@/lib/page-ref';
 import { KeybindsDialog } from '@/components/editor/KeybindsDialog';
 import type { Ctx } from '@milkdown/ctx';
 import { setActiveMilkdownEditor, registerPageEditor, unregisterPageEditor } from '@/lib/active-editor';
@@ -180,7 +182,7 @@ function PageEditorInner({ page }: { page: Page }) {
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-6 py-8">
+      <div className="mx-auto w-full px-6 py-8" style={{ maxWidth: 'var(--note-width, 48rem)' }}>
         {/* Title */}
         <div className="mb-1 flex items-center gap-2">
           <span className="text-2xl">{page.icon}</span>
@@ -342,6 +344,11 @@ function MarkdownEditor({
               icon: TABLE_ICON,
               onRun: (ctx) => insertTable(ctx, null),
             });
+            advanced.addItem('page', {
+              label: 'Page',
+              icon: PAGE_REF_ICON,
+              onRun: (ctx) => { void insertPageRef(ctx, pageId); },
+            });
           },
         },
       },
@@ -383,7 +390,12 @@ function MarkdownEditor({
       .use(noteImagePastePlugin)
       .use(noteImageContextPlugin)
       .use(noteImageCleanupPlugin)
+      // Page-reference chips inserted by the /page slash command: a live-
+      // updating link to a subnote (see lib/page-ref.ts).
+      .use(pageRefSchema)
+      .use(pageRefView)
       .use(tableHeaderStatePlugin)
+      .use(tableKeysPlugin)
       .use(collab)
       .config((ctx) => {
         ctx.get(listenerCtx).markdownUpdated((_, md) => {

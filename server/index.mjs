@@ -15,6 +15,7 @@ import {
   deleteUser,
   setUserAdmin,
   updateUserPassword,
+  updateUsername,
   updateUserColor,
   updateUserPrefs,
   adminCount,
@@ -363,6 +364,33 @@ const httpServer = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
+    // Rename any account's username, including the admin's own. Auth is
+    // re-checked against the DB by user id on every request (never the
+    // token's embedded username), so this is safe against sessions already
+    // issued; only the JWT's own username claim is stale until next login.
+    if (req.method === 'PATCH' && req.url?.startsWith('/api/admin/users/')) {
+      const gate = requireAdmin(req);
+      if (gate.error) return sendJson(res, gate.status, { error: gate.error });
+      const idStr = req.url.slice('/api/admin/users/'.length);
+      const id = Number(idStr);
+      if (!Number.isInteger(id) || id <= 0) {
+        return sendJson(res, 400, { error: 'invalid user id' });
+      }
+      const target = getUserById(id);
+      if (!target) return sendJson(res, 404, { error: 'user not found' });
+      const body = await readJsonBody(req);
+      const username = String(body.username || '').trim();
+      if (!VALID_USERNAME.test(username)) {
+        return sendJson(res, 400, { error: 'invalid username (3-32 chars: letters, numbers, . _ -)' });
+      }
+      const existing = getUserByUsername(username);
+      if (existing && existing.id !== id) {
+        return sendJson(res, 409, { error: 'username already taken' });
+      }
+      updateUsername(id, username);
+      return sendJson(res, 200, { user: publicUser(getUserById(id)) });
+    }
+
     if (req.method === 'POST' && req.url === '/api/login') {
       const body = await readJsonBody(req);
       const username = String(body.username || '').trim();
@@ -475,6 +503,11 @@ const httpServer = http.createServer(async (req, res) => {
               return sendJson(res, 400, { error: `prefs.blurDefaults.${key} must be null or a number between 0.25 and 3` });
             }
           }
+        }
+        // How wide the note content column renders.
+        if (prefs.noteWidth !== undefined &&
+            !['narrow', 'default', 'wide', 'full'].includes(prefs.noteWidth)) {
+          return sendJson(res, 400, { error: 'prefs.noteWidth must be one of "narrow", "default", "wide", "full"' });
         }
         updateUserPrefs(user.id, JSON.stringify(prefs));
       }

@@ -9,7 +9,7 @@ import { CommandPalette } from '@/components/ui/CommandPalette';
 const AssetImageEditor = lazy(() => import('@/components/editor/AssetImageEditor').then((m) => ({ default: m.AssetImageEditor })));
 import { useAuthStore } from '@/auth/auth-store';
 import { useThemeStore } from '@/stores/theme-store';
-import { resolvePrefs, matchShortcut } from '@/lib/editor-prefs';
+import { resolvePrefs, matchShortcut, applyNoteWidth } from '@/lib/editor-prefs';
 import { applyCodeAccent } from '@/lib/code-accent';
 import { applyHeadingColors, resolveEffectiveHeadings } from '@/lib/theme';
 import { setEditorKeybinds } from '@/lib/editor-keybind-registry';
@@ -48,6 +48,7 @@ export function App() {
     const prefs = resolvePrefs(user);
     applyCodeAccent(prefs.codeAccent);
     setEditorKeybinds(prefs.keybinds);
+    applyNoteWidth(prefs.noteWidth);
     const effective = resolveEffectiveHeadings({ headings: adminHeadings, lock: themeLock }, prefs.theme);
     applyHeadingColors(effective.headings);
   }, [user, adminHeadings, themeLock]);

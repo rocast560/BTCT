@@ -126,6 +126,7 @@ const updatePasswordById = db.prepare(
   `UPDATE users SET salt = $salt, hash = $hash, iter = $iter WHERE id = $id`,
 );
 const setColorById = db.prepare(`UPDATE users SET color = ? WHERE id = ?`);
+const setUsernameById = db.prepare(`UPDATE users SET username = ? WHERE id = ?`);
 const setPrefsById = db.prepare(`UPDATE users SET prefs = ? WHERE id = ?`);
 const countAdmins = db.prepare(
   `SELECT COUNT(*) AS n FROM users WHERE is_admin = 1`,
@@ -182,6 +183,10 @@ export function updateUserPassword(id, { salt, hash, iter }) {
 
 export function updateUserColor(id, color) {
   setColorById.run(color, id);
+}
+
+export function updateUsername(id, username) {
+  setUsernameById.run(username, id);
 }
 
 // Per-account editor preferences (code-block accent color + custom keybinds),

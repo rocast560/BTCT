@@ -202,9 +202,13 @@ every note that uses it.
 Create a scan group in the sidebar, then drag-drop (or pick) one or more nmap
 **XML** files. The parser extracts host IP, hostname, OS (osmatch/osclass with a
 port-signature fallback), and per-port service/version/script output, skipping
-hosts that are down. Re-importing the same IP merges ports. Each machine has an
-editable, collaboratively-synced hostname and an OS dropdown, and opens in its
-own tab with its open, closed and filtered ports plus NSE script output.
+hosts that are down. Re-importing the same IP merges ports. Each machine is a
+full-width row (OS icon, IP, name, open-port count); click anywhere on it to
+expand its open, closed and filtered ports plus NSE script output in place.
+`Ctrl+Shift+click` instead opens it as its own tab, where the OS is also
+editable. Right-click a row for **Add Name** / **Rename Machine**: the name
+shows next to the IP and is collaboratively-synced (same field as the
+hostname editor in that tab).
 
 ### Command log (team shell-command capture)
 
@@ -346,10 +350,11 @@ below for the full mechanics:
   **Command log** ingest (enable, agent token, tool whitelist, target
   workspace), the **Blur defaults** and **Data retention**, and **Backups** (consistent scheduled snapshots to a host folder; see
   [Backups & restore](#backups--restore)).
-- **Profile**: your presence **color**, your per-account **code accent**, and
+- **Profile**: your presence **color**, your per-account **code accent**,
   your **note heading colours** (one colour for every level, or per-level
-  overrides; "Auto" inherits the body text). Changes preview live in open
-  editors. **Export / Import** turns your settings into a JSON file
+  overrides; "Auto" inherits the body text), and your **note width** (Narrow /
+  Default / Wide / Full, how wide the note content column renders). Changes
+  preview live in open editors. **Export / Import** turns your settings into a JSON file
   (`btct-prefs-<username>.json`) you can keep and re-apply on another machine;
   an imported file is validated field by field and only applied when you Save.
 - **Theme** (admins only): the workspace-wide accent color, the **default
@@ -389,7 +394,9 @@ panel).
 | Code block / Block mode | `Mod+/` ⚙ | Focus the language picker (works with the block selected too) |
 | Language picker | type, `Enter`, `↑`/`↓`, `Esc` | Filter, Enter drops to the closest match, arrows choose, Enter sets, Esc closes |
 | Image editor | `Enter` / `Esc` | Save the crop and redactions / cancel |
-| Nmap | `Ctrl+Shift+click` a machine card | Open machine in a new tab |
+| Table | `Backspace`/`Delete` with a table column, row or whole table selected | Delete that structure (a partial cell selection only clears the cells) |
+| Table | `Shift+Enter` in a cell | Insert a row below and move the caret into it |
+| Nmap | `Ctrl+Shift+click` a machine row | Open machine in a new tab |
 
 ---
 
@@ -610,7 +617,7 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `POST` | `/api/settings/blur` | admin | Set the workspace default blur strengths (`gaussian`, `pixelate`, each 0.25..3); mirrored into `settingsPublic.blur` |
 | `POST` | `/api/login` | none | Authenticate → `{ token, user }` |
 | `GET` | `/api/me` | yes | Current user |
-| `POST` | `/api/me/profile` | yes | Update own `color` and/or `prefs` (`codeAccent`, `keybinds`, `follow`, `theme`, `blurDefaults`; a legacy `uiTheme` slug is accepted and ignored) |
+| `POST` | `/api/me/profile` | yes | Update own `color` and/or `prefs` (`codeAccent`, `keybinds`, `follow`, `theme`, `blurDefaults`, `noteWidth`; a legacy `uiTheme` slug is accepted and ignored) |
 | `GET` | `/api/admin/users` | admin | List users |
 | `POST` | `/api/admin/users` | admin | Create user (username 3–32, password ≥8) |
 | `DELETE` | `/api/admin/users/:id` | admin | Delete user (not self / not last admin) |

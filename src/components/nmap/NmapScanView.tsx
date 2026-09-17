@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
 import type { NmapMachine, NmapPort, MachineOS } from '@/types';
-import { Upload, ArrowLeft, Monitor, Skull, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { Upload, ArrowLeft, Monitor, Skull, ChevronDown, ChevronRight, Pencil, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { nmapMachineRepo } from '@/db/nmap-repo';
-import { textKey } from '@/realtime/shared-doc';
+import { textKey, setYTextValue } from '@/realtime/shared-doc';
 import { useYTextInput } from '@/realtime/use-y-text';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 // ── OS icons (inline SVG for Windows / Linux / Attacker) ──
 
@@ -68,8 +69,7 @@ export function NmapScanView({ scanId }: { scanId: string }) {
     setSelectedNmapMachineId: s.setSelectedNmapMachineId,
   })));
   const fileRef = useRef<HTMLInputElement>(null);
-  const [selectedMachine, setSelectedMachine] = useState<NmapMachine | null>(null);
-  const [view, setView] = useState<'list' | 'detail'>('list');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const scan = nmapScans.find((s) => s.id === scanId);
 
@@ -77,11 +77,14 @@ export function NmapScanView({ scanId }: { scanId: string }) {
     if (activeWorkspaceId) void loadNmapScans();
   }, [activeWorkspaceId, loadNmapScans]);
 
-  // Reset the broadcast host selection whenever we land on the list so a
-  // teammate following us doesn't get pinned to a previously-opened host.
+  // Broadcast whichever host's row is expanded so a teammate following us
+  // sees the same one; collapsing (or switching scans) clears it.
   useEffect(() => {
-    if (view === 'list') setSelectedNmapMachineId(null);
-  }, [view, scanId, setSelectedNmapMachineId]);
+    setSelectedNmapMachineId(expandedId);
+  }, [expandedId, setSelectedNmapMachineId]);
+  useEffect(() => {
+    setExpandedId(null);
+  }, [scanId]);
 
   useEffect(() => {
     if (scanId) void loadNmapMachines(scanId);
@@ -101,26 +104,9 @@ export function NmapScanView({ scanId }: { scanId: string }) {
     await deleteNmapMachine(machineId);
   }, [deleteNmapMachine]);
 
-  const openMachine = (m: NmapMachine) => {
-    setSelectedMachine(m);
-    setView('detail');
-    setSelectedNmapMachineId(m.id);
-  };
-
   const openMachineInTab = (m: NmapMachine) => {
     openTab({ id: uuidv4(), kind: 'nmap-machine', entityId: m.id, title: m.hostname || m.ip });
   };
-
-  const goBack = () => {
-    setView('list');
-    setSelectedMachine(null);
-    // Refresh machines in case hostname changed
-    void loadNmapMachines(scanId);
-  };
-
-  if (view === 'detail' && selectedMachine) {
-    return <MachineDetail machine={selectedMachine} onBack={goBack} />;
-  }
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -153,7 +139,7 @@ export function NmapScanView({ scanId }: { scanId: string }) {
           </div>
         </div>
 
-        {/* Machine grid */}
+        {/* Machine rows */}
         {nmapMachines.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-[hsl(var(--muted-foreground))]">
             <Monitor size={48} className="mb-4 opacity-30" />
@@ -161,18 +147,17 @@ export function NmapScanView({ scanId }: { scanId: string }) {
             <p className="mt-1 text-xs">Import an Nmap XML file to get started.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-            {nmapMachines.map((machine) => {
-              return (
-                <MachineCard
-                  key={machine.id}
-                  machine={machine}
-                  onClick={() => openMachine(machine)}
-                  onOpenTab={() => openMachineInTab(machine)}
-                  onDelete={() => void handleDeleteMachine(machine.id)}
-                />
-              );
-            })}
+          <div className="flex flex-col divide-y divide-[hsl(var(--border))] overflow-hidden rounded-xl border border-[hsl(var(--border))]">
+            {nmapMachines.map((machine) => (
+              <MachineRow
+                key={machine.id}
+                machine={machine}
+                expanded={expandedId === machine.id}
+                onToggle={() => setExpandedId((id) => (id === machine.id ? null : machine.id))}
+                onOpenTab={() => openMachineInTab(machine)}
+                onDelete={() => void handleDeleteMachine(machine.id)}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -180,12 +165,19 @@ export function NmapScanView({ scanId }: { scanId: string }) {
   );
 }
 
-// ── Machine card ──
+// ── Machine row (full-width, expands in place to show its ports) ──
 
-function MachineCard({ machine, onClick, onOpenTab, onDelete }: { machine: NmapMachine; onClick: () => void; onOpenTab: () => void; onDelete: () => void }) {
+function MachineRow({ machine, expanded, onToggle, onOpenTab, onDelete }: {
+  machine: NmapMachine;
+  expanded: boolean;
+  onToggle: () => void;
+  onOpenTab: () => void;
+  onDelete: () => void;
+}) {
   const openPortCount = machine.ports.filter((p) => p.state === 'open').length;
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [renaming, setRenaming] = useState(false);
 
   // Close context menu on outside click
   useEffect(() => {
@@ -212,41 +204,61 @@ function MachineCard({ machine, onClick, onOpenTab, onDelete }: { machine: NmapM
     onDelete();
   };
 
+  const handleRenameClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCtxMenu(null);
+    setRenaming(true);
+  };
+
+  const handleConfirmRename = (value: string) => {
+    setRenaming(false);
+    setYTextValue('nmapMachine', machine.id, 'hostname', value);
+  };
+
   const handleClick = (e: React.MouseEvent) => {
     if (e.ctrlKey && e.shiftKey) {
       e.preventDefault();
       onOpenTab();
     } else {
-      onClick();
+      onToggle();
     }
   };
 
   return (
-    <>
+    <div className="bg-[hsl(var(--card))]">
       <button
         onClick={handleClick}
         onContextMenu={handleContext}
-        className={cn(
-          'relative flex w-full flex-col items-center gap-2 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 text-center shadow-sm transition-colors hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--accent))]',
-        )}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[hsl(var(--accent))]"
       >
+        <div className="w-4 shrink-0 text-[hsl(var(--muted-foreground))]">
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </div>
         <div className={cn(
-          'flex h-10 w-10 items-center justify-center',
+          'flex h-8 w-8 shrink-0 items-center justify-center',
           machine.os === 'windows' && 'text-[hsl(var(--status-blue))]',
           machine.os === 'linux' && 'text-[hsl(var(--status-green))]',
           machine.os === 'attacker' && 'text-[hsl(var(--status-red))]',
           machine.os === 'unknown' && 'text-[hsl(var(--muted-foreground))]',
         )}>
-          <OSIcon os={machine.os} size={28} />
+          <OSIcon os={machine.os} size={20} />
         </div>
-        <div>
-          <div className="text-xs font-semibold">{machine.hostname || machine.ip}</div>
-          {machine.hostname && <div className="text-[10px] text-[hsl(var(--muted-foreground))]">{machine.ip}</div>}
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <span className="shrink-0 font-mono text-xs font-semibold">{machine.ip}</span>
+          {machine.hostname && (
+            <span className="truncate text-[11px] text-[hsl(var(--muted-foreground))]">{machine.hostname}</span>
+          )}
         </div>
-        <div className="text-[9px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+        <div className="shrink-0 text-[9px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
           {openPortCount} open port{openPortCount !== 1 ? 's' : ''}
         </div>
       </button>
+
+      {expanded && (
+        <div className="border-t border-[hsl(var(--border))] px-4 py-4">
+          <PortsTable machine={machine} />
+        </div>
+      )}
 
       {/* Context menu */}
       {ctxMenu && (
@@ -256,12 +268,30 @@ function MachineCard({ machine, onClick, onOpenTab, onDelete }: { machine: NmapM
           onClick={(e) => e.stopPropagation()}
         >
           <button
+            onClick={handleRenameClick}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-[hsl(var(--accent))]"
+          >
+            <Pencil size={12} /> {machine.hostname ? 'Rename Machine' : 'Add Name'}
+          </button>
+          <button
             onClick={handleDeleteClick}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[hsl(var(--status-red))] hover:bg-[hsl(var(--status-red))]/10"
           >
             <X size={12} /> Delete Machine
           </button>
         </div>
+      )}
+
+      {/* Rename dialog */}
+      {renaming && (
+        <ConfirmDialog
+          title={machine.hostname ? 'Rename machine' : 'Add a name'}
+          message={`Name for ${machine.ip}, synced live to every teammate.`}
+          confirmLabel="Save"
+          input={{ initial: machine.hostname, placeholder: 'e.g. web01' }}
+          onCancel={() => setRenaming(false)}
+          onConfirm={handleConfirmRename}
+        />
       )}
 
       {/* Delete confirmation dialog */}
@@ -289,7 +319,7 @@ function MachineCard({ machine, onClick, onOpenTab, onDelete }: { machine: NmapM
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -328,9 +358,6 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
     setOsDropdownOpen(false);
     void updateNmapMachine(initialMachine.id, { os: newOs });
   };
-
-  const openPorts = initialMachine.ports.filter((p) => p.state === 'open');
-  const closedPorts = initialMachine.ports.filter((p) => p.state !== 'open');
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -399,42 +426,53 @@ function MachineDetail({ machine: initialMachine, onBack }: { machine: NmapMachi
           </div>
         </div>
 
-        {/* Open ports table */}
-        <div className="mb-6">
-          <div className="mb-2 flex items-center justify-between border-b border-[hsl(var(--border))] pb-2">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
-              Open Ports ({openPorts.length})
-            </span>
-          </div>
-          {openPorts.length === 0 ? (
-            <p className="py-4 text-center text-xs text-[hsl(var(--muted-foreground))]">No open ports detected</p>
-          ) : (
-            <div className="divide-y divide-[hsl(var(--border))]">
-              {openPorts.map((p, i) => (
-                <PortRow key={i} port={p} />
-              ))}
-            </div>
-          )}
-        </div>
+        <PortsTable machine={initialMachine} />
+      </div>
 
-        {/* Closed/filtered ports */}
-        {closedPorts.length > 0 && (
-          <div>
-            <div className="mb-2 border-b border-[hsl(var(--border))] pb-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
-                Closed / Filtered ({closedPorts.length})
-              </span>
-            </div>
-            <div className="divide-y divide-[hsl(var(--border))]">
-              {closedPorts.map((p, i) => (
-                <PortRow key={i} port={p} muted />
-              ))}
-            </div>
+    </div>
+  );
+}
+
+// ── Ports table (open + closed/filtered), shared by the detail view and an expanded row ──
+
+function PortsTable({ machine }: { machine: NmapMachine }) {
+  const openPorts = machine.ports.filter((p) => p.state === 'open');
+  const closedPorts = machine.ports.filter((p) => p.state !== 'open');
+
+  return (
+    <>
+      <div className="mb-6">
+        <div className="mb-2 flex items-center justify-between border-b border-[hsl(var(--border))] pb-2">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+            Open Ports ({openPorts.length})
+          </span>
+        </div>
+        {openPorts.length === 0 ? (
+          <p className="py-4 text-center text-xs text-[hsl(var(--muted-foreground))]">No open ports detected</p>
+        ) : (
+          <div className="divide-y divide-[hsl(var(--border))]">
+            {openPorts.map((p, i) => (
+              <PortRow key={i} port={p} />
+            ))}
           </div>
         )}
       </div>
 
-    </div>
+      {closedPorts.length > 0 && (
+        <div>
+          <div className="mb-2 border-b border-[hsl(var(--border))] pb-2">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+              Closed / Filtered ({closedPorts.length})
+            </span>
+          </div>
+          <div className="divide-y divide-[hsl(var(--border))]">
+            {closedPorts.map((p, i) => (
+              <PortRow key={i} port={p} muted />
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
