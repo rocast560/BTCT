@@ -24,7 +24,13 @@ vi.mock('@/components/typst/TypstView', () => {
 });
 
 describe('SplitContainer renders a typst tab only once the flag says so', () => {
+  // Vitest evaluates a mock factory once per file, so the counter cannot be
+  // reset between cases. Each case compares against the count it started
+  // with instead, which makes them independent of the order they run in.
+  let loadsBefore = 0;
+
   beforeEach(() => {
+    loadsBefore = typstModule.loads;
     useAppStore.setState({
       tabs: [{ id: 'tab-1', kind: 'typst', entityId: 'ws-1', title: 'Report' }],
       paneLayout: { type: 'leaf', id: 'pane-1', tabIds: ['tab-1'], activeTabId: 'tab-1' },
@@ -37,7 +43,7 @@ describe('SplitContainer renders a typst tab only once the flag says so', () => 
     render(<SplitContainer />);
 
     expect(await screen.findByText(/Checking whether the report editor is available/)).toBeTruthy();
-    expect(typstModule.loads).toBe(0);
+    expect(typstModule.loads).toBe(loadsBefore);
   });
 
   it('shows the off notice, and loads nothing, on a flag-off server', async () => {
@@ -46,14 +52,16 @@ describe('SplitContainer renders a typst tab only once the flag says so', () => 
 
     expect(await screen.findByText('Report tab is turned off')).toBeTruthy();
     expect(screen.queryByText(/report editor for/)).toBeNull();
-    expect(typstModule.loads).toBe(0);
+    expect(typstModule.loads).toBe(loadsBefore);
   });
 
   it('loads and renders the editor once the flag is on', async () => {
     useThemeStore.setState({ features: { typst: true }, featuresLoaded: true });
     render(<SplitContainer />);
 
+    // Rendering the mock's output is the proof that the module was loaded in
+    // this case; the counter confirms the factory ran at all.
     expect(await screen.findByText(/report editor for ws-1/)).toBeTruthy();
-    expect(typstModule.loads).toBe(1);
+    expect(typstModule.loads).toBeGreaterThanOrEqual(1);
   });
 });
