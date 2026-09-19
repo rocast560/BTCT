@@ -9,15 +9,22 @@
 // Clicking a thumbnail opens the crop-and-redact editor. Both are render-time
 // metadata on the record, never baked into the upload, so the thumbnails show
 // the cropped result while the original bytes stay recoverable.
+//
+// The same panel is the Typst report's assets rail, via the optional `typst`
+// prop. With it set, a thumbnail opens the figure-placement dialog instead of
+// the plain crop editor, each card gets an insert-at-the-caret button, and the
+// layout stacks for a narrow rail. Without it (the Assets Manager tab) none of
+// that code is even downloaded: the dialog is a `lazy()` import.
 // ─────────────────────────────────────────────────────────────────────────
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ChevronRight, Crop, EyeOff, Folder, FolderPlus, ImagePlus,
-  Loader2, Pencil, Trash2, Upload,
+  Loader2, MapPin, Pencil, Plus, Trash2, Upload,
 } from 'lucide-react';
 import { useAppStore } from '@/stores';
-import type { AssetFolder, ID, TypstAsset } from '@/types';
+import type { AssetFolder, BlurRegion, CropRect, ID, TypstAsset } from '@/types';
+import type { ScreenshotSlot } from '@/lib/typst-placeholders';
 import { blursKey, hasBlurs } from '@/lib/blur-math';
 import { assetsInFolder, childFolders, folderTrail, isDescendantFolder } from '@/lib/asset-folders';
 import { assetPath, isFullFrame, resolveAssetBytes } from '@/lib/assets';
@@ -25,6 +32,50 @@ import { ENCODABLE_FORMATS, formatFromFilename, mimeForFormat } from '@/lib/imag
 import { ImageEditorDialog } from './ImageEditorDialog';
 import { Portal } from '@/components/ui/Portal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+
+// Lazy, and referenced only under `typst`: the Assets Manager tab must not
+// pull the figure-placement dialog (and with it the Typst geometry and
+// placeholder code) into its chunk. `ScreenshotSlot` above is a type-only
+// import, so it is erased rather than linked.
+const PlaceScreenshotDialog = lazy(() =>
+  import('@/components/typst/PlaceScreenshotDialog').then((m) => ({ default: m.PlaceScreenshotDialog })),
+);
+
+/**
+ * What the Typst report tab hands the panel to turn it into its assets rail.
+ * Absent everywhere else, which is what keeps Typst code out of the Assets
+ * Manager tab.
+ *
+ * Every source rewrite is a callback rather than something the panel does
+ * itself: the report tab owns the source `Y.Text`, and it is the only place
+ * that may write to it (invariant #3b).
+ */
+export interface TypstPanelMode {
+  /** Live Typst source: the dialog reads the slots and page geometry from it. */
+  source: string;
+  /** Caption of the figure each asset path currently fills, keyed by path. */
+  placements: ReadonlyMap<string, string>;
+  /** Put an `#image(…)` for this asset at the editor's caret. */
+  onInsert: (asset: TypstAsset) => void;
+  /**
+   * Commit the framing, and, when `slot` is set, write `path` into that slot
+   * (`null` to empty it). `heightPt` is set when the figure's height changed.
+   */
+  onPlace: (
+    asset: TypstAsset,
+    crop: CropRect | null,
+    blurs: BlurRegion[] | null,
+    slot: ScreenshotSlot | null,
+    path: string | null,
+    heightPt: number | null,
+  ) => void;
+  /** Append a new empty figure slot to the document. */
+  onAddSlot: (caption: string) => void;
+  /** Rename the asset's file stem and repoint the document's references. */
+  onRename: (asset: TypstAsset, stem: string) => void;
+  /** Click-to-reveal from the preview: select + flash this asset. */
+  reveal?: { id: ID; nonce: number } | null;
+}
 
 /** Drag payload types for moving things between folders. */
 const ASSET_DRAG = 'application/x-btct-asset';
@@ -85,13 +136,17 @@ function useAssetPreview(asset: TypstAsset): { url: string | null; error: boolea
 // so a re-render of the grid does not rebuild every <img> in it.
 const ImageCard = memo(function ImageCard({
   asset,
+  placedIn,
   flash,
   onOpen,
   onDelete,
+  onInsert,
   onDragStartAsset,
   registerEl,
 }: {
   asset: TypstAsset;
+  /** Caption of the figure this image currently fills, if any (Typst mode). */
+  placedIn: string | null;
   /** Pulse-highlight this card. */
   flash: boolean;
   // Take the asset as an argument rather than closing over it, so the parent
@@ -99,6 +154,8 @@ const ImageCard = memo(function ImageCard({
   // every render, which would defeat the memo above entirely.
   onOpen: (asset: TypstAsset) => void;
   onDelete: (asset: TypstAsset) => void;
+  /** Typst mode only: insert a reference to this image at the caret. */
+  onInsert?: (asset: TypstAsset) => void;
   onDragStartAsset: (e: React.DragEvent, asset: TypstAsset) => void;
   registerEl: (id: ID, el: HTMLDivElement | null) => void;
 }) {
@@ -115,7 +172,7 @@ const ImageCard = memo(function ImageCard({
     >
       <button
         onClick={() => onOpen(asset)}
-        title={`Crop or redact ${asset.filename}`}
+        title={placedIn ? `Placed in "${placedIn}": click to re-crop or move` : `Crop or redact ${asset.filename}`}
         className="block h-20 w-full"
       >
         {error ? (
@@ -142,10 +199,24 @@ const ImageCard = memo(function ImageCard({
             <EyeOff size={8} /> redacted
           </span>
         )}
+        {placedIn && (
+          <span className="flex items-center gap-0.5 rounded bg-[hsl(var(--primary))] px-1 py-px text-[9px] font-semibold uppercase text-[hsl(var(--primary-foreground))]">
+            <MapPin size={8} /> placed
+          </span>
+        )}
       </div>
 
       {/* Hover actions */}
       <div className="absolute right-1 top-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        {onInsert && (
+          <button
+            onClick={() => onInsert(asset)}
+            title="Insert #image(…) at the cursor"
+            className="rounded bg-black/60 p-1 text-white hover:bg-[hsl(var(--primary))]"
+          >
+            <Plus size={11} />
+          </button>
+        )}
         <button
           onClick={() => onDelete(asset)}
           title="Delete asset"
@@ -157,9 +228,9 @@ const ImageCard = memo(function ImageCard({
 
       <div
         className="truncate border-t border-[hsl(var(--border))] px-1.5 py-1 font-mono text-[9px] text-[hsl(var(--muted-foreground))]"
-        title={assetPath(asset)}
+        title={placedIn ? `${assetPath(asset)}: in "${placedIn}"` : assetPath(asset)}
       >
-        {asset.filename}
+        {placedIn ?? asset.filename}
       </div>
     </div>
   );
@@ -308,7 +379,7 @@ function FolderNode(props: FolderNodeProps) {
 
 // ── Panel ────────────────────────────────────────────────────────────────
 
-export const AssetsPanel = memo(function AssetsPanel() {
+export const AssetsPanel = memo(function AssetsPanel({ typst }: { typst?: TypstPanelMode }) {
   const assets = useAppStore((s) => s.typstAssets);
   const folders = useAppStore((s) => s.assetFolders);
   const addTypstAsset = useAppStore((s) => s.addTypstAsset);
@@ -333,7 +404,7 @@ export const AssetsPanel = memo(function AssetsPanel() {
   const [renamingId, setRenamingId] = useState<ID | null>(null);
   const [pendingDelete, setPendingDelete] = useState<AssetFolder | null>(null);
   const [pendingDeleteAsset, setPendingDeleteAsset] = useState<TypstAsset | null>(null);
-  const [flashId] = useState<ID | null>(null);
+  const [flashId, setFlashId] = useState<ID | null>(null);
   const cardEls = useRef(new Map<ID, HTMLDivElement>());
 
   // A folder deleted remotely (or a workspace switch) must not leave the
@@ -433,6 +504,24 @@ export const AssetsPanel = memo(function AssetsPanel() {
     else cardEls.current.delete(id);
   }, []);
 
+  // Preview click-to-reveal: jump to the asset's folder, scroll it into
+  // view and pulse its card.
+  const reveal = typst?.reveal ?? null;
+  useEffect(() => {
+    if (!reveal) return;
+    const asset = assets.find((a) => a.id === reveal.id);
+    if (!asset) return;
+    setSelectedFolder(asset.folderId ?? null);
+    setFlashId(reveal.id);
+    const raf = requestAnimationFrame(() => {
+      cardEls.current.get(reveal.id)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+    const timer = window.setTimeout(() => setFlashId(null), 3400);
+    return () => { cancelAnimationFrame(raf); window.clearTimeout(timer); };
+    // Only a new click should re-trigger; the asset list refreshing must not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal?.nonce]);
+
   const toggleExpanded = useCallback((id: ID) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -468,6 +557,9 @@ export const AssetsPanel = memo(function AssetsPanel() {
   // collaborator cropping the same image, say).
   const editingLive = editing ? assets.find((a) => a.id === editing.id) ?? null : null;
 
+  // The report's rail is ~240px wide, so it stacks the tree above the grid;
+  // the Assets Manager tab has the whole tab and puts them side by side.
+  const wide = !typst;
   const rootCount = counts.get('') ?? 0;
   const acceptsRowDrag = (e: React.DragEvent) =>
     e.dataTransfer.types.includes(ASSET_DRAG) ||
@@ -529,9 +621,13 @@ export const AssetsPanel = memo(function AssetsPanel() {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 flex overflow-hidden">
+      <div className={`min-h-0 flex-1 ${wide ? 'flex' : 'flex flex-col'} overflow-hidden`}>
         {/* Folder tree */}
-        <div className="atree w-64 shrink-0 overflow-y-auto border-r border-[hsl(var(--border))] p-2">
+        <div className={`atree shrink-0 overflow-y-auto p-2 ${
+          wide
+            ? 'w-64 border-r border-[hsl(var(--border))]'
+            : 'max-h-[45%] border-b border-[hsl(var(--border))]'
+        }`}>
           <div
             data-active={selectedFolder === null || undefined}
             onDragOver={(e) => { if (acceptsRowDrag(e)) { e.preventDefault(); e.stopPropagation(); } }}
@@ -613,16 +709,18 @@ export const AssetsPanel = memo(function AssetsPanel() {
           </div>
           {images.length > 0 ? (
             <div
-              className={`mb-3 grid gap-1.5 `}
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}
+              className={`mb-3 grid gap-1.5 ${wide ? '' : 'grid-cols-2'}`}
+              style={wide ? { gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' } : undefined}
             >
               {images.map((a) => (
                 <ImageCard
                   key={a.id}
                   asset={a}
+                  placedIn={typst?.placements.get(assetPath(a)) ?? null}
                   flash={flashId === a.id}
                   onOpen={openAsset}
                   onDelete={removeAsset}
+                  onInsert={typst?.onInsert}
                   onDragStartAsset={onDragStartAsset}
                   registerEl={registerEl}
                 />
@@ -683,7 +781,30 @@ export const AssetsPanel = memo(function AssetsPanel() {
         </Portal>
       )}
 
-      {editingLive && (
+      {editingLive && (typst ? (
+        <Portal>
+          {/* No fallback chrome: the dialog is a portal sheet, and a spinner
+              behind the panel for the length of one chunk fetch would read as
+              a glitch rather than as progress. */}
+          <Suspense fallback={null}>
+            <PlaceScreenshotDialog
+              asset={editingLive}
+              source={typst.source}
+              onApply={(crop, blurs, slot, heightPt) => {
+                typst.onPlace(editingLive, crop, blurs, slot, assetPath(editingLive), heightPt);
+                setEditing(null);
+              }}
+              onUnplace={(crop, blurs, slot) => {
+                typst.onPlace(editingLive, crop, blurs, slot, null, null);
+                setEditing(null);
+              }}
+              onAddSlot={typst.onAddSlot}
+              onRename={(stem) => typst.onRename(editingLive, stem)}
+              onClose={() => setEditing(null)}
+            />
+          </Suspense>
+        </Portal>
+      ) : (
         <Portal>
           <ImageEditorDialog
             asset={editingLive}
@@ -698,7 +819,7 @@ export const AssetsPanel = memo(function AssetsPanel() {
             onClose={() => setEditing(null)}
           />
         </Portal>
-      )}
+      ))}
     </div>
   );
 });

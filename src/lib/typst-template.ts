@@ -1,50 +1,34 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Starter document for a new report.
+// Starter document shown the first time a workspace's Typst report is opened.
 //
-// Shared by the client and the server (the server seeds it on
-// `POST /api/documents`), so this file must stay free of DOM and Node
-// imports. The `image-placeholder` helper below is the canonical definition
-// from `lib/typst-placeholders.ts`, inlined as text so the server doesn't
-// pull the placeholder module in.
+// Ships with the `image-placeholder` helper pre-defined: screenshots are
+// assigned to declared figure slots from the Assets rail rather than pasted
+// at the caret, so captions and numbering stay consistent. An unfilled slot
+// renders as a labelled grey box, making a missing screenshot obvious in the
+// PDF instead of silently absent.
+//
+// The helper text is imported from `typst-placeholders` rather than copied,
+// so the slot parser and the document it seeds can never disagree about the
+// helper's signature.
 // ─────────────────────────────────────────────────────────────────────────
 
-export const DEFAULT_WORKSPACE_NAME = 'Untitled report';
+import { PLACEHOLDER_HELPER } from './typst-placeholders';
 
 export const DEFAULT_TYPST_TEMPLATE = `#set page(margin: 1.5cm)
 #set text(font: "New Computer Modern", size: 11pt)
 #set heading(numbering: "1.1")
 
-#let image-placeholder(caption, path: none, height: 2.2in) = figure(
-  block(
-    width: 90%,
-    height: height,
-    fill: luma(245),
-    stroke: 1pt + luma(180),
-    radius: 4pt,
-    clip: true,
-    inset: 0pt,
-    align(center + horizon,
-      if path == none {
-        text(fill: luma(120), style: "italic", size: 11pt)[
-          \\[ {{TODO: Insert screenshot here}} \\]
-        ]
-      } else {
-        image(path, width: 100%, height: 100%, fit: "cover")
-      },
-    ),
-  ),
-  caption: caption,
-)
+${PLACEHOLDER_HELPER}
 
 #align(center)[
   #text(size: 20pt, weight: "bold")[Engagement Report] \\
-  #text(size: 11pt)[Typst Studio]
+  #text(size: 11pt)[Been There, Conquered That]
 ]
 
 = Executive Summary
 
 Write a high-level summary of the engagement here. Typst renders this
-preview locally, with no internet required.
+preview locally: no internet required.
 
 = Findings
 
@@ -57,11 +41,7 @@ preview locally, with no internet required.
   [*Affected*], [10.0.0.5],
 )
 
-Describe the finding, its impact, and remediation steps. Drop a screenshot
-into the Assets rail, frame it, blur anything sensitive, and place it into
-one of the figure slots below.
+Describe the finding, its impact, and remediation steps.
 
 #image-placeholder("Proof of exploitation")
-
-#image-placeholder("Redacted credentials", height: 3in)
 `;
