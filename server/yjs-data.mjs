@@ -6,13 +6,14 @@
 // collaboratively. y-websocket keeps that doc resident in this process
 // (utils' `docs` map / `getYDoc`), so the few server features that must touch
 // workspace data (command-log ingest, the public settings mirror, asset
-// retention) read and write it in-process; writes broadcast to every
-// connected client.
+// retention, and the Typst report export) read and write it in-process;
+// writes broadcast to every connected client.
 //
 // Records are plain JSON keyed by id in a per-table Y.Map (last-writer-wins).
-// Wrap writes in `doc.transact` so observers fire once. Nothing here writes a
-// collaborative Y.Text field, so the client's Y.Text invariant does not come
-// into play here; if that changes, update BOTH the Y.Text and the record.
+// Wrap writes in `doc.transact` so observers fire once. This file reads one
+// collaborative Y.Text field (the Typst report source) and writes none, so
+// the client's Y.Text invariant does not come into play here; if a write is
+// added, it must set BOTH the Y.Text and the record.
 // ─────────────────────────────────────────────────────────────────────────
 import { createRequire } from 'node:module';
 
@@ -131,6 +132,21 @@ export async function publishPublicBlur(blur) {
   doc.transact(() => {
     tables.settingsPublic.set('blur', blur);
   });
+}
+
+// ── Typst report export (server/typst/) ──
+// Read-only. The report source is a Y.Text in `texts`; `typstAssets` is not
+// in TABLE_NAMES (the server never needed it as a table), so it is read
+// straight off the doc like the retention pair above.
+export async function readTypstSource(workspaceId) {
+  const { texts } = await shared();
+  const t = texts.get(`typst:${workspaceId}:source`);
+  return t ? t.toString() : null;
+}
+
+export async function listAssetRecords(workspaceId) {
+  const { doc } = await shared();
+  return [...doc.getMap('typstAssets').values()].filter((a) => a && a.workspaceId === workspaceId && !a.deletedAt);
 }
 
 function pruneCommandLogs(map) {
