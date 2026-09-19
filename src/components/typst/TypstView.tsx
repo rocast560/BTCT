@@ -117,7 +117,9 @@ function triggerDownload(filename: string, data: BlobPart, mime: string): void {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // A synchronous revoke can race the browser's own read of the blob and
+  // cancel the download before it starts, so free the URL on a timer instead.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 /**

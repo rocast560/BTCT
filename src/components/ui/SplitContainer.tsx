@@ -1,6 +1,7 @@
 import { WorkspaceOverview } from './WorkspaceOverview';
 import { useCallback, useRef, useState, memo, lazy, Suspense } from 'react';
 import { useAppStore } from '@/stores';
+import { useThemeStore } from '@/stores/theme-store';
 import type { PaneNode, LeafPane, SplitPane, TabItem, DropPosition } from '@/types';
 const PageEditor = lazy(() => import('@/components/editor/PageEditor').then((m) => ({ default: m.PageEditor })));
 const NmapScanView = lazy(() => import('@/components/nmap/NmapScanView').then((m) => ({ default: m.NmapScanView })));
@@ -122,6 +123,33 @@ function PaneSplit({ split }: { split: SplitPane }) {
 
 // ── Leaf pane: tab strip + content + drop zones ──
 
+/**
+ * What a `typst` tab should render, given the flag-loading state.
+ *
+ * A Report tab is never pruned when the flag reads off (see `reconcileTabs`
+ * in app-store.ts): `features` starts at `DEFAULT_FEATURES` (typst false)
+ * and only flips once `GET /api/settings` resolves, so treating "false" as
+ * "prune" would delete every flag-ON user's Report tab on each reload. The
+ * render is gated here instead, and only once settings have actually
+ * loaded, so a restored tab on a flag-off box never mounts `TypstView` (and
+ * never requests its lazy chunk, so the compiler is never downloaded) while
+ * a flag-on box never flashes the "off" notice during the load window.
+ */
+export function typstTabState(features: { typst: boolean }, loaded: boolean): 'loading' | 'on' | 'off' {
+  if (!loaded) return 'loading';
+  return features.typst ? 'on' : 'off';
+}
+
+/** Plain-text empty state, same shape as the "Drop a tab here" notice below. */
+function TypstOffNotice() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center text-xs text-[hsl(var(--muted-foreground))]">
+      <strong className="text-sm text-[hsl(var(--foreground))]">Report tab is turned off</strong>
+      <span>This server runs without the Typst report editor. Your report is still saved with the workspace and opens on a server that has it enabled.</span>
+    </div>
+  );
+}
+
 function PaneLeaf({ pane }: { pane: LeafPane }) {
   const tabs = useAppStore((s) => s.tabs);
   const activePaneId = useAppStore((s) => s.activePaneId);
@@ -131,6 +159,8 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
   const moveTabToPane = useAppStore((s) => s.moveTabToPane);
   const reorderTab = useAppStore((s) => s.reorderTab);
   const paneLayout = useAppStore((s) => s.paneLayout);
+  const typstFeature = useThemeStore((s) => s.features.typst);
+  const typstLoaded = useThemeStore((s) => s.loaded);
 
   const [dropZone, setDropZone] = useState<DropPosition | null>(null);
   const leafRef = useRef<HTMLDivElement>(null);
@@ -140,6 +170,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
   const paneTabs = pane.tabIds.map((id) => tabs.find((t) => t.id === id)).filter(Boolean) as TabItem[];
   const activeTab = paneTabs.find((t) => t.id === pane.activeTabId) ?? paneTabs[0] ?? null;
   const isActive = activePaneId === pane.id;
+  const typstState = typstTabState({ typst: typstFeature }, typstLoaded);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(TAB_DRAG_TYPE)) return;
@@ -255,7 +286,8 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
         {activeTab?.kind === 'history' && <HistoryView pageId={activeTab.entityId} />}
         {activeTab?.kind === 'assets' && <AssetsManager />}
         {activeTab?.kind === 'shortcuts' && <ShortcutsView />}
-        {activeTab?.kind === 'typst' && <TypstView workspaceId={activeTab.entityId} />}
+        {activeTab?.kind === 'typst' && typstState === 'on' && <TypstView workspaceId={activeTab.entityId} />}
+        {activeTab?.kind === 'typst' && typstState === 'off' && <TypstOffNotice />}
         {!activeTab && (
           <div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">
             Drop a tab here
