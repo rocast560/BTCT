@@ -35,6 +35,7 @@ crisp version is [`blog/media/btct-demo.mp4`](blog/media/btct-demo.mp4) at
   - [Real-time collaboration](#real-time-collaboration)
   - [Workspaces, navigation & layout](#workspaces-navigation--layout)
   - [Edit history & versioning](#edit-history--versioning)
+  - [Report (Typst)](#report-typst)
   - [Export & import](#export--import)
   - [Accounts, roles & settings](#accounts-roles--settings)
 - [Keyboard shortcuts & gestures](#keyboard-shortcuts--gestures)
@@ -55,6 +56,7 @@ crisp version is [`blog/media/btct-demo.mp4`](blog/media/btct-demo.mp4) at
 - [One-click launcher (Windows)](#one-click-launcher-windows)
 - [What persists (and what doesn't)](#what-persists-and-what-doesnt)
 - [Backups & restore](#backups--restore)
+- [Moving an engagement between machines](#moving-an-engagement-between-machines)
 - [Releases & production deploy](#releases--production-deploy)
 - [Tests](#tests)
 - [Security posture](#security-posture)
@@ -289,7 +291,8 @@ Everything is live and multi-user over the LAN:
   workspace is remembered across reloads. All pages, scans and assets are
   scoped to it.
 - **Tabs**: open pages, nmap groups/machines, the command log, the assets
-  manager and the shortcuts sheet as tabs. Cycle with **←/→**, close
+  manager, the shortcuts sheet and (with `ENABLE_TYPST=1`) the
+  [report](#report-typst) as tabs. Cycle with **←/→**, close
   with **Alt+W**, and the **browser back/forward** buttons walk your tab history.
   **Drag a tab left or right** along its strip to reorder it (a bar shows where
   it lands; dropping on the empty end of the strip moves it last). The
@@ -330,6 +333,53 @@ below for the full mechanics:
   edit (everyone sees it, later versions are kept) and records a "Restored …"
   version. Versions written by older builds appear as *imported* (restorable,
   without per-user colours).
+
+### Report (Typst)
+
+The deliverable, written in [Typst](https://typst.app/) next to the notes
+instead of in a separate word processor. **It is off unless the server is
+started with `ENABLE_TYPST=1`** (compose reads it from `.env`; the default is
+`0`). With the flag on, "Write the report" appears on the workspace overview,
+a **Report** row under Tools in the sidebar, and "Write the Report" in the
+command palette. There is one report per workspace.
+
+- **Source on the left, rendered pages on the right.** The source is a
+  collaborative `Y.Text` like everything else in BTCT, so two people can write
+  the report at once and see each other's carets. The preview is paged SVG and
+  updates as you type; clicking a rendered line jumps the editor to it.
+- **It compiles in the browser.** The Typst compiler is WebAssembly served
+  from the same container, so nothing leaves the machine and the server stays
+  as dumb as it was. Nothing is installed on the operator's box.
+- **First open costs about 17 MB, once.** Measured against the real image:
+  11.1 MB of compiler and renderer wasm, 5.8 MB of the 17 bundled fonts and
+  0.2 MB of JavaScript, all gzipped on the wire, over 37 requests. The
+  wasm and the JS chunks have hashed
+  filenames and are served `public, max-age=31536000, immutable`, so they are
+  never fetched again. The fonts are served `no-cache` with an ETag, so a
+  later load revalidates them and gets 17 empty `304`s instead of the bytes.
+  Until you open the tab, none of it is requested: a flag-off session
+  downloads exactly zero of those files. The whole measurement, including
+  what it costs a box that never turns the flag on, is in
+  [docs/typst-tab-2026-09.md](docs/typst-tab-2026-09.md).
+- **Your screenshots are the figures.** The report has its own assets rail
+  (the same folder tree, crop and redaction as the Assets tab, stacked into a
+  side panel you can drag wider or hide from the header). Declare a figure
+  slot in the source with `#image-placeholder("caption")`, then drop a
+  screenshot into it from the rail: it is placed by path, and the crop and
+  the blur rectangles you drew are what lands in the PDF. The `+` on a card
+  inserts `#image("/assets/<file>")` at the caret instead.
+- **Custom fonts** are uploaded from that rail and only from there (the
+  standalone Assets tab still refuses anything that is not an image). BTCT
+  reads the family name out of the file, lists it, and its button writes
+  `#set text(font: "<family>")`. The 17 defaults (New Computer Modern,
+  Libertinus Serif, DejaVu Sans Mono) are staged into `public/fonts/` at
+  build time by `bun run fonts`, so the compiler never calls a CDN.
+- **Export** is a PDF or an SVG, produced by the same in-browser compiler.
+- **`Mod+F`** opens the report's own search over the whole document, because
+  CodeMirror's built-in only decorates what is currently scrolled into view.
+- A Report tab left open in your browser when the flag gets turned off does
+  not load any of this. It restores as an inert "Report tab is turned off"
+  notice, and closes like any other tab.
 
 ### Export & import
 
@@ -401,6 +451,8 @@ panel).
 | Table | `Backspace`/`Delete` with a table column, row or whole table selected | Delete that structure (a partial cell selection only clears the cells) |
 | Table | `Shift+Enter` in a cell | Insert a row below and move the caret into it |
 | Nmap | `Ctrl+Shift+click` a machine row | Open machine in a new tab |
+| Report (Typst) | `Mod+F` | Open the report's own whole-document search (CodeMirror's built-in only decorates the rendered viewport, so this replaces it and swallows the browser's find) |
+| Report (Typst) | `Tab` / `Shift+Tab`, `Mod+Z` / `Mod+Shift+Z` | Indent / outdent, and collaborative undo / redo. Everything else in the source pane is CodeMirror's default keymap; the Report tab adds no other bindings and none of them are rebindable. |
 
 ---
 
@@ -441,6 +493,9 @@ normal REST.
 
 ### Client
 - **Vite 8** + **React 19** + **TypeScript (strict)**
+- **`@myriaddreamin/typst.ts` 0.7** + `typst-ts-web-compiler` +
+  `typst-ts-renderer` for the optional [report tab](#report-typst).
+  Lazy-loaded, never in the entry bundle
 - **Milkdown 7 (Crepe)** + `@milkdown/plugin-collab` + **CodeMirror 6** code blocks
   (`@codemirror/language-data`, GitHub-Dark token theme)
 - **Yjs 13** + **y-websocket 2** + **y-prosemirror 1** + **y-indexeddb 9**
@@ -515,6 +570,13 @@ lives inside the CRDT documents the clients share.
   rest of the app (sidebar, search, exports) can read plain JSON. The
   collaborative fields are: page `title`/`slug`, workspace `name`, nmap scan
   `name`, nmap machine `hostname`.
+- **The Typst report source** is a `Y.Text` in the same map, keyed
+  `typst:<workspaceId>:source`, one per workspace. It is the one text with no
+  JSON record behind it, so it is not in `TEXT_FIELDS_BY_ENTITY` and the mirror
+  never touches it. `TypstView` seeds it with `getOrInitYText` (the starter
+  template) and CodeMirror edits it through `yCollab`, remote carets included;
+  code that rewrites it, such as the ZIP import, goes through
+  `replaceYTextContent` like every other programmatic text write.
 - **Page bodies** never go in the shared doc. They live in the per-page doc and
   are checkpointed via [page snapshots](#edit-history--versioning-detail).
 
@@ -711,8 +773,15 @@ src/
     history/HistoryView.tsx   Read-only page-version viewer with per-user diffs
     help/ShortcutsView.tsx    Grouped shortcut cheat sheet (reads live keybinds)
     assets/                   AssetsManager (the tab), AssetsPanel (folder tree
-                              + drop zone + grid), ImageEditorDialog (crop and
-                              redact), FigureViewport (the framing surface)
+                              + drop zone + grid; its optional `typst` prop
+                              turns it into the report's assets rail),
+                              ImageEditorDialog (crop and redact),
+                              FigureViewport (the framing surface)
+    typst/                    The Report tab, behind ENABLE_TYPST: TypstView
+                              (Y.Text source + assets rail + export),
+                              TypstEditor (CodeMirror bound with yCollab),
+                              TypstPreview (paged SVG in a shadow root),
+                              TypstSearchPanel, PlaceScreenshotDialog
     sidebar/                  LeftSidebar (tree/nav), RightSidebar (properties),
                               AdminPanel, ProfileEditor, ThemePicker,
                               ChangeLogPanel, PageHistoryPanel, LastEditedBadge
@@ -729,7 +798,15 @@ src/
                               crop geometry) + blur-math (pure blur-region
                               geometry + strength heuristics) + pane-resize
                               (pane width clamping + layout persistence) +
-                              image-format (magic-number sniffing) + utils
+                              image-format (magic-number sniffing) + utils +
+                              features (env-driven feature switches, e.g.
+                              `typst`) + typst-* (the Report tab's own modules,
+                              loaded only by that tab: typst-compiler[.worker/
+                              .driver/-types] is the wasm engine, plus
+                              -language, -search, -pages, -geometry,
+                              -source-map, -placeholders (figure slots),
+                              -template, -default-fonts and -render-cache,
+                              an SVG LRU capped at 4M chars)
   realtime/                   shared-doc.ts (shared Y.Doc + Y.Text registry),
                               yjs-providers.ts (per-page docs), page-snapshots.ts,
                               use-y-text.ts, PresenceAvatars.tsx
@@ -751,6 +828,8 @@ server/
   restore.mjs                 Restore CLI (run with the server stopped)
 cmdlog-agent/                 Standalone Python 3 shell-capture agent (own README + tests)
   btct_agent/                 matcher, redactor, spool, shipper, daemon, installer, hooks/
+scripts/
+  fonts.ts                    Stages the 17 default report fonts into public/fonts (gitignored)
 ```
 
 > Adding a file under `server/` means adding a `COPY server/<file>.mjs` line to
@@ -880,6 +959,30 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
 26. **Closed page contexts are released after offline persistence commits.**
    Keep an operation lease during asynchronous page work. Never delete the IndexedDB
    cache when closing a tab; open page/history tabs retain their documents.
+27. **The Typst tab stays unreachable from the entry bundle.** Every import of
+   `@/components/typst/*` or `@/lib/typst-compiler*` from outside those two
+   folders is a `lazy()` or dynamic import, and every entry point (the
+   workspace overview action, the sidebar row, the command-palette item and
+   `SplitContainer`'s render branch) is gated on `features.typst` from
+   [src/lib/features.ts](src/lib/features.ts). `AssetsPanel` loads
+   `PlaceScreenshotDialog` lazily and only inside its `typst` branch. The trap
+   is transitive: a module the shell already loads (`lib/assets.ts`, the
+   store) must not `await import('./typst-compiler')` either, because Vite
+   emits a dynamic import's chunk *and* its 28 MB wasm asset. That is why the
+   uploaded font's family name is read in `TypstView` rather than in
+   `lib/assets.ts`. Two checks hold the line: at build time
+   `grep -l typst_ts_web_compiler dist/assets/index-*.js` must find nothing,
+   and at run time a flag-off browser session must issue zero requests
+   matching `wasm|/fonts/|[Tt]ypst`.
+28. **A restored Report tab is gated on the render, never pruned on the flag.**
+   `features.typst` reads `false` for a moment on every boot, so pruning
+   `typst` tabs when it is false would delete a flag-on operator's Report tab
+   on every reload. `reconcileTabs` keeps the tab alive as long as its
+   workspace exists; `SplitContainer`'s pure `typstTabState(features,
+   featuresLoaded)` decides what to paint, and renders a "Report tab is turned
+   off" notice instead of `TypstView` on a flag-off server. It reads
+   `featuresLoaded`, not `loaded`: `loaded` also flips from the live
+   `settingsPublic.theme` mirror, which carries no `features` at all.
 
 ### Recipes: how to extend
 
@@ -899,8 +1002,11 @@ cmdlog-agent/                 Standalone Python 3 shell-capture agent (own READM
   `sendJson`.
 - **New tab kind** → add it to `TabKind` in `types/index.ts`, add a `lazy()`
   render branch in `SplitContainer.tsx`, add icons in `TabBar.tsx` and the pane
-  chip, and add it to the `default:` list in `reconcileTabs()` so the tab
-  survives a doc sync.
+  chip, add a label to `KIND_LABEL` in `PresenceAvatars.tsx` (it is an
+  exhaustive `Record<TabKind, string>`, so the build fails without one), and
+  teach `reconcileTabs()` about it: the `default:` list for a singleton tab
+  with a fixed `entityId`, or a `case` that checks the entity's table when the
+  tab points at a record (`typst` does the latter against `workspaces`).
 - **New export format** → add `src/export/<fmt>.ts`, export from `export/index.ts`,
   and include it in the workspace ZIP if appropriate.
 - **Retiring a feature** → delete its UI, repo, store slice, subscription and
@@ -997,12 +1103,14 @@ Other machines on the LAN are unaffected (they use the IPv4 address).
 ```powershell
 bun install
 bun install --cwd server
+bun run fonts          # only if you want the report tab; stages public/fonts/
 
 # Terminal 1: server
 cd server
 $env:AUTH_SECRET = -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
 $env:ALLOWED_ORIGIN = 'http://127.0.0.1:5173'
 $env:YPERSISTENCE = '../data/yjs'   # local dev persistence; safe to delete
+$env:ENABLE_TYPST = '1'             # optional: turns on the Report tab
 bun run start
 
 # Terminal 2: client
@@ -1010,6 +1118,13 @@ bun run dev
 ```
 
 Then open http://127.0.0.1:5173.
+
+**Turning the report on in Docker**: put `ENABLE_TYPST=1` in `.env` next to
+`docker-compose.yml` and `docker compose up -d`. It defaults to `0`. The image
+carries the compiler either way (`bun run fonts` and the wasm are baked in at
+build time); the flag only decides whether any client is allowed to ask for
+them. See [Report (Typst)](#report-typst) and
+[docs/typst-tab-2026-09.md](docs/typst-tab-2026-09.md).
 
 ---
 
@@ -1191,6 +1306,42 @@ transaction. Either way a `restore` version is recorded afterwards. The
 pre-history `pageSnapshots` CRDT rows are imported into `page_versions` as
 `import` versions (full state, restorable, not diffable) the first time a
 page's history is listed, and removed from the shared doc.
+
+---
+
+## Moving an engagement between machines
+
+Use a **server backup and restore**. It is the only path that carries the
+whole engagement.
+
+1. On the source host: **Admin panel → Backups → Back up now**. Wait for the
+   run to appear in the list.
+2. Copy the folder `backups/btct-backup-<stamp>/` to the target host, into
+   whatever folder that host bind-mounts at `/backups` (`./backups` next to
+   its `docker-compose.yml`, unless you changed it).
+3. On the target host, with the container stopped:
+
+```powershell
+docker compose stop btct
+docker compose run --rm btct bun server/restore.mjs /backups/btct-backup-<stamp> --yes
+docker compose start btct
+```
+
+**A restore replaces the target's data.** Accounts, settings, every
+workspace, every page body, the page history twins and every uploaded
+screenshot are overwritten by what is in the backup. The previous contents are
+moved aside into `/data/pre-restore-<stamp>/` rather than deleted, so a
+mistake is recoverable, but nothing is merged: the target comes up as a copy
+of the source. Restore onto a fresh host, or onto one whose data you are
+deliberately discarding.
+
+**The workspace ZIP is not a substitute.** It carries pages, their CRDT
+state, nmap scans, the change log and the report source, and nothing else: no
+screenshot bytes and no asset records, no command log, no page version
+history, and no accounts. Exporting a ZIP and importing it on the other
+machine gives you notes with broken images. Use it for moving one workspace
+into an existing install that already has its own users, not for moving an
+engagement.
 
 ---
 
