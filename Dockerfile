@@ -22,6 +22,7 @@ COPY scripts ./scripts
 # so the .d.mts files must exist here even though the server itself is
 # built in a later stage.
 COPY server/*.d.mts ./server/
+COPY server/typst/*.d.mts ./server/typst/
 RUN bun scripts/fonts.ts && bun run build
 
 # Precompress the compressible static files so the server can hand a
