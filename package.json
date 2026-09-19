@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed": "vite-node src/db/seed.ts"
+    "seed": "vite-node src/db/seed.ts",
+    "fonts": "bun scripts/fonts.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -27,9 +28,13 @@
     "@milkdown/plugin-collab": "^7.20.0",
     "@milkdown/plugin-listener": "^7.20.0",
     "@milkdown/preset-commonmark": "^7.20.0",
+    "@milkdown/preset-gfm": "^7.20.0",
     "@milkdown/prose": "^7.20.0",
     "@milkdown/react": "^7.20.0",
     "@milkdown/utils": "^7.20.0",
+    "@myriaddreamin/typst-ts-renderer": "0.7.0",
+    "@myriaddreamin/typst-ts-web-compiler": "0.7.0",
+    "@myriaddreamin/typst.ts": "0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "jszip": "^3.10.1",
@@ -44,8 +49,7 @@
     "y-protocols": "^1.0.7",
     "y-websocket": "^2.1.0",
     "yjs": "^13.6.30",
-    "zustand": "^5.0.12",
-    "@milkdown/preset-gfm": "^7.20.0"
+    "zustand": "^5.0.12"
   },
   "overrides": {
     "@codemirror/state": "^6.7.0",

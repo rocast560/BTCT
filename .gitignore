@@ -10,3 +10,6 @@ server/backups/
 
 # Local (non-Docker) run: sqlite, yjs leveldb, history twins, backups.
 .localrun/
+
+# Fonts staged at build time by `bun run fonts` (scripts/fonts.ts).
+public/fonts/

@@ -16,18 +16,19 @@ RUN bun install --frozen-lockfile
 COPY tsconfig.json vite.config.ts vite-env.d.ts index.html ./
 COPY public ./public
 COPY src ./src
+COPY scripts ./scripts
 # Type declarations for the pure server modules that src/test imports
 # (scheduler, backup-format). `bun run build` runs tsc over the tests too,
 # so the .d.mts files must exist here even though the server itself is
 # built in a later stage.
 COPY server/*.d.mts ./server/
-RUN bun run build
+RUN bun scripts/fonts.ts && bun run build
 
 # Precompress the compressible static files so the server can hand a
 # `file.gz` sibling to any client that accepts gzip (see tryServeStatic).
 # Compress both the small startup bundles and the optional report compiler,
 # with zero per-request CPU spent compressing.
-RUN cd dist && find . -type f \( -name '*.js' -o -name '*.css' -o -name '*.html' -o -name '*.svg' -o -name '*.wasm' -o -name '*.json' \) -size +1k -exec gzip -k -9 {} \;
+RUN cd dist && find . -type f \( -name '*.js' -o -name '*.css' -o -name '*.html' -o -name '*.svg' -o -name '*.wasm' -o -name '*.json' -o -name '*.otf' -o -name '*.ttf' \) -size +1k -exec gzip -k -9 {} \;
 
 # ─────────────────────────────────────────────────────────────────────────
 # Stage 2: install the server's runtime deps in isolation.

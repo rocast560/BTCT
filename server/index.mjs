@@ -801,6 +801,7 @@ const MIME = {
   '.woff': 'font/woff',
   '.woff2':'font/woff2',
   '.ttf':  'font/ttf',
+  '.otf':  'font/otf',
   '.map':  'application/json; charset=utf-8',
   '.txt':  'text/plain; charset=utf-8',
 };

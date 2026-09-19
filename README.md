@@ -1279,6 +1279,9 @@ bun run test       # vitest run
 Unit suites live in [src/test/](src/test/) (pure logic: pane layout, nmap
 parser, markdown export, the retired-feature archive, editor-prefs shortcut
 parsing, crop/blur geometry, backup format, page history, etc.). The full build is `bun run build` (`tsc -b && vite build`).
+`bun run fonts` (`scripts/fonts.ts`) stages the 17 default Typst report fonts into
+`public/fonts/`, which is gitignored; the Dockerfile runs it before the client
+build so a fresh image always has them.
 
 ---
 
