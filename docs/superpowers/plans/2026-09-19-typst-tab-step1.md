@@ -14,7 +14,7 @@
 
 - `TS` below means `C:/Users/rober/Desktop/university-tools/advanced-typst-editor` (Git Bash: `/c/Users/rober/Desktop/university-tools/advanced-typst-editor`). `OLD` means git revision `8a549fb^` in this repo.
 - Never add Claude as author or co-author to any commit. No `Co-Authored-By` trailer, no "Generated with" line.
-- No em dashes anywhere you write (docs, comments, commit messages). Check with `grep -c $'2014' <file>`; the only allowed hit in the repo is the style table in `CLAUDE.md`.
+- No em dashes anywhere you write (docs, comments, commit messages). Check with `grep -c $'—' <file>`; the only allowed hit in the repo is the style table in `CLAUDE.md`.
 - The compile gate is `bun run build` (`tsc -b && vite build`). It typechecks tests too. Two test failures are baseline on this branch; record them in Task 1 and do not count them against later tasks.
 - Files are CRLF on this checkout. A Git Bash heredoc eats backslashes; write files with an editor tool, not `cat <<EOF`.
 - Report source key is exactly `textKey('typst', workspaceId, 'source')`. One report per workspace.
@@ -635,7 +635,7 @@ CLAUDE.md:
 - Tabs/panes bullet: the `typst` TabKind, and that its `entityId` is a workspace id pruned by `reconcileTabs`.
 - A new invariant: **the Typst tab stays unreachable from the entry bundle.** Every import of `@/components/typst/*` or `@/lib/typst-compiler*` from outside those folders is a `lazy()` or dynamic import, and every entry point is wrapped in `features.typst`. `AssetsPanel` loads `PlaceScreenshotDialog` lazily and only when given its `typst` prop.
 
-Run `grep -c $'2014' README.md CLAUDE.md docs/typst-tab-2026-09.md`. Expect `0`, `1` (the style table), `0`.
+Run `grep -c $'—' README.md CLAUDE.md docs/typst-tab-2026-09.md`. Expect `0`, `1` (the style table), `0`.
 
 - [ ] **Step 6: Final gate and commit**
 
