@@ -78,6 +78,35 @@ describe('filterDocxImages', () => {
     expect(out.warnings).toHaveLength(3);
   });
 
+  it('drops raw blocks and raw inlines', () => {
+    // Pandoc's Typst reader does not produce these today, checked against
+    // `#raw(..., lang: "openxml")`, fences and `#html.elem`. If one ever
+    // arrived with format openxml, the docx writer would paste it into
+    // document.xml verbatim, and a field code there can make Word fetch a
+    // URL when the person who was sent the report opens it.
+    const ast = doc([
+      { t: 'RawBlock', c: ['openxml', '<w:fldSimple w:instr="INCLUDEPICTURE \\"http://evil/x.png\\""/>'] },
+      { t: 'Para', c: [{ t: 'Str', c: 'before' }, { t: 'RawInline', c: ['openxml', '<w:t>x</w:t>'] }, { t: 'Str', c: 'after' }] },
+    ]);
+    const out = filterDocxImages(ast, always);
+    const json = JSON.stringify(out.ast);
+    expect(json).not.toContain('RawBlock');
+    expect(json).not.toContain('RawInline');
+    expect(json).not.toContain('fldSimple');
+    expect(json).toContain('before');
+    expect(json).toContain('after');
+  });
+
+  it('drops a raw node wherever it is nested', () => {
+    const ast = doc([
+      { t: 'BlockQuote', c: [{ t: 'RawBlock', c: ['openxml', '<w:p/>'] }] },
+      { t: 'Para', c: [{ t: 'Link', c: [['', [], []], [{ t: 'RawInline', c: ['html', '<img src="http://evil/x">'] }], ['http://x', '']] }] },
+    ]);
+    const json = JSON.stringify(filterDocxImages(ast, always).ast);
+    expect(json).not.toContain('Raw');
+    expect(json).not.toContain('evil');
+  });
+
   it('leaves a node alone that merely contains the word Image', () => {
     const ast = doc([{ t: 'Para', c: [{ t: 'Str', c: 'Image' }, { t: 'Code', c: [['', [], []], 'Image'] }] }]);
     expect(filterDocxImages(ast, always)).toEqual({ ast, warnings: [] });

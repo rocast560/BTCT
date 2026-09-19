@@ -30,6 +30,10 @@ const placeholder = () => ({
 
 const shorten = (target) => (target.length > MAX_TARGET_CHARS ? `${target.slice(0, MAX_TARGET_CHARS)}...` : target);
 
+// Returned in place of a block that should disappear entirely. A block list
+// is an array, so the parent drops it; nothing else can produce this value.
+const DROP = Symbol('drop');
+
 /**
  * @param ast the parsed pandoc JSON document
  * @param isStaged called with a target that already matched STAGED_IMAGE; true when that file is really in the staged directory
@@ -38,8 +42,18 @@ const shorten = (target) => (target.length > MAX_TARGET_CHARS ? `${target.slice(
 export function filterDocxImages(ast, isStaged) {
   const warnings = [];
   const walk = (node) => {
-    if (Array.isArray(node)) return node.map(walk);
+    if (Array.isArray(node)) return node.flatMap((item) => {
+      const kept = walk(item);
+      return kept === DROP ? [] : [kept];
+    });
     if (!node || typeof node !== 'object') return node;
+    // Raw passthrough goes in the bin. Pandoc's Typst reader produces none
+    // today, but raw OpenXML reaching the writer is pasted into
+    // document.xml as it stands, and a field code there can make Word fetch
+    // a URL when the person the report was sent to opens it. That guarantee
+    // should not rest on a detail of someone else's reader.
+    if (node.t === 'RawBlock') return DROP;
+    if (node.t === 'RawInline') return { t: 'Str', c: '' };
     if (node.t === 'Image') {
       // Fail closed: an image node this does not understand is not one to
       // hand to an unsandboxed writer.
@@ -50,8 +64,15 @@ export function filterDocxImages(ast, isStaged) {
       }
     }
     const out = {};
-    for (const [key, value] of Object.entries(node)) out[key] = walk(value);
+    for (const [key, value] of Object.entries(node)) {
+      const kept = walk(value);
+      // A block only ever sits in a list, so DROP should never surface here.
+      // If a future pandoc shape puts one elsewhere, null is at least valid
+      // JSON rather than a symbol that stringify would quietly swallow.
+      out[key] = kept === DROP ? null : kept;
+    }
     return out;
   };
-  return { ast: walk(ast), warnings };
+  const filtered = walk(ast);
+  return { ast: filtered === DROP ? null : filtered, warnings };
 }

@@ -9,6 +9,7 @@ import { createSerial } from './serial.mjs';
 import { createAdmission } from './admission.mjs';
 import { toPandocSource, pandocSourceWarnings } from './docx-source.mjs';
 import { filterDocxImages } from './docx-ast.mjs';
+import { findPackageSpec } from './package-spec.mjs';
 import { stageReport, unstage, ExportError } from './stage.mjs';
 
 export { ExportError };
@@ -129,14 +130,10 @@ function readOutput(file, label) {
 // The 17 default faces the browser compiler uses, staged by scripts/fonts.ts.
 const defaultFontDir = () => path.join(process.env.STATIC_DIR || path.resolve('..', 'dist'), 'fonts');
 
-// `#import "@preview/cetz:0.2.2"` or `#include "@local/x:1.0"`: a spec, not a
-// path. Typst downloads those from packages.typst.org at compile time.
-const PACKAGE_IMPORT = /#(?:import|include)\s+"(@[^"\\\n]{1,120})"/;
-
 function assertNoPackages(source) {
-  const m = PACKAGE_IMPORT.exec(source);
-  if (m) {
-    throw new ExportError(422, `This report imports a Typst package (${m[1]}). Packages are not available in server export; use the browser PDF export.`);
+  const spec = findPackageSpec(source);
+  if (spec) {
+    throw new ExportError(422, `This report imports or mentions a Typst package spec (${spec}). Packages are not available in server export; use the browser PDF export.`);
   }
 }
 
@@ -232,7 +229,10 @@ async function toDocx(root, source) {
   const read = await run(cli, ['docx.typ', '-f', 'typst', '-t', 'json', '--sandbox', '-o', 'ast.json'], root);
   const astFile = path.join(root, 'ast.json');
   if (read.code !== 0 || !fs.existsSync(astFile)) {
-    throw failed(read, cli, scrubPaths(read.stderr, root).trim() || 'pandoc could not read the report');
+    // `failed` returns null for a clean exit, which happens here only when
+    // pandoc reported success and wrote nothing.
+    throw failed(read, cli, scrubPaths(read.stderr, root).trim() || 'pandoc could not read the report')
+      ?? new ExportError(422, 'pandoc finished without producing a file.');
   }
   let ast;
   try { ast = JSON.parse(fs.readFileSync(astFile, 'utf8')); }
@@ -244,7 +244,8 @@ async function toDocx(root, source) {
   const write = await run(cli, ['ast.json', '-f', 'json', '-t', 'docx', '--resource-path', '.', '-o', 'out.docx'], root);
   const out = path.join(root, 'out.docx');
   if (write.code !== 0 || !fs.existsSync(out)) {
-    throw failed(write, cli, scrubPaths(write.stderr, root).trim() || 'pandoc could not convert the report');
+    throw failed(write, cli, scrubPaths(write.stderr, root).trim() || 'pandoc could not convert the report')
+      ?? new ExportError(422, 'pandoc finished without producing a file.');
   }
   return {
     bytes: readOutput(out, 'Word file'),

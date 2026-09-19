@@ -24,8 +24,16 @@ export function scrubPaths(text, root) {
     if (body) forms.push(`\\\\?\\${body}`, body); // the prefixed form first, or it would leave the prefix behind
   }
   const flags = process.platform === 'win32' ? 'gi' : 'g';
-  return forms.reduce((acc, form) => acc.replace(new RegExp(form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags), '.'), out);
+  const replaced = forms.reduce((acc, form) => acc.replace(new RegExp(form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags), '.'), out);
+  // Last pass: anything still carrying the staging marker goes, whatever the
+  // spelling. Windows quotes 8.3 short paths in some messages
+  // (C:\Users\ROBER~1\...), where no form above matches character for
+  // character, and mkdtemp's six characters are the one part that survives.
+  // Brackets and quotes end the token so a message keeps its punctuation.
+  return replaced.replace(STAGING_TOKEN, '.');
 }
+
+const STAGING_TOKEN = /[^\s"'()[\]]*btct-typst-[A-Za-z0-9]{6,}[^\s"'()[\]]*/gi;
 
 /**
  * What to tell the operator when a child process died rather than failed.

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { parseDiagnostics, scrubPaths, childFailureMessage } from '../../server/typst/diagnostics.mjs';
 import { createSerial } from '../../server/typst/serial.mjs';
+import { findPackageSpec } from '../../server/typst/package-spec.mjs';
 
 describe('parseDiagnostics', () => {
   it('reads file:line:col lines relative to the root', () => {
@@ -76,6 +77,17 @@ describe('scrubPaths', () => {
     const forward = root.split(path.sep).join('/');
     expect(scrubPaths(`${forward}/a and ${forward}/b`, root)).toBe('./a and ./b');
   });
+
+  it('removes any path carrying the staging marker, whatever the spelling', () => {
+    // Windows quotes 8.3 short paths in some messages, and then no part of
+    // the directory we were given matches character for character. The
+    // marker and the six characters mkdtemp appends are still there.
+    expect(scrubPaths('file not found (searched at C:\\Users\\ROBER~1\\AppData\\Local\\Temp\\btct-typst-Qr8I8L\\assets\\x.png)', root))
+      .toBe('file not found (searched at .)');
+    expect(scrubPaths('could not read "/var/tmp/btct-typst-VmfxLw/main.typ"', root))
+      .toBe('could not read "."');
+    expect(scrubPaths('nothing to see here', root)).toBe('nothing to see here');
+  });
 });
 
 describe('childFailureMessage', () => {
@@ -115,5 +127,39 @@ describe('childFailureMessage', () => {
   it('survives a result with missing fields', () => {
     expect(childFailureMessage({}, 'typst')).toBeNull();
     expect(childFailureMessage(null, 'typst')).toBeNull();
+  });
+});
+
+describe('findPackageSpec', () => {
+  // A package import makes the typst CLI fetch from packages.typst.org, from
+  // the host the relay runs on. The match is on the quoted spec anywhere in
+  // the source, not on an #import statement, because there are several ways
+  // to hand the same string to the same loader.
+  it('finds the plain import', () => {
+    expect(findPackageSpec('#import "@preview/cetz:0.2.2": canvas\n= Report\n')).toBe('@preview/cetz:0.2.2');
+    expect(findPackageSpec('#include "@local/house-style:1.0"')).toBe('@local/house-style:1.0');
+  });
+
+  it('finds the forms that route around an #import check', () => {
+    expect(findPackageSpec('#let p = "@preview/cetz:0.2.2"\n#import p: canvas')).toBe('@preview/cetz:0.2.2');
+    expect(findPackageSpec('#{ import "@preview/cetz:0.2.2": canvas }')).toBe('@preview/cetz:0.2.2');
+    expect(findPackageSpec('#import("@preview/cetz:0.2.2")')).toBe('@preview/cetz:0.2.2');
+    expect(findPackageSpec('#let specs = ("@preview/tablex:0.0.8",)\n#import specs.at(0)')).toBe('@preview/tablex:0.0.8');
+  });
+
+  it('leaves an ordinary report alone', () => {
+    expect(findPackageSpec('= Findings\n#image("/assets/shot.png")\n#link("https://example.com")[x]\n')).toBeNull();
+    expect(findPackageSpec('An email address like me@preview.example is not a package.')).toBeNull();
+    expect(findPackageSpec('#import "helpers.typ": thing')).toBeNull();
+    expect(findPackageSpec('')).toBeNull();
+  });
+
+  it('also catches a spec that is only quoted in prose, which is the accepted cost', () => {
+    expect(findPackageSpec('We could not use "@preview/cetz:0.2.2" for this engagement.')).toBe('@preview/cetz:0.2.2');
+  });
+
+  it('will not run away on a long or multiline string', () => {
+    expect(findPackageSpec(`#let x = "@preview/${'a'.repeat(200)}"`)).toBeNull();
+    expect(findPackageSpec('#let x = "@preview/broken\nstill open"')).toBeNull();
   });
 });
