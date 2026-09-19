@@ -11,12 +11,11 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import * as Y from 'yjs';
 import { PanelLeftClose, PanelLeftOpen, FileDown, Image, FileText, Images, Search } from 'lucide-react';
 import { useAppStore } from '@/stores';
 import type { BlurRegion, CropRect, ID, TypstAsset } from '@/types';
-import { getSharedDoc, getOrInitYText, textKey } from '@/realtime/shared-doc';
 import { replaceYTextContent } from '@/realtime/use-y-text';
+import { useTypstSource } from './use-typst-source';
 import {
   TypstEditor,
   revealTypstRange,
@@ -37,7 +36,6 @@ import {
 } from '@/lib/typst-compiler';
 import { ASSET_DIR, assetPath, fetchAssetBytes, resolveAssetBytes } from '@/lib/assets';
 import { matchAssetByHref } from '@/lib/asset-folders';
-import { DEFAULT_TYPST_TEMPLATE } from '@/lib/typst-template';
 import {
   ensureHelper,
   findScreenshotSlots,
@@ -57,36 +55,6 @@ import {
   type PaneKind,
   type TypstLayout,
 } from '@/lib/pane-resize';
-
-/** Bind to the per-workspace Typst source Y.Text, seeding it on first open. */
-function useTypstSource(workspaceId: string): Y.Text | null {
-  const [ytext, setYtext] = useState<Y.Text | null>(null);
-
-  useEffect(() => {
-    const key = textKey('typst', workspaceId, 'source');
-    const texts = getSharedDoc().texts;
-    // Get-or-create the slot, seeding the template only when it has never
-    // existed (an intentionally-cleared doc keeps an empty Y.Text, so it is
-    // not re-seeded).
-    let current = getOrInitYText(key, DEFAULT_TYPST_TEMPLATE);
-    setYtext(current);
-
-    // Rebind if the canonical Y.Text in the slot is replaced via sync (the
-    // rare two-clients-seed-at-once case) so we never edit an orphan.
-    const onMapChange = (ev: Y.YMapEvent<Y.Text>) => {
-      if (!ev.changes.keys.has(key)) return;
-      const next = texts.get(key);
-      if (next && next !== current) {
-        current = next;
-        setYtext(next);
-      }
-    };
-    texts.observe(onMapChange);
-    return () => texts.unobserve(onMapChange);
-  }, [workspaceId]);
-
-  return ytext;
-}
 
 /** How long the source must be idle before the figure slots are re-scanned. */
 const SLOT_SCAN_DEBOUNCE_MS = 300;

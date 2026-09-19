@@ -576,8 +576,11 @@ lives inside the CRDT documents the clients share.
 - **The Typst report source** is a `Y.Text` in the same map, keyed
   `typst:<workspaceId>:source`, one per workspace. It is the one text with no
   JSON record behind it, so it is not in `TEXT_FIELDS_BY_ENTITY` and the mirror
-  never touches it. `TypstView` seeds it with `getOrInitYText` (the starter
-  template) and CodeMirror edits it through `yCollab`, remote carets included;
+  never touches it. `useTypstSource` seeds it with `getOrInitYText` (the starter
+  template), and only once `getSharedDoc().whenReady` has resolved: no repo
+  `create()` stands behind this text, so a seed on a cold client would race the
+  real one arriving over the websocket and Yjs would pick a winner by client id.
+  CodeMirror edits it through `yCollab`, remote carets included;
   code that rewrites it, such as the ZIP import, goes through
   `replaceYTextContent` like every other programmatic text write.
 - **Page bodies** never go in the shared doc. They live in the per-page doc and
