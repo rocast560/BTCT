@@ -14,19 +14,28 @@ import { DEFAULT_TYPST_TEMPLATE } from '@/lib/typst-template';
 /**
  * Bind to the per-workspace Typst source Y.Text, seeding it on first open.
  *
- * The seed waits for the shared doc's `whenReady` (IndexedDB replay plus the
- * websocket's first sync, hard-capped at 4 s) because the report is the one
- * Y.Text with no repo `create()` behind it: the tab that opens it is what
- * seeds it. Seeding on mount instead writes a SECOND Y.Text into the slot
- * whenever the local doc is still cold, and Yjs resolves two concurrent map
- * writes by client id, so half the time the starter template wins and the
- * real report (which has no version history) is gone. `realtime/use-y-text.ts`
- * documents the same footgun for input fields.
+ * The report is the one Y.Text with no repo `create()` behind it: the tab
+ * that opens it is what seeds it. Seeding on mount writes a SECOND Y.Text
+ * into the slot whenever the local doc is still cold, and Yjs resolves two
+ * concurrent map writes by client id, so half the time the starter template
+ * wins and the real report (which has no version history) is gone.
+ * `realtime/use-y-text.ts` documents the same footgun for input fields.
  *
- * Until that resolves the hook returns null and the tab shows its loading
- * state. A text that syncs in during the wait is adopted by the map
- * observer, and the seed that runs afterwards finds the key populated, so
- * `getOrInitYText` hands back that same Y.Text instead of seeding over it.
+ * So a seed needs proof that nothing is coming, and there are exactly two
+ * things that count as proof:
+ *
+ *  - the key is already in the local doc (IndexedDB replay or a live sync),
+ *    in which case it is adopted rather than seeded, offline or not; or
+ *  - the websocket provider reports synced, so the server has told us what
+ *    it has for this room and the absence of the key is an answer.
+ *
+ * `whenReady` is the gate for the first of those, but it cannot authorize a
+ * seed by itself: it also resolves on its own 4 s cap, so a client on a
+ * congested link or against a server still booting would seed on a timeout
+ * and race the real text. Until one of the two conditions holds the hook
+ * returns null and the tab sits in its loading state. That is the intended
+ * trade for an operator with no connection and no cached report: waiting
+ * beats a template that could later overwrite the real one.
  */
 export function useTypstSource(workspaceId: string): Y.Text | null {
   const [ytext, setYtext] = useState<Y.Text | null>(null);
@@ -54,18 +63,43 @@ export function useTypstSource(workspaceId: string): Y.Text | null {
     };
     texts.observe(onMapChange);
 
-    void shared.whenReady.then(() => {
+    // Adopts whatever is in the slot and seeds the template only if it is
+    // genuinely empty. An intentionally-cleared report keeps an empty Y.Text,
+    // so it is not re-seeded either.
+    const bind = () => {
       if (cancelled) return;
-      // Seeds the starter template only when sync brought nothing. An
-      // intentionally-cleared report keeps an empty Y.Text, so it is not
-      // re-seeded either.
       current = getOrInitYText(key, DEFAULT_TYPST_TEMPLATE);
       setYtext(current);
+    };
+
+    let onSync: ((synced: boolean) => void) | null = null;
+    const stopWaiting = () => {
+      if (!onSync) return;
+      shared.provider.off('sync', onSync);
+      onSync = null;
+    };
+
+    void shared.whenReady.then(() => {
+      if (cancelled) return;
+      if (texts.has(key) || shared.provider.synced) {
+        bind();
+        return;
+      }
+      // Nothing local and nothing from the server yet: wait for the sync
+      // instead of seeding on a timeout. If the text arrives first,
+      // `onMapChange` adopts it and this seed then finds the slot populated.
+      onSync = (synced: boolean) => {
+        if (!synced || cancelled) return;
+        stopWaiting();
+        bind();
+      };
+      shared.provider.on('sync', onSync);
     });
 
     return () => {
       cancelled = true;
       texts.unobserve(onMapChange);
+      stopWaiting();
     };
   }, [workspaceId]);
 

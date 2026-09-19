@@ -236,6 +236,17 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
     return () => scheduleTypstRelease();
   }, []);
 
+  // `useTypstSource` refuses to seed a report until the websocket has synced
+  // (see its header), so an offline client with no cached report sits on the
+  // loading state indefinitely. After a few seconds say which of the two it
+  // is, rather than leaving "Loading…" to imply something is still arriving.
+  const [slowSync, setSlowSync] = useState(false);
+  useEffect(() => {
+    if (ytext) { setSlowSync(false); return; }
+    const timer = window.setTimeout(() => setSlowSync(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [ytext]);
+
   // Programmatic source rewrites (assigning a screenshot to a figure slot,
   // adding a slot, search replace-all, rename retargeting) go through a
   // minimal CRDT delta rather than replacing the whole text, so a
@@ -734,7 +745,9 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
               {ytext ? (
                 <TypstEditor ytext={ytext} />
               ) : (
-                <div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">Loading…</div>
+                <div className="flex h-full items-center justify-center px-6 text-center text-xs text-[hsl(var(--muted-foreground))]">
+                  {slowSync ? 'Waiting for the workspace to sync…' : 'Loading…'}
+                </div>
               )}
             </div>
             <PaneDivider onPointerDown={startResize('editor')} onDoubleClick={resetPane('editor')} />

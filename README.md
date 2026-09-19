@@ -583,9 +583,12 @@ lives inside the CRDT documents the clients share.
   `typst:<workspaceId>:source`, one per workspace. It is the one text with no
   JSON record behind it, so it is not in `TEXT_FIELDS_BY_ENTITY` and the mirror
   never touches it. `useTypstSource` seeds it with `getOrInitYText` (the starter
-  template), and only once `getSharedDoc().whenReady` has resolved: no repo
-  `create()` stands behind this text, so a seed on a cold client would race the
-  real one arriving over the websocket and Yjs would pick a winner by client id.
+  template), and only once the local doc already holds the key (adopt, never
+  seed) or the websocket provider reports `synced`: no repo `create()` stands
+  behind this text, so a seed on a cold client would race the real one arriving
+  over the websocket and Yjs would pick a winner by client id. `whenReady` is
+  not enough on its own, because it also resolves on a 4 s cap; an offline
+  client with no cached report waits instead of seeding.
   CodeMirror edits it through `yCollab`, remote carets included;
   code that rewrites it goes through `replaceYTextContent` like every other
   programmatic text write. Those rewrites are the ZIP import and the report tab
