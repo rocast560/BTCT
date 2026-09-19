@@ -215,6 +215,43 @@ describe('svgRefusal', () => {
     expect(svgRefusal(utf8('<svg><text>an image of a server</text></svg>'), 'logo.svg')).toBeNull();
   });
 
+  it('refuses feImage, the other element that loads a raster', () => {
+    // A filter primitive rather than a drawing element, and the worse of the
+    // two: the same 144 MP PNG behind an feImage took the typst child to
+    // 994 MB, against 431 MB for an ordinary image tag.
+    for (const body of [
+      '<svg><filter id="f"><feImage xlink:href="data:image/png;base64,AAAA"/></filter></svg>',
+      '<svg><filter id="f"><feImage href="data:image/png;base64,AAAA"/></filter></svg>',
+      '<svg xmlns:svg="http://www.w3.org/2000/svg"><filter id="f"><svg:feImage href="x.png"/></filter></svg>',
+    ]) {
+      expect(svgRefusal(utf8(body), 'shot.svg'), body.slice(0, 50))
+        .toBe('shot.svg: this SVG embeds a bitmap, which the server cannot size. Export the PDF from the browser instead.');
+    }
+  });
+
+  it('refuses a data URI anywhere else, since typst blocks every other href', () => {
+    const message = 'shot.svg: this SVG embeds data (a data: URI), which the server cannot check. Export the PDF from the browser instead.';
+    expect(svgRefusal(utf8('<svg><pattern id="p"><rect fill="url(data:image/png;base64,AAAA)"/></pattern></svg>'), 'shot.svg')).toBe(message);
+    expect(svgRefusal(utf8('<svg><style>@import url("data:text/css,%2a%7b%7d");</style></svg>'), 'shot.svg')).toBe(message);
+  });
+
+  it('passes the filters and gradients a real drawing uses', () => {
+    const body = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+      + '<defs><linearGradient id="g"><stop offset="0" stop-color="#036"/><stop offset="1" stop-color="#69c"/></linearGradient>'
+      + '<filter id="f"><feGaussianBlur stdDeviation="2"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>'
+      + '<rect width="24" height="24" fill="url(#g)" filter="url(#f)"/></svg>';
+    expect(svgRefusal(utf8(body), 'logo.svg')).toBeNull();
+  });
+
+  it('does not read metadata: or an xmlns:data declaration as a data URI', () => {
+    // No word boundary inside "metadata", and the namespace declaration
+    // itself is followed by an equals sign rather than a colon. Using that
+    // prefix on an attribute (`data:role="x"`) would be refused, which is
+    // the same accepted cost as a stray `inkscape:export-data:` string.
+    expect(svgRefusal(utf8('<svg><metadata:rdf/><text>metadata: none</text></svg>'), 'logo.svg')).toBeNull();
+    expect(svgRefusal(utf8('<svg xmlns:data="http://example.com/ns"><rect width="1" height="1"/></svg>'), 'logo.svg')).toBeNull();
+  });
+
   it('refuses a UTF-16 file, which the check cannot read', () => {
     const message = 'wide.svg: this SVG is not UTF-8, so the server cannot check it.';
     expect(svgRefusal(utf8('<svg/>', [0xff, 0xfe]), 'wide.svg')).toBe(message);

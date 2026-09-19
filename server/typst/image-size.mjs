@@ -103,9 +103,20 @@ function webpSize(bytes) {
 // often as it likes.
 const MAX_SVG_MB = 2;
 const MAX_SVG_BYTES = MAX_SVG_MB * 1024 * 1024;
-// Also catches a namespace prefix, as in `<svg:image>`. `\b` is what keeps
+// The two elements usvg resolves an href for: `<image>` and the `<feImage>`
+// filter primitive, which is the worse of the pair (the same 144 MP PNG
+// behind an feImage took the typst child to 994 MB, against 431 MB for an
+// image tag). A namespace prefix is allowed for, and `\b` is what keeps
 // `<imageinary>` out of it.
-const SVG_IMAGE_TAG = /<(?:[A-Za-z0-9_.-]+:)?image\b/i;
+const SVG_IMAGE_TAG = /<(?:[A-Za-z0-9_.-]+:)?(?:fe)?image\b/i;
+
+// Belt to that brace. Typst refuses http, file and out-of-root hrefs inside
+// an SVG, so a data URI is the only way left to carry a payload into one,
+// wherever it is written: a `url(data:...)` fill, an `@import` in a style
+// block, or an element nobody has thought of yet. Measured against five
+// ordinary drawings (paths, a style block, a doctype, a gradient, a gaussian
+// blur) with no false positive. `\b` means `metadata:` does not count.
+const SVG_DATA_URI = /\bdata:/i;
 
 /**
  * Why this SVG cannot be staged, or null when it can.
@@ -136,6 +147,9 @@ export function svgRefusal(bytes, name) {
   }
   if (SVG_IMAGE_TAG.test(text)) {
     return `${name}: this SVG embeds a bitmap, which the server cannot size. Export the PDF from the browser instead.`;
+  }
+  if (SVG_DATA_URI.test(text)) {
+    return `${name}: this SVG embeds data (a data: URI), which the server cannot check. Export the PDF from the browser instead.`;
   }
   return null;
 }
