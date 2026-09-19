@@ -176,8 +176,10 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
   const [exporting, setExporting] = useState(false);
   // One dismissible banner for anything the tab needs to say: a failed
   // export, or a snippet that went to the clipboard because the code pane
-  // was closed.
-  const [notice, setNotice] = useState<string | null>(null);
+  // was closed. `kind` decides whether it reads as a failure or as a note;
+  // an info banner is selectable, because some of them carry a snippet the
+  // operator has to copy by hand.
+  const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const editorPaneRef = useRef<HTMLDivElement>(null);
   const assetsPaneRef = useRef<HTMLDivElement>(null);
@@ -310,14 +312,28 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
    * for one that belongs inline; a font has no other route at all. With the
    * code pane closed there is no caret to insert at, so the snippet goes to
    * the clipboard rather than nowhere.
+   *
+   * `navigator.clipboard` only exists in a secure context, and the usual
+   * deployment of this app is plain HTTP on a LAN, where it is undefined.
+   * Claiming a copy that never happened is worse than not copying, so when
+   * there is no clipboard (or it refuses) the snippet goes into the banner
+   * itself, where it can be selected by hand.
    */
   const insertAsset = useCallback((asset: TypstAsset) => {
     const snippet = asset.kind === 'font'
       ? `#set text(font: "${asset.fontFamily}")\n`
       : `#image("${assetPath(asset)}")\n`;
     if (insertAtTypstCursor(snippet)) return;
-    void navigator.clipboard?.writeText(snippet);
-    setNotice('Code editor is hidden: snippet copied to the clipboard instead.');
+    const byHand = () => setNotice({
+      kind: 'info',
+      text: `Code editor is hidden and the clipboard is unavailable here. Copy this: ${snippet.trim()}`,
+    });
+    const clipboard = navigator.clipboard;
+    if (!clipboard) { byHand(); return; }
+    void clipboard.writeText(snippet).then(
+      () => setNotice({ kind: 'info', text: 'Code editor is hidden: snippet copied to the clipboard instead.' }),
+      byHand,
+    );
   }, []);
 
   /**
@@ -415,7 +431,7 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
           if (newPath === oldPath) return;
           applySource((current) => retargetAssetPath(current, oldPath, newPath));
         })
-        .catch((e) => setNotice(e instanceof Error ? e.message : String(e)));
+        .catch((e) => setNotice({ kind: 'error', text: e instanceof Error ? e.message : String(e) }));
     },
     [renameTypstAsset, applySource],
   );
@@ -569,7 +585,7 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
       const bytes = await compileTypstPdf(source);
       triggerDownload('document.pdf', bytes as BlobPart, 'application/pdf');
     } catch (err) {
-      setNotice(`PDF export failed: ${typstErrorMessage(err)}`);
+      setNotice({ kind: 'error', text: `PDF export failed: ${typstErrorMessage(err)}` });
     } finally {
       setExporting(false);
     }
@@ -582,16 +598,36 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
       const res = await compileTypstSvg(source);
       if (!res.svg) {
         const msg = res.diagnostics.find((d) => d.severity === 'error')?.message ?? 'document has errors';
-        setNotice(`SVG export failed: ${msg}`);
+        setNotice({ kind: 'error', text: `SVG export failed: ${msg}` });
         return;
       }
       triggerDownload('document.svg', res.svg, 'image/svg+xml');
     } catch (err) {
-      setNotice(`SVG export failed: ${typstErrorMessage(err)}`);
+      setNotice({ kind: 'error', text: `SVG export failed: ${typstErrorMessage(err)}` });
     } finally {
       setExporting(false);
     }
   }, [source]);
+
+  /**
+   * The assets rail's props, as one stable object.
+   *
+   * `AssetsPanel` is memoized, and this view re-renders every 120 ms while
+   * anyone is typing, so an object literal in the JSX would re-render the
+   * whole rail (thumbnails included) on each of those. The source it carries
+   * is the settled one the slot scan already uses: only the placement dialog
+   * reads it, and 300 ms old is fresh enough to list the current slots.
+   */
+  const panelMode = useMemo(() => ({
+    source: settledSource,
+    placements,
+    onInsert: insertAsset,
+    onAddFont: addFont,
+    onPlace: placeAsset,
+    onAddSlot: addSlot,
+    onRename: renameAsset,
+    reveal: assetReveal,
+  }), [settledSource, placements, insertAsset, addFont, placeAsset, addSlot, renameAsset, assetReveal]);
 
   return (
     <div className="flex h-full flex-col">
@@ -647,9 +683,30 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
         </div>
       </div>
       {notice && (
-        <div className="flex shrink-0 items-center gap-3 border-b border-[hsl(var(--status-red))]/30 bg-[hsl(var(--status-red))]/10 px-3 py-1.5 text-xs text-[hsl(var(--status-red))]">
-          <span className="min-w-0 flex-1 truncate" title={notice}>{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} className="shrink-0 rounded-md px-2 py-0.5 hover:bg-[hsl(var(--status-red))]/15">Dismiss</button>
+        <div
+          className={`flex shrink-0 items-center gap-3 border-b px-3 py-1.5 text-xs ${
+            notice.kind === 'error'
+              ? 'border-[hsl(var(--status-red))]/30 bg-[hsl(var(--status-red))]/10 text-[hsl(var(--status-red))]'
+              : 'border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.4)] text-[hsl(var(--muted-foreground))]'
+          }`}
+        >
+          {/* An info notice can carry a snippet to copy by hand, so it wraps
+              and stays selectable instead of being truncated to one line. */}
+          <span
+            className={`min-w-0 flex-1 ${notice.kind === 'error' ? 'truncate' : 'select-text whitespace-pre-wrap break-words'}`}
+            title={notice.text}
+          >
+            {notice.text}
+          </span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className={`shrink-0 rounded-md px-2 py-0.5 ${
+              notice.kind === 'error' ? 'hover:bg-[hsl(var(--status-red))]/15' : 'hover:bg-[hsl(var(--accent))]'
+            }`}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -707,18 +764,7 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
               {/* The same panel the Assets Manager tab renders. The `typst`
                   prop is what turns it into the report's rail: figure-slot
                   placement, insert-at-caret and the narrow layout. */}
-              <AssetsPanel
-                typst={{
-                  source,
-                  placements,
-                  onInsert: insertAsset,
-                  onAddFont: addFont,
-                  onPlace: placeAsset,
-                  onAddSlot: addSlot,
-                  onRename: renameAsset,
-                  reveal: assetReveal,
-                }}
-              />
+              <AssetsPanel typst={panelMode} />
             </div>
           </>
         )}
