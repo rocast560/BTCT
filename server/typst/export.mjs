@@ -4,7 +4,7 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseDiagnostics, scrubPaths } from './diagnostics.mjs';
+import { parseDiagnostics, scrubPaths, childFailureMessage } from './diagnostics.mjs';
 import { createSerial } from './serial.mjs';
 import { createAdmission } from './admission.mjs';
 import { toPandocSource, pandocSourceWarnings } from './docx-source.mjs';
@@ -81,12 +81,24 @@ function childEnv() {
 function run(cli, args, cwd) {
   return new Promise((resolve) => {
     execFile(cli, args, { cwd, env: childEnv(), windowsHide: true, maxBuffer: 16 * 1024 * 1024, timeout: TIMEOUT_MS, killSignal: 'SIGKILL' }, (err, _stdout, stderr) => {
-      if (err && (err.killed || err.signal)) return resolve({ code: 124, stderr: `error: ${path.basename(cli)} timed out after 120 s` });
+      // `killed` and only `killed` means our own timeout fired. Measured on
+      // Bun 1.3.11: a timeout kill sets killed true with signal SIGKILL,
+      // while an ordinary failure sets killed false and a numeric code. A
+      // signal with killed false is a death we did not cause, and its stderr
+      // is the only clue to why, so it is never thrown away.
+      if (err && err.killed) {
+        return resolve({ code: 124, killed: true, signal: err.signal ?? null, stderr: `error: ${path.basename(cli)} timed out after ${TIMEOUT_MS / 1000} s` });
+      }
       // The binary was on PATH when the capabilities cache was filled and is
       // gone now. That is not something the report did, so it is a 501 like
       // any other missing CLI, not a 422 with an empty message.
-      if (err && err.code === 'ENOENT') return resolve({ code: 'ENOENT', stderr: '' });
-      resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stderr: String(stderr ?? '') });
+      if (err && err.code === 'ENOENT') return resolve({ code: 'ENOENT', killed: false, signal: null, stderr: '' });
+      resolve({
+        code: err ? (typeof err.code === 'number' ? err.code : 1) : 0,
+        killed: false,
+        signal: err?.signal ?? null,
+        stderr: String(stderr ?? ''),
+      });
     });
   });
 }
@@ -94,7 +106,12 @@ function run(cli, args, cwd) {
 /** Turn a finished child into an error, or into nothing when it succeeded. */
 function failed(result, cli, fallback, diagnostics) {
   if (result.code === 'ENOENT') return new ExportError(501, `${path.basename(cli)} is no longer installed on this server`);
-  if (result.code !== 0) return new ExportError(422, fallback, diagnostics);
+  if (result.code !== 0) {
+    // A stack overflow, an OOM kill or another signal death gets named;
+    // anything else keeps the child's own stderr, which says more.
+    const death = childFailureMessage(result, path.basename(cli, path.extname(cli)));
+    return new ExportError(422, death ?? fallback, diagnostics);
+  }
   return null;
 }
 
@@ -148,11 +165,11 @@ async function toPdf(root, source) {
   // `-j 1` puts layout on the main thread, whose stack is smaller than a
   // worker's, so a very large document aborts there while it compiles with
   // the default job count. Measured with typst 0.14.2 on Windows: 2000
-  // sections and a 4.2 MB PDF are fine, 3000 sections overflow. Say so,
-  // rather than handing back the runtime's panic line.
-  if (/overflowed its stack/i.test(result.stderr)) {
-    throw new ExportError(422, 'This report is too large for the server compiler. Export the PDF from the browser instead.');
-  }
+  // sections and a 4.2 MB PDF are fine, 3000 sections overflow. That panic
+  // is a plain non-zero exit here and a signal death on Linux, and
+  // childFailureMessage knows both shapes.
+  const death = childFailureMessage(result, 'typst');
+  if (death) throw new ExportError(422, death);
   // Every string that can reach a response body loses the staged path first:
   // it sits under the OS temp directory, which names the account.
   const diagnostics = parseDiagnostics(result.stderr, root).map((d) => ({

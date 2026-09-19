@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { parseDiagnostics, scrubPaths } from '../../server/typst/diagnostics.mjs';
+import { parseDiagnostics, scrubPaths, childFailureMessage } from '../../server/typst/diagnostics.mjs';
 import { createSerial } from '../../server/typst/serial.mjs';
 
 describe('parseDiagnostics', () => {
@@ -75,5 +75,45 @@ describe('scrubPaths', () => {
   it('removes every occurrence, not just the first', () => {
     const forward = root.split(path.sep).join('/');
     expect(scrubPaths(`${forward}/a and ${forward}/b`, root)).toBe('./a and ./b');
+  });
+});
+
+describe('childFailureMessage', () => {
+  // The shapes are what Bun hands execFile's callback. Verified on this
+  // machine: a timeout kill sets killed true, signal SIGKILL, code null; an
+  // ordinary failure sets killed false, signal null and a numeric code.
+  // A Linux stack overflow or an OOM kill is a signal death we did not
+  // cause, which is the case this function exists for.
+  it('says nothing about a child we killed ourselves', () => {
+    expect(childFailureMessage({ code: 124, killed: true, signal: 'SIGKILL', stderr: '' }, 'typst')).toBeNull();
+  });
+
+  it('says nothing about an ordinary non-zero exit', () => {
+    expect(childFailureMessage({ code: 1, killed: false, signal: null, stderr: 'error: unknown variable' }, 'typst')).toBeNull();
+    expect(childFailureMessage({ code: 0, killed: false, signal: null, stderr: '' }, 'typst')).toBeNull();
+  });
+
+  it('recognises a stack overflow however the process died', () => {
+    const sentence = 'This report is too large for the server compiler. Export the PDF from the browser instead.';
+    // Windows: a plain non-zero exit with the panic on stderr.
+    expect(childFailureMessage({ code: 1, killed: false, signal: null, stderr: "\nthread 'main' has overflowed its stack\n" }, 'typst')).toBe(sentence);
+    // Linux: the same panic, delivered as a signal.
+    expect(childFailureMessage({ code: 1, killed: false, signal: 'SIGABRT', stderr: "thread 'main' has overflowed its stack" }, 'typst')).toBe(sentence);
+    expect(childFailureMessage({ code: 1, killed: false, signal: 'SIGSEGV', stderr: 'thread MAIN has OVERFLOWED ITS STACK' }, 'typst')).toBe(sentence);
+  });
+
+  it('reads a SIGKILL we did not send as the memory killer', () => {
+    expect(childFailureMessage({ code: 1, killed: false, signal: 'SIGKILL', stderr: '' }, 'typst'))
+      .toBe('The export ran out of memory on the server. Export the PDF from the browser instead.');
+  });
+
+  it('names any other signal, with the tool that died', () => {
+    expect(childFailureMessage({ code: 1, killed: false, signal: 'SIGSEGV', stderr: '' }, 'pandoc'))
+      .toBe('The exporter stopped unexpectedly (pandoc, SIGSEGV).');
+  });
+
+  it('survives a result with missing fields', () => {
+    expect(childFailureMessage({}, 'typst')).toBeNull();
+    expect(childFailureMessage(null, 'typst')).toBeNull();
   });
 });
