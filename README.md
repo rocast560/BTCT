@@ -336,10 +336,11 @@ below for the full mechanics:
 - **Markdown**: per page (single `.md` or a `.zip`).
 - **Lossless workspace ZIP**: the full workspace (every entity as JSON, plus
   per-page raw CRDT state and human-readable `.md` companions), with
-  *import-as-new* (re-IDed) or *replace-existing* modes. The ZIP also carries
-  the tables behind removed features (graphs, nodes, edges, attack chains,
-  timeline events, site maps) under the same filenames older builds used, so
-  an archive stays complete and re-imports into either build.
+  *import-as-new* (re-IDed) or *replace-existing* modes. The workspace's
+  Typst report source, if any was written, rides along as `report.typ`. The
+  ZIP also carries the tables behind removed features (graphs, nodes, edges,
+  attack chains, timeline events, site maps) under the same filenames older
+  builds used, so an archive stays complete and re-imports into either build.
 
 ### Accounts, roles & settings
 

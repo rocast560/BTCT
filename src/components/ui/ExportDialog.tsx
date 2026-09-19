@@ -20,7 +20,8 @@ import {
   nmapMachineRepo,
 } from '@/db';
 import JSZip from 'jszip';
-import { getSharedDoc, seedMissingYTexts } from '@/realtime/shared-doc';
+import { getSharedDoc, getOrInitYText, textKey, seedMissingYTexts } from '@/realtime/shared-doc';
+import { replaceYTextContent } from '@/realtime/use-y-text';
 import { Download, Upload, X } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -100,6 +101,9 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         pageSnapshots: allSnapshots,
         pageYjsUpdates,
         retired: collectRetired(activeWorkspaceId),
+        // Direct `.get`, not getOrInitYText: creating the Y.Text here would
+        // seed an empty report in every exported workspace.
+        typstSource: getSharedDoc().texts.get(textKey('typst', activeWorkspaceId, 'source'))?.toString() ?? null,
       });
       downloadBlob(blob, `${workspace.name}.zip`);
       setStatus(`Workspace exported (${Object.keys(pageYjsUpdates).length} page docs included)`);
@@ -173,6 +177,10 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         for (const snap of data.pageSnapshots) await db.pageSnapshots.add({ ...snap, id: remap(snap.id), pageId: remap(snap.pageId), workspaceId: importedWsId });
 
         restoreRetired(data.retired, importedWsId, remap);
+
+        if (data.typstSource) {
+          replaceYTextContent(getOrInitYText(textKey('typst', importedWsId, 'source'), ''), data.typstSource);
+        }
 
         // Apply page Y.Doc updates AFTER the page records exist so the
         // editor's lazy provider hookup will see the seeded content.

@@ -31,6 +31,8 @@ export interface WorkspaceExportData {
   /** Map<pageId, base64 of Y.encodeStateAsUpdate(pageDoc)>. Optional:
    *  set only when the page's Y.Doc was reachable at export time. */
   pageYjsUpdates: Record<ID, string>;
+  /** The workspace's Typst report source, or null/absent when none was written. */
+  typstSource?: string | null;
 }
 
 type ID = string;
@@ -62,6 +64,7 @@ export async function exportWorkspaceZip(data: WorkspaceExportData): Promise<Blo
   zip.file('nmapScans.json',     JSON.stringify(data.nmapScans,     null, 2));
   zip.file('nmapMachines.json',  JSON.stringify(data.nmapMachines,  null, 2));
   zip.file('pageSnapshots.json', JSON.stringify(data.pageSnapshots, null, 2));
+  if (data.typstSource) zip.file('report.typ', data.typstSource);
 
   // Retired-feature tables keep their original top-level filenames, so a
   // zip from this build still imports into an older one.
@@ -146,6 +149,8 @@ export async function parseWorkspaceZip(blob: Blob): Promise<WorkspaceExportData
     try { pageYjsUpdates = JSON.parse(yjsJson) as Record<ID, string>; } catch { /* ignore */ }
   }
 
+  const typstSource = (await zip.file('report.typ')?.async('string')) ?? null;
+
   return {
     schemaVersion: 2,
     exportedAt: Date.now(),
@@ -156,6 +161,7 @@ export async function parseWorkspaceZip(blob: Blob): Promise<WorkspaceExportData
     nmapMachines,
     pageSnapshots,
     pageYjsUpdates,
+    typstSource,
     retired,
   };
 }
