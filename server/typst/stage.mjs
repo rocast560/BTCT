@@ -7,6 +7,7 @@ import { readTypstSource, listAssetRecords } from '../yjs-data.mjs';
 import { ASSETS_DIR } from '../data-export.mjs';
 import { getAsset } from '../db.mjs';
 import { vetAssetRecord } from './vet-asset.mjs';
+import { imageSize } from './image-size.mjs';
 
 export class ExportError extends Error {
   constructor(status, message, diagnostics) { super(message); this.status = status; this.diagnostics = diagnostics; }
@@ -18,6 +19,18 @@ export class ExportError extends Error {
 // real report places.
 const MAX_STAGED_MB = 200;
 const MAX_STAGED_BYTES = MAX_STAGED_MB * 1024 * 1024;
+
+// File bytes say nothing about what a decode costs. A 6000x6000 PNG of flat
+// colour encodes to 0.81 MB and measured 2192 MB of RSS through this server's
+// own bakeImage, which is twice the target box. So every staged image is
+// sized from its header first (typst decodes the un-baked ones itself, so the
+// cap applies to those too), and one export gets a cumulative decode budget
+// on top: the bakes are sequential, so this bounds time rather than peak
+// memory, and it stops a report from parking a core for a minute.
+const MAX_MEGAPIXELS = 30;
+const MAX_PIXELS = MAX_MEGAPIXELS * 1_000_000;
+const MAX_DECODED_MB = 512;
+const MAX_DECODED_BYTES = MAX_DECODED_MB * 1024 * 1024;
 
 /**
  * Basenames of the `/assets/...` paths the report actually mentions.
@@ -65,6 +78,7 @@ export async function stageReport(workspaceId) {
     let baked = 0;
     let skippedDuplicates = 0;
     let stagedBytes = 0;
+    let decodedBytes = 0;
     const warnings = [];
     const account = (n) => {
       stagedBytes += n;
@@ -99,6 +113,24 @@ export async function stageReport(workspaceId) {
       account(stat.size);
       if (isFont) { fs.copyFileSync(from, dest); continue; }
       const bytes = new Uint8Array(fs.readFileSync(from));
+      // Reading the file is cheap and bounded by the 25 MB upload cap;
+      // decoding it is what has to be refused, so the header decides.
+      const dims = imageSize(bytes);
+      // A superset of what bakeImage treats as work: a full-frame crop counts
+      // here and not there, which errs towards refusing.
+      const mayBake = !!a.crop || (Array.isArray(a.blurs) && a.blurs.length > 0);
+      if (dims && dims.width * dims.height > MAX_PIXELS) {
+        throw new ExportError(422, `${name} is too large to export from the server (${dims.width} x ${dims.height}). Export the PDF from the browser instead, or downscale the screenshot.`);
+      }
+      if (!dims && mayBake) {
+        throw new ExportError(422, `${name} cannot be sized from its header, so the server will not redact it. Export the PDF from the browser instead.`);
+      }
+      if (dims && mayBake) {
+        decodedBytes += dims.width * dims.height * 4;
+        if (decodedBytes > MAX_DECODED_BYTES) {
+          throw new ExportError(422, `this report needs more than ${MAX_DECODED_MB} MB of image decoding in one export. Export the PDF from the browser instead, or downscale the screenshots.`);
+        }
+      }
       let out;
       try { out = await bakeImage(bytes, { crop: a.crop ?? null, blurs: a.blurs ?? null }, name); }
       catch (err) { throw new ExportError(422, `${name}: ${err instanceof Error ? err.message : String(err)}`); }
