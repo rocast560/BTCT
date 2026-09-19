@@ -57,7 +57,9 @@ Rejected: reverting `8a549fb` and forward-porting (two diverged copies of every 
 
 **Assets.** No second asset system. Figures reference the existing `typstAssets` records. The compiler's virtual filesystem is fed from `resolveAssetBytes`, so crop and blur are already applied before the compiler sees an image. `PlaceScreenshotDialog` picks from the same data the Assets Manager shows. Fonts use the existing `kind: 'font'` asset records.
 
-**Export and import.** Full backups already copy the shared doc, so they carry the source. The workspace ZIP gains a `report.typ` entry, written on export and restored into the `Y.Text` on import. This is the route from the range box to the desktop, and it works with the flag off on the exporting side.
+**Export and import.** Full backups already copy the shared doc, so they carry the source. The workspace ZIP gains a `report.typ` entry, written on export and restored into the `Y.Text` on import, and it works with the flag off on the exporting side.
+
+**Moving an engagement between machines is server backup plus restore, not the ZIP** (decided 2026-09-19). The workspace ZIP carries no `typstAssets` records, no asset folders, no image bytes, no command log and no page history, so a ZIP import leaves every note screenshot as a broken placeholder. A backup run carries all of it, at the price that `restore.mjs` replaces the target instance's whole data set. Teaching the ZIP to carry assets is a separate feature and out of scope here.
 
 **Server.** A new `server/typst/` directory, loaded by one dynamic `import()` inside an `if (ENABLE_TYPST)` branch in `index.mjs`. With the flag off: routes return 404, no module loads, nothing is spawned.
 
