@@ -178,8 +178,16 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
         restoreRetired(data.retired, importedWsId, remap);
 
+        // Three states from parseWorkspaceZip: string (write it below);
+        // null (this build's archive recorded no report, so a faithful
+        // replace clears any existing one); undefined (an older or
+        // manifest-less archive never recorded either way, so an existing
+        // report, which has no version history, is left untouched).
         if (data.typstSource) {
           replaceYTextContent(getOrInitYText(textKey('typst', importedWsId, 'source'), ''), data.typstSource);
+        } else if (data.typstSource === null && importMode === 'replace' && existingWs) {
+          const existingReport = getSharedDoc().texts.get(textKey('typst', importedWsId, 'source'));
+          if (existingReport) replaceYTextContent(existingReport, '');
         }
 
         // Apply page Y.Doc updates AFTER the page records exist so the

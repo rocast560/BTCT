@@ -337,7 +337,10 @@ below for the full mechanics:
 - **Lossless workspace ZIP**: the full workspace (every entity as JSON, plus
   per-page raw CRDT state and human-readable `.md` companions), with
   *import-as-new* (re-IDed) or *replace-existing* modes. The workspace's
-  Typst report source, if any was written, rides along as `report.typ`. The
+  Typst report source, if any was written, rides along as `report.typ`; a
+  replace-import removes an existing report only when the archive records
+  that the source workspace had none, and an archive from an older build
+  leaves an existing report alone since it never recorded either way. The
   ZIP also carries the tables behind removed features (graphs, nodes, edges,
   attack chains, timeline events, site maps) under the same filenames older
   builds used, so an archive stays complete and re-imports into either build.

@@ -31,7 +31,19 @@ export interface WorkspaceExportData {
   /** Map<pageId, base64 of Y.encodeStateAsUpdate(pageDoc)>. Optional:
    *  set only when the page's Y.Doc was reachable at export time. */
   pageYjsUpdates: Record<ID, string>;
-  /** The workspace's Typst report source, or null/absent when none was written. */
+  /**
+   * The workspace's Typst report source. Three states, distinguished so a
+   * replace-import can tell "there was truly no report" from "this archive
+   * never recorded either way":
+   *  - `string`: the report content.
+   *  - `null`: known absent. This build (or a later one) wrote the
+   *    manifest and recorded that the source workspace had no report, so
+   *    a replace-import may safely clear an existing one.
+   *  - `undefined`: unknown. An older build's zip (or one missing its
+   *    manifest) never recorded whether a report existed, so a
+   *    replace-import must leave any existing report untouched, since the
+   *    report has no version history to recover it from.
+   */
   typstSource?: string | null;
 }
 
@@ -54,6 +66,7 @@ export async function exportWorkspaceZip(data: WorkspaceExportData): Promise<Blo
       nmapMachines: data.nmapMachines.length,
       pageSnapshots: data.pageSnapshots.length,
       pageYjsUpdates: Object.keys(data.pageYjsUpdates).length,
+      report: data.typstSource ? 1 : 0,
       retired: Object.fromEntries(RETIRED_TABLES.map((t) => [t, data.retired?.[t].length ?? 0])),
     },
   }, null, 2));
@@ -149,7 +162,24 @@ export async function parseWorkspaceZip(blob: Blob): Promise<WorkspaceExportData
     try { pageYjsUpdates = JSON.parse(yjsJson) as Record<ID, string>; } catch { /* ignore */ }
   }
 
-  const typstSource = (await zip.file('report.typ')?.async('string')) ?? null;
+  // Known-absent (null) vs unknown (undefined). A report.typ file present
+  // always means "there is a report". Its absence alone is ambiguous: an
+  // older build's zip never wrote one either. The manifest's counts.report
+  // disambiguates, since this build always writes it as 0 or 1: if it's
+  // present and 0, the source workspace truly had no report, so a
+  // replace-import may safely clear one. If the manifest is missing,
+  // unparsable, or predates counts.report (older build), the answer is
+  // unknown, so a replace-import must leave an existing report alone.
+  let typstSource: string | null | undefined = await zip.file('report.typ')?.async('string');
+  if (typstSource === undefined) {
+    try {
+      const manifestJson = await zip.file('manifest.json')?.async('string');
+      const manifest = manifestJson ? (JSON.parse(manifestJson) as { counts?: { report?: number } }) : null;
+      if (manifest?.counts && typeof manifest.counts.report === 'number') {
+        typstSource = manifest.counts.report === 0 ? null : undefined;
+      }
+    } catch { /* unparsable manifest: unknown, leave typstSource undefined */ }
+  }
 
   return {
     schemaVersion: 2,
