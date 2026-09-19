@@ -9,7 +9,8 @@ const CommandLogView = lazy(() => import('@/components/cmdlog/CommandLogView').t
 const HistoryView = lazy(() => import('@/components/history/HistoryView').then((m) => ({ default: m.HistoryView })));
 const AssetsManager = lazy(() => import('@/components/assets/AssetsManager').then((m) => ({ default: m.AssetsManager })));
 const ShortcutsView = lazy(() => import('@/components/help/ShortcutsView').then((m) => ({ default: m.ShortcutsView })));
-import { FileText, Radar, Monitor, X, Terminal, History, Images, Keyboard } from 'lucide-react';
+const TypstView = lazy(() => import('@/components/typst/TypstView').then((m) => ({ default: m.TypstView })));
+import { FileText, Radar, Monitor, X, Terminal, History, Images, Keyboard, FileType } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export const TAB_DRAG_TYPE = 'application/x-btct-tab';
@@ -254,6 +255,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
         {activeTab?.kind === 'history' && <HistoryView pageId={activeTab.entityId} />}
         {activeTab?.kind === 'assets' && <AssetsManager />}
         {activeTab?.kind === 'shortcuts' && <ShortcutsView />}
+        {activeTab?.kind === 'typst' && <TypstView workspaceId={activeTab.entityId} />}
         {!activeTab && (
           <div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">
             Drop a tab here
@@ -334,7 +336,7 @@ const PaneTabChip = memo(function PaneTabChip({
           )}
         />
       )}
-      {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'cmdlog' ? <Terminal size={9} /> : tab.kind === 'history' ? <History size={9} /> : tab.kind === 'assets' ? <Images size={9} /> : <Keyboard size={9} />}
+      {tab.kind === 'page' ? <FileText size={9} /> : tab.kind === 'nmap-machine' ? <Monitor size={9} /> : tab.kind === 'nmap' ? <Radar size={9} /> : tab.kind === 'cmdlog' ? <Terminal size={9} /> : tab.kind === 'history' ? <History size={9} /> : tab.kind === 'assets' ? <Images size={9} /> : tab.kind === 'typst' ? <FileType size={9} /> : <Keyboard size={9} />}
       <span className="max-w-[100px] truncate">{tab.title}</span>
       <button
         type="button"

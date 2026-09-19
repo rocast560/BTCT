@@ -132,7 +132,7 @@ export interface AssetFolder {
 }
 
 // ---- UI State Types ----
-export type TabKind = 'page' | 'nmap' | 'nmap-machine' | 'cmdlog' | 'history' | 'assets' | 'shortcuts';
+export type TabKind = 'page' | 'nmap' | 'nmap-machine' | 'cmdlog' | 'history' | 'assets' | 'shortcuts' | 'typst';
 
 export interface TabItem {
   id: string;

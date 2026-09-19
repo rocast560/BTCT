@@ -25,6 +25,7 @@ const KIND_LABEL: Record<TabKind, string> = {
   history: 'History',
   assets: 'Assets',
   shortcuts: 'Shortcuts',
+  typst: 'Report',
 };
 
 function whereLabel(peer: PeerPresence): string {

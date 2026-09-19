@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useRef, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
+import { useThemeStore } from '@/stores/theme-store';
 import { useAuthStore } from '@/auth/auth-store';
 import { WorkspaceSelector } from '@/components/ui/WorkspaceSelector';
 const AdminPanel = lazy(() => import('@/components/sidebar/AdminPanel').then((m) => ({ default: m.AdminPanel })));
@@ -24,6 +25,7 @@ import {
   Terminal,
   Images,
   Keyboard,
+  FileType,
 } from 'lucide-react';
 import type { Page, NmapScan } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -96,6 +98,7 @@ export function LeftSidebar() {
     leftSidebarWidth: s.leftSidebarWidth,
     setLeftSidebarWidth: s.setLeftSidebarWidth,
   })));
+  const typstOn = useThemeStore((s) => s.features.typst);
 
   const [toolsExpanded, setToolsExpanded] = useState(true);
   const [pagesExpanded, setPagesExpanded] = useState(true);
@@ -207,6 +210,11 @@ export function LeftSidebar() {
 
   const openAssets = () => {
     openTab({ id: uuidv4(), kind: 'assets', entityId: 'assets', title: 'Assets' });
+  };
+
+  const openReport = () => {
+    if (!activeWorkspaceId) return;
+    openTab({ id: uuidv4(), kind: 'typst', entityId: activeWorkspaceId, title: 'Report' });
   };
 
   const openShortcuts = () => {
@@ -323,6 +331,16 @@ export function LeftSidebar() {
                 <Images size={12} className="text-[hsl(var(--status-amber))]" />
                 <span className="truncate">Assets</span>
               </button>
+              {typstOn && (
+                <button
+                  data-op="nav"
+                  onClick={openReport}
+                  className="flex w-full items-center gap-1.5 rounded-lg border border-[hsl(var(--status-blue))]/30 bg-[hsl(var(--status-blue))]/10 px-2.5 py-1.5 text-left text-[11px] hover:bg-[hsl(var(--status-blue))]/20"
+                >
+                  <FileType size={12} className="text-[hsl(var(--status-blue))]" />
+                  <span className="truncate">Report</span>
+                </button>
+              )}
               <button
                 data-op="nav"
                 onClick={openShortcuts}

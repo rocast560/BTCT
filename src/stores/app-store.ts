@@ -499,6 +499,7 @@ export const useAppStore = create<AppState>((set, get) => {
         case 'history': return c.tables.pages.has(t.entityId);
         case 'nmap': return c.tables.nmapScans.has(t.entityId);
         case 'nmap-machine': return c.tables.nmapMachines.has(t.entityId);
+        case 'typst': return c.tables.workspaces.has(t.entityId);
         default: return ['cmdlog', 'assets', 'shortcuts'].includes(t.kind);
       }
     };

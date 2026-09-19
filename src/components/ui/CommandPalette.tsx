@@ -1,9 +1,10 @@
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
+import { useThemeStore } from '@/stores/theme-store';
 import { Command } from 'cmdk';
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { FileText, Plus, Settings, Users, Terminal, Images, Keyboard } from 'lucide-react';
+import { FileText, Plus, Settings, Users, Terminal, Images, Keyboard, FileType } from 'lucide-react';
 
 export function CommandPalette() {
   const {
@@ -25,6 +26,7 @@ export function CommandPalette() {
     toggleDarkMode: s.toggleDarkMode,
     setFollowPanelOpen: s.setFollowPanelOpen,
   })));
+  const typstOn = useThemeStore((s) => s.features.typst);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -76,6 +78,18 @@ export function CommandPalette() {
               >
                 <Images size={14} /> Open Assets Manager
               </Command.Item>
+              {typstOn && (
+                <Command.Item
+                  onSelect={() => {
+                    if (!activeWorkspaceId) return;
+                    openTab({ id: uuidv4(), kind: 'typst', entityId: activeWorkspaceId, title: 'Report' });
+                    setCommandPaletteOpen(false);
+                  }}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"
+                >
+                  <FileType size={14} /> Write the Report
+                </Command.Item>
+              )}
               <Command.Item
                 onSelect={() => { openTab({ id: uuidv4(), kind: 'shortcuts', entityId: 'shortcuts', title: 'Shortcuts' }); setCommandPaletteOpen(false); }}
                 className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm aria-selected:bg-[hsl(var(--accent))]"

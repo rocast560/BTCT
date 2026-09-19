@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/stores';
 import { useShallow } from 'zustand/react/shallow';
-import { X, FileText, PanelLeftOpen, PanelRightOpen, Radar, Monitor, Terminal, History, Images, Keyboard } from 'lucide-react';
+import { X, FileText, PanelLeftOpen, PanelRightOpen, Radar, Monitor, Terminal, History, Images, Keyboard, FileType } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TAB_DRAG_TYPE } from './SplitContainer';
 
@@ -132,7 +132,7 @@ export function TabBar() {
                 )}
               />
             )}
-            {tab.kind === 'page' ? <FileText size={11} /> : tab.kind === 'nmap-machine' ? <Monitor size={11} /> : tab.kind === 'nmap' ? <Radar size={11} /> : tab.kind === 'cmdlog' ? <Terminal size={11} /> : tab.kind === 'history' ? <History size={11} /> : tab.kind === 'assets' ? <Images size={11} /> : <Keyboard size={11} />}
+            {tab.kind === 'page' ? <FileText size={11} /> : tab.kind === 'nmap-machine' ? <Monitor size={11} /> : tab.kind === 'nmap' ? <Radar size={11} /> : tab.kind === 'cmdlog' ? <Terminal size={11} /> : tab.kind === 'history' ? <History size={11} /> : tab.kind === 'assets' ? <Images size={11} /> : tab.kind === 'typst' ? <FileType size={11} /> : <Keyboard size={11} />}
             <span className="max-w-[140px] truncate">{tab.title}</span>
             <button
               type="button"
