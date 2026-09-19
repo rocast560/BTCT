@@ -107,6 +107,45 @@ describe('TypstPreview document switching', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(compileTypstSvg).toHaveBeenCalledTimes(1);
   });
+
+  // How the cache is actually filled in BTCT: a mounted preview's docKey is
+  // its workspace id and never changes, so closing the Report tab (unmount)
+  // is the only moment a real session leaves a document behind.
+  it('keeps its render when the tab closes and repaints it on reopen without compiling', async () => {
+    compileTypstSvg.mockResolvedValue({ svg: FOUR_PAGES, diagnostics: [] });
+    const first = render(<TypstPreview source="a" docKey="w1:main.typ" ready />);
+    await settle();
+    expect(cards(first.container)).toHaveLength(4);
+    fireEvent.scroll(first.container.querySelector<HTMLElement>('[data-testid="preview-pages"]')!, {
+      target: { scrollTop: 180 },
+    });
+
+    first.unmount();
+    expect(renderCache.get('w1:main.typ')).toMatchObject({ svg: FOUR_PAGES, scrollTop: 180 });
+
+    // Reopening the tab: the pages are back before any compile is dispatched.
+    compileTypstSvg.mockClear();
+    const again = render(<TypstPreview source="a" docKey="w1:main.typ" ready />);
+    expect(cards(again.container)).toHaveLength(4);
+    expect(compileTypstSvg).not.toHaveBeenCalled();
+    expect(again.container.querySelector<HTMLElement>('[data-testid="preview-pages"]')!.scrollTop).toBe(180);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(compileTypstSvg).toHaveBeenCalledTimes(1);
+  });
+
+  // StrictMode mounts, tears down and remounts. The throwaway first mount has
+  // rendered nothing, and its cleanup must not leave a blank entry behind.
+  it('does not cache an empty render from a mount that never compiled', async () => {
+    compileTypstSvg.mockResolvedValue({ svg: FOUR_PAGES, diagnostics: [] });
+    render(<TypstPreview source="a" docKey="w9:main.typ" ready={false} />).unmount();
+    expect(renderCache.get('w9:main.typ')).toBeUndefined();
+
+    // The mount that does render still caches on the way out.
+    const real = render(<TypstPreview source="a" docKey="w9:main.typ" ready />);
+    await settle();
+    real.unmount();
+    expect(renderCache.get('w9:main.typ')?.svg).toBe(FOUR_PAGES);
+  });
 });
 
 describe('TypstPreview page virtualization', () => {
@@ -115,6 +154,9 @@ describe('TypstPreview page virtualization', () => {
     FakeIntersectionObserver.instances = [];
     vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
     compileTypstSvg.mockReset();
+    // The unmount write means every test in this block now leaves an entry
+    // behind; without this the next one would start from a stale render.
+    clearRenderCache();
   });
   afterEach(() => {
     vi.unstubAllGlobals();

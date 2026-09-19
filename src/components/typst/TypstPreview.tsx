@@ -385,6 +385,26 @@ export const TypstPreview = memo(function TypstPreview({
   const shown = doc.key === docKey ? doc : docFromCache(docKey);
   const { svg, diagnostics } = shown;
 
+  // What is on screen right now, mirrored for the unmount cleanup below: a
+  // cleanup closure captures the render that created it, and this one has to
+  // run once, at unmount, against the latest values.
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+
+  // Closing the tab is how a document is actually left in this app: a
+  // mounted preview's `docKey` is its workspace id and never changes, and
+  // switching workspace closes the tabs rather than re-keying them. Without
+  // this write the cache would never hold anything.
+  //
+  // The `svg` guard is load-bearing under StrictMode, which mounts, tears
+  // down and remounts: the throwaway first mount has rendered nothing yet,
+  // and storing it would replace a good entry with a blank one.
+  useEffect(() => () => {
+    const d = shownRef.current;
+    if (!d.svg) return;
+    renderCache.set(d.key, { svg: d.svg, diagnostics: d.diagnostics, scrollTop: scrollTopRef.current });
+  }, []);
+
   // Monotonic id so a slow compile that finishes after a newer one can't
   // overwrite the fresher result.
   const runId = useRef(0);

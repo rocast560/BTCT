@@ -1,8 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────
-// The last good preview of each Typst document this session, so switching
-// workspaces (or closing and reopening the Report tab) paints the pages that
-// were on screen instead of an empty "Rendering…" panel while the wasm
-// compiler spins up again.
+// The last good preview of each Typst document this session, so reopening a
+// Report tab paints the pages that were on screen instead of an empty
+// "Rendering…" panel while the wasm compiler spins up again.
+//
+// In BTCT a mounted preview's `docKey` never changes: it is the tab's
+// workspace id, and switching workspace closes every tab rather than
+// re-keying one. So the entries here are written by TypstPreview's unmount
+// cleanup, and read by the next mount under the same key. (The preview also
+// writes on a `docKey` change, which is what its unit tests drive, but no
+// screen in the app changes that prop in place.)
 //
 // Bounded by characters of SVG rather than entries: one long report is a few
 // megabytes of markup, and the app targets a 1 to 2 GB host, so the budget is
@@ -36,6 +42,16 @@ export interface Lru<T> {
 export function createLru<T>(opts: { maxWeight: number; sizeOf: (v: T) => number }): Lru<T> {
   const map = new Map<string, T>();
   let weight = 0;
+
+  // Hoisted rather than reached through `this`, so a destructured
+  // `const { deleteWhere } = renderCache` still works.
+  const del = (key: string): void => {
+    const v = map.get(key);
+    if (v === undefined) return;
+    map.delete(key);
+    weight -= opts.sizeOf(v);
+  };
+
   return {
     get size() { return map.size; },
     get weight() { return weight; },
@@ -57,27 +73,25 @@ export function createLru<T>(opts: { maxWeight: number; sizeOf: (v: T) => number
         weight -= opts.sizeOf(v);
       }
     },
-    delete(key) {
-      const v = map.get(key);
-      if (v === undefined) return;
-      map.delete(key);
-      weight -= opts.sizeOf(v);
-    },
+    delete: del,
     deleteWhere(pred) {
-      for (const k of [...map.keys()]) if (pred(k)) this.delete(k);
+      for (const k of [...map.keys()]) if (pred(k)) del(k);
     },
   };
 }
 
 /**
- * Two or three long reports' worth of SVG.
+ * Two or three long reports' worth of SVG: 4 million chars, about 8 MB
+ * resident, since a JavaScript string is UTF-16 and `String.length` counts
+ * code units rather than bytes.
  *
- * Typst Studio budgeted 32 MB here, but it browses a whole disk of documents.
- * BTCT keeps one report per workspace and rarely has more than a couple open,
- * so a quarter of that buys the same "switch back and it is already there"
- * behaviour for a fraction of the resident set on a 1 to 2 GB box.
+ * Typst Studio budgeted 32 million chars here, but it browses a whole disk of
+ * documents. BTCT keeps one report per workspace and rarely has more than a
+ * couple open, so an eighth of that buys the same "reopen it and it is
+ * already there" behaviour for a fraction of the resident set on a 1 to 2 GB
+ * box.
  */
-export const RENDER_CACHE_MAX_CHARS = 8_000_000;
+export const RENDER_CACHE_MAX_CHARS = 4_000_000;
 
 export const renderCache: Lru<RenderSnapshot> = createLru<RenderSnapshot>({
   maxWeight: RENDER_CACHE_MAX_CHARS,

@@ -30,6 +30,7 @@ import { AssetsPanel } from '@/components/assets/AssetsPanel';
 import {
   compileTypstPdf,
   compileTypstSvg,
+  getFontInfo,
   setTypstFonts,
   setTypstShadowFiles,
   typstErrorMessage,
@@ -142,6 +143,13 @@ function useTypstAssetSync(workspaceId: ID): { revision: number; ready: boolean 
   // compiler holds right now belongs to it.
   useEffect(() => { setReady(false); }, [workspaceId]);
 
+  // `loadTypstAssets` loads the *store's* `activeWorkspaceId`, not the
+  // `workspaceId` this tab was opened for. They agree only because
+  // `setActiveWorkspace` (app-store) empties `tabs`, so a Typst tab cannot
+  // outlive the workspace it belongs to. If tabs are ever made to survive a
+  // workspace switch, this tab would mount the other workspace's images into
+  // the compiler and the rail, and both this effect and the panel's asset
+  // list would need a workspace-scoped load instead.
   useEffect(() => { void loadTypstAssets(); }, [loadTypstAssets, workspaceId]);
 
   useEffect(() => {
@@ -184,6 +192,7 @@ function useTypstAssetSync(workspaceId: ID): { revision: number; ready: boolean 
 export function TypstView({ workspaceId }: { workspaceId: ID }) {
   const ytext = useTypstSource(workspaceId);
   const typstAssets = useAppStore((s) => s.typstAssets);
+  const addTypstAsset = useAppStore((s) => s.addTypstAsset);
   const setTypstAssetCrop = useAppStore((s) => s.setTypstAssetCrop);
   const renameTypstAsset = useAppStore((s) => s.renameTypstAsset);
   // Ref mirror so the preview's click callback stays stable across renders.
@@ -307,19 +316,41 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
   }, []);
 
   /**
-   * Assets rail "insert": drop an `#image(…)` reference at the caret.
+   * Assets rail "insert": drop a reference to the asset at the caret.
    *
    * Figure slots are the primary route for a screenshot, because they keep
-   * captions and numbering consistent, so this is the escape hatch for an
-   * image that belongs inline. With the code pane closed there is no caret to
-   * insert at, so the snippet goes to the clipboard rather than nowhere.
+   * captions and numbering consistent, so the image form is the escape hatch
+   * for one that belongs inline; a font has no other route at all. With the
+   * code pane closed there is no caret to insert at, so the snippet goes to
+   * the clipboard rather than nowhere.
    */
-  const insertImage = useCallback((asset: TypstAsset) => {
-    const snippet = `#image("${assetPath(asset)}")\n`;
+  const insertAsset = useCallback((asset: TypstAsset) => {
+    const snippet = asset.kind === 'font'
+      ? `#set text(font: "${asset.fontFamily}")\n`
+      : `#image("${assetPath(asset)}")\n`;
     if (insertAtTypstCursor(snippet)) return;
     void navigator.clipboard?.writeText(snippet);
     setNotice('Code editor is hidden: snippet copied to the clipboard instead.');
   }, []);
+
+  /**
+   * Upload a font for the assets rail.
+   *
+   * The family name is what the operator types into `#set text(font: "…")`,
+   * and only typst.ts's own parser knows the name the compiler will match, so
+   * it is read here (the tab already owns the compiler) rather than in the
+   * shared panel, which would otherwise drag the wasm engine into the Assets
+   * Manager tab. A font whose name will not parse still uploads: the compiler
+   * can use it, the rail just shows the filename and cannot offer the
+   * snippet.
+   */
+  const addFont = useCallback(async (file: File, folderId: ID | null) => {
+    let family: string | null = null;
+    try {
+      family = (await getFontInfo(new Uint8Array(await file.arrayBuffer())))?.family ?? null;
+    } catch { /* family stays unknown; FontRow falls back to the filename */ }
+    await addTypstAsset(file, 'font', folderId, family);
+  }, [addTypstAsset]);
 
   // ── Figure slots ───────────────────────────────────────────────────────
   // The assets rail shows which figure each image fills and writes a chosen
@@ -695,7 +726,8 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
                 typst={{
                   source,
                   placements,
-                  onInsert: insertImage,
+                  onInsert: insertAsset,
+                  onAddFont: addFont,
                   onPlace: placeAsset,
                   onAddSlot: addSlot,
                   onRename: renameAsset,

@@ -12,18 +12,20 @@
 //
 // The same panel is the Typst report's assets rail, via the optional `typst`
 // prop. With it set, a thumbnail opens the figure-placement dialog instead of
-// the plain crop editor, each card gets an insert-at-the-caret button, and the
-// layout stacks for a narrow rail. Without it (the Assets Manager tab) none of
-// that code is even downloaded: the dialog is a `lazy()` import.
+// the plain crop editor, each card gets an insert-at-the-caret button, font
+// files become uploadable, and the layout stacks for a narrow rail. Without
+// it (the Assets Manager tab) fonts are rejected exactly as they are today,
+// and none of the Typst code is even downloaded: the dialog is a `lazy()`
+// import and the font-family read happens in the report tab.
 // ─────────────────────────────────────────────────────────────────────────
 
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, ChevronRight, Crop, EyeOff, Folder, FolderPlus, ImagePlus,
-  Loader2, MapPin, Pencil, Plus, Trash2, Upload,
+  AlertTriangle, ChevronRight, Crop, EyeOff, FileType, Folder, FolderPlus, ImagePlus,
+  Loader2, MapPin, Pencil, Plus, Trash2, Type, Upload,
 } from 'lucide-react';
 import { useAppStore } from '@/stores';
-import type { AssetFolder, BlurRegion, CropRect, ID, TypstAsset } from '@/types';
+import type { AssetFolder, BlurRegion, CropRect, ID, TypstAsset, TypstAssetKind } from '@/types';
 import type { ScreenshotSlot } from '@/lib/typst-placeholders';
 import { blursKey, hasBlurs } from '@/lib/blur-math';
 import { assetsInFolder, childFolders, folderTrail, isDescendantFolder } from '@/lib/asset-folders';
@@ -55,8 +57,17 @@ export interface TypstPanelMode {
   source: string;
   /** Caption of the figure each asset path currently fills, keyed by path. */
   placements: ReadonlyMap<string, string>;
-  /** Put an `#image(…)` for this asset at the editor's caret. */
+  /**
+   * Put a snippet for this asset at the editor's caret: `#image(…)` for an
+   * image, `#set text(font: …)` for a font.
+   */
   onInsert: (asset: TypstAsset) => void;
+  /**
+   * Upload a font file. The report tab does it rather than the panel because
+   * the family name comes from the Typst compiler, and reaching that from
+   * here would pull the wasm engine into the Assets Manager tab's bundle.
+   */
+  onAddFont: (file: File, folderId: ID | null) => Promise<void>;
   /**
    * Commit the framing, and, when `slot` is set, write `path` into that slot
    * (`null` to empty it). `heightPt` is set when the figure's height changed.
@@ -81,10 +92,21 @@ export interface TypstPanelMode {
 const ASSET_DRAG = 'application/x-btct-asset';
 const FOLDER_DRAG = 'application/x-btct-asset-folder';
 
-/** Accept a dropped file only if it is an image we can store. */
-function isImageFile(file: File): boolean {
-  if (file.type.startsWith('image/')) return true;
-  return /\.(png|jpe?g|gif|webp|svg)$/.test(file.name.toLowerCase());
+const IMAGE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml';
+const FONT_ACCEPT = '.ttf,.otf,.woff,.woff2,.ttc';
+const FONT_EXTS = ['.ttf', '.otf', '.woff', '.woff2', '.ttc'];
+
+/**
+ * Route a dropped file to the right asset kind, or null for one this panel
+ * will not store. Fonts are only a kind in the report tab: the Assets Manager
+ * has nothing to do with them, and the compiler is what reads their family.
+ */
+function kindForFile(file: File, fonts: boolean): TypstAssetKind | null {
+  const name = file.name.toLowerCase();
+  if (fonts && FONT_EXTS.some((e) => name.endsWith(e))) return 'font';
+  if (file.type.startsWith('image/')) return 'image';
+  if (/\.(png|jpe?g|gif|webp|svg)$/.test(name)) return 'image';
+  return null;
 }
 
 /**
@@ -231,6 +253,56 @@ const ImageCard = memo(function ImageCard({
         title={placedIn ? `${assetPath(asset)}: in "${placedIn}"` : assetPath(asset)}
       >
         {placedIn ?? asset.filename}
+      </div>
+    </div>
+  );
+});
+
+// Typst mode only: a font asset is a name and two actions, not a thumbnail.
+const FontRow = memo(function FontRow({
+  asset,
+  onInsert,
+  onDelete,
+  onDragStartAsset,
+}: {
+  asset: TypstAsset;
+  onInsert: (asset: TypstAsset) => void;
+  onDelete: (asset: TypstAsset) => void;
+  onDragStartAsset: (e: React.DragEvent, asset: TypstAsset) => void;
+}) {
+  return (
+    <div
+      draggable
+      onDragStart={(e) => onDragStartAsset(e, asset)}
+      className="group flex items-center gap-1.5 rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)] px-2 py-1.5"
+    >
+      <Type size={12} className="shrink-0 text-[hsl(var(--status-purple))]" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[11px] text-[hsl(var(--foreground))]" title={asset.filename}>
+          {asset.fontFamily || asset.filename}
+        </div>
+        {asset.fontFamily && (
+          <div className="truncate font-mono text-[9px] text-[hsl(var(--muted-foreground))]">
+            {asset.filename}
+          </div>
+        )}
+      </div>
+      <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          onClick={() => onInsert(asset)}
+          title="Insert #set text(font: …) at the cursor"
+          disabled={!asset.fontFamily}
+          className="rounded p-1 hover:bg-[hsl(var(--accent))] disabled:opacity-30"
+        >
+          <Plus size={11} />
+        </button>
+        <button
+          onClick={() => onDelete(asset)}
+          title="Delete font"
+          className="rounded p-1 hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--status-red))]"
+        >
+          <Trash2 size={11} />
+        </button>
       </div>
     </div>
   );
@@ -418,6 +490,13 @@ export const AssetsPanel = memo(function AssetsPanel({ typst }: { typst?: TypstP
     () => assetsInFolder(live.filter((a) => a.kind === 'image'), selectedFolder),
     [live, selectedFolder],
   );
+  // Only the report tab has a fonts section, but a workspace that predates
+  // the Typst tab's removal may still hold font records, so the filter above
+  // keeps them out of the image grid either way.
+  const fonts = useMemo(
+    () => assetsInFolder(live.filter((a) => a.kind === 'font'), selectedFolder),
+    [live, selectedFolder],
+  );
   const counts = useMemo(() => {
     const map = new Map<string, number>();
     for (const a of live) {
@@ -428,6 +507,10 @@ export const AssetsPanel = memo(function AssetsPanel({ typst }: { typst?: TypstP
   }, [live]);
   const rootFolders = useMemo(() => childFolders(folders, null), [folders]);
   const trail = useMemo(() => folderTrail(folders, selectedFolder), [folders, selectedFolder]);
+
+  // Present exactly when the panel is the report's rail, so it doubles as the
+  // "are fonts a thing here" test and narrows for TypeScript.
+  const onAddFont = typst?.onAddFont;
 
   const ingest = useCallback(
     async (files: FileList | File[], folderId: ID | null) => {
@@ -442,11 +525,16 @@ export const AssetsPanel = memo(function AssetsPanel({ typst }: { typst?: TypstP
       // current asset list, so two concurrent uploads of `shot.png` would
       // both see the name as free and collide in the virtual FS.
       for (const file of list) {
-        if (!isImageFile(file)) {
-          failures.push(`${file.name}: not an image`);
+        const kind = kindForFile(file, !!onAddFont);
+        if (!kind) {
+          failures.push(`${file.name}: ${onAddFont ? 'unsupported file type' : 'not an image'}`);
           continue;
         }
         try {
+          if (kind === 'font' && onAddFont) {
+            await onAddFont(file, folderId);
+            continue;
+          }
           const created = await addTypstAsset(file, 'image', folderId);
           if (!firstImage) firstImage = created;
         } catch (e) {
@@ -460,7 +548,7 @@ export const AssetsPanel = memo(function AssetsPanel({ typst }: { typst?: TypstP
       // ten files doesn't open ten dialogs.
       if (firstImage) setEditing(firstImage);
     },
-    [addTypstAsset],
+    [addTypstAsset, onAddFont],
   );
 
   /** Panel-wide drop: OS files land in the folder currently being viewed. */
@@ -592,7 +680,7 @@ export const AssetsPanel = memo(function AssetsPanel({ typst }: { typst?: TypstP
         </button>
         <button
           onClick={() => fileInputRef.current?.click()}
-          title="Add images to this folder"
+          title={onAddFont ? 'Add images or fonts to this folder' : 'Add images to this folder'}
           className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))]"
         >
           {busy ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
@@ -602,7 +690,9 @@ export const AssetsPanel = memo(function AssetsPanel({ typst }: { typst?: TypstP
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.ttf,.otf,.woff,.woff2,.ttc"
+          // Offering a font in the picker only to reject it on upload is the
+          // bug this used to have; the two lists now agree with kindForFile.
+          accept={onAddFont ? `${IMAGE_ACCEPT},${FONT_ACCEPT}` : IMAGE_ACCEPT}
           className="hidden"
           onChange={(e) => {
             if (e.target.files) void ingest(e.target.files, selectedFolder);
@@ -734,6 +824,31 @@ export const AssetsPanel = memo(function AssetsPanel({ typst }: { typst?: TypstP
             </p>
           )}
 
+          {/* Fonts. Report tab only: a note has no `#set text(font: …)`. */}
+          {typst && (
+            <>
+              <div className="mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+                <FileType size={10} /> Fonts
+              </div>
+              {fonts.length > 0 ? (
+                <div className={`flex flex-col gap-1 ${wide ? 'max-w-md' : ''}`}>
+                  {fonts.map((a) => (
+                    <FontRow
+                      key={a.id}
+                      asset={a}
+                      onInsert={typst.onInsert}
+                      onDelete={removeAsset}
+                      onDragStartAsset={onDragStartAsset}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[10px] leading-relaxed text-[hsl(var(--muted-foreground))]">
+                  Drop .ttf / .otf / .woff files here to use them in the document.
+                </p>
+              )}
+            </>
+          )}
         </div>
       </div>
 

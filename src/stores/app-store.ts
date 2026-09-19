@@ -160,7 +160,14 @@ interface AppState {
   // Typst assets (report screenshots + custom fonts)
   typstAssets: TypstAsset[];
   loadTypstAssets: () => Promise<void>;
-  addTypstAsset: (file: File, kind: TypstAssetKind, folderId?: ID | null) => Promise<TypstAsset>;
+  /**
+   * `fontFamily` is what `#set text(font: "…")` matches, and only a `font`
+   * upload has one. It is passed in rather than read here because reading it
+   * means asking the Typst compiler, and the store must not pull the wasm
+   * engine into the entry bundle: the report tab, which already has the
+   * compiler, resolves it and hands it over.
+   */
+  addTypstAsset: (file: File, kind: TypstAssetKind, folderId?: ID | null, fontFamily?: string | null) => Promise<TypstAsset>;
   moveTypstAssetToFolder: (assetId: ID, folderId: ID | null) => Promise<void>;
   // Asset folders: the Typst assets panel's hierarchy (organizational only).
   assetFolders: AssetFolder[];
@@ -798,7 +805,7 @@ export const useAppStore = create<AppState>((set, get) => {
   setEditingAssetId: (id) => set({ editingAssetId: id }),
   imageMenu: null,
   setImageMenu: (menu) => set({ imageMenu: menu }),
-  addTypstAsset: async (file: File, kind: TypstAssetKind, folderId?: ID | null) => {
+  addTypstAsset: async (file: File, kind: TypstAssetKind, folderId?: ID | null, fontFamily?: string | null) => {
     const wsId = get().activeWorkspaceId;
     if (!wsId) throw new Error('No active workspace');
     const { uploadAsset, readImageSize } = await import('@/lib/assets');
@@ -826,7 +833,7 @@ export const useAppStore = create<AppState>((set, get) => {
       size: uploaded.size,
       width,
       height,
-      fontFamily: null,
+      fontFamily: kind === 'font' ? fontFamily ?? null : null,
       folderId: folderId ?? null,
     });
     set((s) => ({ typstAssets: [...s.typstAssets, asset] }));
