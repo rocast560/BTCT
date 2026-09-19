@@ -22,3 +22,8 @@ README.md
 .preview
 backups
 blog
+
+# Staged by `bun scripts/fonts.ts` during the build, from the CDN, so the
+# image is reproducible from the commit. Letting a developer's local copy
+# ride in means the fetch never runs and a half-written font could ship.
+public/fonts

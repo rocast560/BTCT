@@ -846,7 +846,7 @@ server/
 cmdlog-agent/                 Standalone Python 3 shell-capture agent (own README + tests)
   btct_agent/                 matcher, redactor, spool, shipper, daemon, installer, hooks/
 scripts/
-  fonts.ts                    Stages the 17 default report fonts into public/fonts (gitignored)
+  fonts.ts                    Stages the 17 default report fonts into public/fonts (git- and dockerignored)
 ```
 
 > Adding a file under `server/` means adding a `COPY server/<file>.mjs` line to
@@ -1456,8 +1456,15 @@ Unit suites live in [src/test/](src/test/) (pure logic: pane layout, nmap
 parser, markdown export, the retired-feature archive, editor-prefs shortcut
 parsing, crop/blur geometry, backup format, page history, etc.). The full build is `bun run build` (`tsc -b && vite build`).
 `bun run fonts` (`scripts/fonts.ts`) stages the 17 default Typst report fonts into
-`public/fonts/`, which is gitignored; the Dockerfile runs it before the client
-build so a fresh image always has them.
+`public/fonts/`, which is gitignored **and dockerignored**: the image build runs
+the script before the client build and fetches every font from the CDN, rather
+than copying whatever a developer happens to have locally, so the image is
+reproducible from the commit. Each file is written under a `.partial` name and
+renamed, so an interrupted fetch cannot leave a truncated font that the
+skip-if-present check would then trust. The build then asserts that `dist/fonts`
+holds 17 files, because a missing font is invisible at runtime: the static
+handler answers with `index.html` and the failure surfaces as a font-parser
+error from the compiler.
 
 ---
 

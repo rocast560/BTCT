@@ -45,7 +45,7 @@ Client (repo root; run scripts with `bun run`):
   - Single file: `bun run test -- src/test/pane-layout.test.ts`
   - By name: `bun run test -- -t "moveTab"`
 - `bun run seed`: seed a demo workspace (`vite-node src/db/seed.ts`).
-- `bun run fonts`: stage the 17 default Typst report fonts (`scripts/fonts.ts`, CDN fetch with a skip-if-present check) into `public/fonts/`, which is gitignored; the Dockerfile runs this before `bun run build` so the image always has them.
+- `bun run fonts`: stage the 17 default Typst report fonts (`scripts/fonts.ts`, CDN fetch with a skip-if-present check, written to a `.partial` name and renamed so an interrupted fetch leaves nothing to trust) into `public/fonts/`, which is gitignored **and dockerignored**, so the image build always fetches them rather than copying a local copy. The Dockerfile runs this before `bun run build` and then asserts `dist/fonts` holds 17 files, since a missing font only shows up at runtime as a font-parser error (the static handler answers a missing file with `index.html`).
 
 Server (in `server/`, plain `.mjs`, no build step; Bun runs it directly):
 - `cd server && bun install`

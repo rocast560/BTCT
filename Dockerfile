@@ -25,6 +25,14 @@ COPY server/*.d.mts ./server/
 COPY server/typst/*.d.mts ./server/typst/
 RUN bun scripts/fonts.ts && bun run build
 
+# `public/fonts` is dockerignored, so the fonts here were fetched from the
+# CDN by the step above rather than copied from a developer's machine. A
+# missing font is not visible at runtime (the static handler answers with
+# index.html and the compiler reports a parser error), so fail the build
+# instead. Keep this ahead of the gzip step below, which leaves a `.gz`
+# sibling next to each font and would make the count 34.
+RUN test "$(ls dist/fonts | wc -l)" -eq 17
+
 # Precompress the compressible static files so the server can hand a
 # `file.gz` sibling to any client that accepts gzip (see tryServeStatic).
 # Compress both the small startup bundles and the optional report compiler,
@@ -54,32 +62,35 @@ ENV NODE_ENV=production \
     DB_PATH=/data/data.sqlite \
     BACKUP_DIR=/backups
 
-# Copy server source + its node_modules.
-COPY --from=server-deps /server/node_modules /app/server/node_modules
-COPY server/package.json /app/server/package.json
-COPY server/index.mjs   /app/server/index.mjs
-COPY server/auth.mjs    /app/server/auth.mjs
-COPY server/db.mjs      /app/server/db.mjs
-COPY server/yjs-data.mjs /app/server/yjs-data.mjs
-COPY server/assets.mjs  /app/server/assets.mjs
-COPY server/cmdlog.mjs  /app/server/cmdlog.mjs
-COPY server/scheduler.mjs     /app/server/scheduler.mjs
-COPY server/backup-format.mjs /app/server/backup-format.mjs
-COPY server/data-export.mjs   /app/server/data-export.mjs
-COPY server/backup.mjs        /app/server/backup.mjs
-COPY server/restore.mjs       /app/server/restore.mjs
-COPY server/history.mjs       /app/server/history.mjs
-COPY server/history-diff.mjs  /app/server/history-diff.mjs
-COPY server/retention.mjs     /app/server/retention.mjs
+# Copy server source + its node_modules. Ownership is set as each layer is
+# written: a later `chown -R … /app` would rewrite every file and duplicate
+# the whole 55.6 MB dist layer in the image.
+COPY --from=server-deps --chown=bun:bun /server/node_modules /app/server/node_modules
+COPY --chown=bun:bun server/package.json /app/server/package.json
+COPY --chown=bun:bun server/index.mjs   /app/server/index.mjs
+COPY --chown=bun:bun server/auth.mjs    /app/server/auth.mjs
+COPY --chown=bun:bun server/db.mjs      /app/server/db.mjs
+COPY --chown=bun:bun server/yjs-data.mjs /app/server/yjs-data.mjs
+COPY --chown=bun:bun server/assets.mjs  /app/server/assets.mjs
+COPY --chown=bun:bun server/cmdlog.mjs  /app/server/cmdlog.mjs
+COPY --chown=bun:bun server/scheduler.mjs     /app/server/scheduler.mjs
+COPY --chown=bun:bun server/backup-format.mjs /app/server/backup-format.mjs
+COPY --chown=bun:bun server/data-export.mjs   /app/server/data-export.mjs
+COPY --chown=bun:bun server/backup.mjs        /app/server/backup.mjs
+COPY --chown=bun:bun server/restore.mjs       /app/server/restore.mjs
+COPY --chown=bun:bun server/history.mjs       /app/server/history.mjs
+COPY --chown=bun:bun server/history-diff.mjs  /app/server/history-diff.mjs
+COPY --chown=bun:bun server/retention.mjs     /app/server/retention.mjs
 
 
 # Copy the static client build.
-COPY --from=client-build /app/dist /app/dist
+COPY --from=client-build --chown=bun:bun /app/dist /app/dist
 
 # Persistent volume for SQLite + Yjs + assets, and the backup folder the
 # compose file bind-mounts from the host (created here so a run without the
-# mount still has somewhere writable).
-RUN mkdir -p /data /backups && chown -R bun:bun /data /backups /app
+# mount still has somewhere writable). Only these two need the recursive
+# chown: everything under /app arrived owned by bun already.
+RUN mkdir -p /data /backups && chown -R bun:bun /data /backups
 VOLUME ["/data"]
 USER bun
 

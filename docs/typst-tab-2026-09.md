@@ -260,12 +260,15 @@ document with no images, which is consistent with those.
   overlay was mostly used for. If it turns out to be missed, it is at git
   revision `8a549fb^`, in `src/components/typst/TypstAssetsPanel.tsx` and
   `src/components/typst/TypstView.tsx`.
-- **The font build step is a no-op in Docker.** `scripts/fonts.ts` skips any
-  font already on disk, and `public/fonts/` is gitignored but not
-  dockerignored, so it rides into the build context and the script downloads
+- **The font build step was a no-op in Docker.** `scripts/fonts.ts` skips any
+  font already on disk, and `public/fonts/` was gitignored but not
+  dockerignored, so it rode into the build context and the script downloaded
   nothing. The image build printed `fonts: 17 files in /app/public/fonts` in
-  0.3 s. I never exercised the jsDelivr fetch path, so I cannot say it works;
-  it is untested here.
+  0.3 s, which is what a working fetch and a skipped one look like from the
+  outside. Fixed on 2026-09-19: `public/fonts` is dockerignored, the script
+  runs at top level so a failure is a non-zero exit, each font is written
+  under a `.partial` name and renamed, and the build asserts `dist/fonts`
+  holds 17 files. See the proof build in the same day's fix wave.
 
 ## What the tab holds open, and when it lets go
 
