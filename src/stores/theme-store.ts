@@ -18,6 +18,7 @@ import { useAuthStore } from '@/auth/auth-store';
 import { applyThemeColor, DEFAULT_THEME_COLOR } from '@/lib/theme';
 import { resolveThemePrefs, type ThemePrefs } from '@/lib/editor-prefs';
 import { DEFAULT_BLUR_STRENGTH } from '@/lib/blur-math';
+import { DEFAULT_FEATURES, resolveFeatures, type Features } from '@/lib/features';
 
 function apiUrl(): string {
   if (typeof window === 'undefined') return 'http://127.0.0.1:1234';
@@ -67,6 +68,8 @@ interface ThemeState {
   applyServerBlur: (data: PublicBlurSettings | null | undefined) => void;
   /** Admin-only: set the workspace blur defaults. */
   updateBlurDefaults: (patch: { gaussian?: number; pixelate?: number }) => Promise<void>;
+  /** Server-decided feature switches (env-driven); seeded by GET /api/settings. */
+  features: Features;
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -79,6 +82,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   loaded: false,
   blurDefaults: { gaussian: DEFAULT_BLUR_STRENGTH, pixelate: DEFAULT_BLUR_STRENGTH },
   blurUpdatedAt: 0,
+  features: DEFAULT_FEATURES,
 
   applyServerTheme: (data) => {
     if (!data || typeof data !== 'object') return;
@@ -138,6 +142,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       const data = (await res.json()) as PublicThemeSettings & PublicBlurSettings;
       get().applyServerTheme(data);
       get().applyServerBlur(data);
+      set({ features: resolveFeatures(data) });
     } catch {
       // Network/server hiccup: fall back to the default so the UI never
       // ends up uncolored, but leave `loaded` false so a later retry can

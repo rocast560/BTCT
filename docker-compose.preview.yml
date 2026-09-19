@@ -23,6 +23,8 @@ services:
       DB_PATH: /data/data.sqlite
       YPERSISTENCE: /data/yjs
       BACKUP_DIR: /backups
+      # "1" turns on the Typst report tab. Leave off on a small box.
+      ENABLE_TYPST: "${ENABLE_TYPST:-0}"
     volumes:
       - preview-data:/data
       - preview-backups:/backups

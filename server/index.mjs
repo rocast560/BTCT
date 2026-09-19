@@ -153,6 +153,10 @@ const STATIC_DIR = process.env.STATIC_DIR
   ? path.resolve(process.env.STATIC_DIR)
   : null;
 
+// Feature switch for the Typst report tab. Env only, never a setting: a small
+// box must not be switchable from the UI.
+const ENABLE_TYPST = process.env.ENABLE_TYPST === '1' || process.env.ENABLE_TYPST === 'true';
+
 // ─────────────────────────────────────────────────────────────────────────
 // Admin bootstrap. On first launch (or whenever no admin exists) ensure a
 // default admin account is present. Credentials come from environment
@@ -519,7 +523,7 @@ const httpServer = http.createServer(async (req, res) => {
     // primary theme color matches the rest of the app from first paint.
     // Also carries the admin heading-colour policy (defaults + hard-lock).
     if (req.method === 'GET' && req.url === '/api/settings') {
-      return sendJson(res, 200, publicThemeSettings());
+      return sendJson(res, 200, { ...publicThemeSettings(), features: { typst: ENABLE_TYPST } });
     }
 
     // Admin-only: update the workspace theme policy. `color` is the accent

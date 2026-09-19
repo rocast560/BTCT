@@ -23,6 +23,8 @@ services:
       # folder is bind-mounted from the host below so backups survive the
       # container and can be copied anywhere.
       BACKUP_DIR: "/backups"
+      # "1" turns on the Typst report tab. Leave off on a small box.
+      ENABLE_TYPST: "${ENABLE_TYPST:-0}"
       # Leave ALLOWED_ORIGIN unset for same-origin deployment (recommended).
       # Set it only if the API will be accessed from a different origin.
     volumes:

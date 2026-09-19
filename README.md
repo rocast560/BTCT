@@ -612,7 +612,7 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/healthz` | none | Liveness probe (`{ ok: true }`) |
-| `GET` | `/api/settings` | none | Public theme + blur defaults: `themeColor`, `themeHeadings`, `themeLock`, `themeUpdatedAt`, `blurDefaults`, `blurUpdatedAt` (so login paints correctly) |
+| `GET` | `/api/settings` | none | Public theme + blur defaults: `themeColor`, `themeHeadings`, `themeLock`, `themeUpdatedAt`, `blurDefaults`, `blurUpdatedAt` (so login paints correctly), plus `features` (env-driven switches, e.g. `{ typst: false }`) |
 | `POST` | `/api/settings/theme` | admin | Set any of `color`, `headings`, `lock`; the result is mirrored into the shared doc (`settingsPublic.theme`) |
 | `POST` | `/api/settings/blur` | admin | Set the workspace default blur strengths (`gaussian`, `pixelate`, each 0.25..3); mirrored into `settingsPublic.blur` |
 | `POST` | `/api/login` | none | Authenticate → `{ token, user }` |
@@ -685,6 +685,9 @@ beside `DB_PATH`, i.e. `/data/history` in Docker), `YPERSISTENCE`
 scheduled backups are written; `/backups` in Docker, bind-mounted from
 `./backups`, else `backups/` beside `DB_PATH`),
 `ALLOWED_ORIGIN` (CORS; unset = same-origin),
+`ENABLE_TYPST` (`"1"` or `"true"` turns on the Typst report tab; off by
+default, exposed to clients as `features.typst` from `GET /api/settings`, and
+not settable from the UI so a small box can't be switched on by mistake),
 `ADMIN_USERNAME`/`ADMIN_PASSWORD` (bootstrap admin, default `admin`/`changeme!`).
 Client build-time: `VITE_API_URL`, `VITE_WS_URL` (default same-origin).
 
