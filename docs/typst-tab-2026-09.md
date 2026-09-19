@@ -248,6 +248,18 @@ document with no images, which is consistent with those.
   redaction is applied correctly. The verification run lost time to this before
   regenerating the test image at 2px cells. Not a bug, but it will catch the
   next person too.
+- **One feature of the old tab did not come back.** The removed version could
+  expand the assets rail over the whole tab, with a `Maximize2` button in the
+  panel header driving `assetsMax` / `toggleAssetsMax` / `hideAssets` in
+  `TypstView` and `fullscreen` / `onToggleFullscreen` / `onHide` on the panel.
+  Restoring it would have meant putting those three props on
+  `AssetsPanel`'s new `typst` prop, and `AssetsPanel` is shared with the
+  Assets Manager tab, so I left it out. The rail is still resizable by
+  dragging its divider (double-click resets the default width) and still hides
+  and shows from the Assets button in the tab's header, which is what the
+  overlay was mostly used for. If it turns out to be missed, it is at git
+  revision `8a549fb^`, in `src/components/typst/TypstAssetsPanel.tsx` and
+  `src/components/typst/TypstView.tsx`.
 - **The font build step is a no-op in Docker.** `scripts/fonts.ts` skips any
   font already on disk, and `public/fonts/` is gitignored but not
   dockerignored, so it rides into the build context and the script downloads

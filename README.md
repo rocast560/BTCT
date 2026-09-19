@@ -362,8 +362,10 @@ command palette. There is one report per workspace.
   what it costs a box that never turns the flag on, is in
   [docs/typst-tab-2026-09.md](docs/typst-tab-2026-09.md).
 - **Your screenshots are the figures.** The report has its own assets rail
-  (the same folder tree, crop and redaction as the Assets tab, stacked into a
-  side panel you can drag wider or hide from the header). Declare a figure
+  down the right side: the same folder tree, crop and redaction as the Assets
+  tab, stacked to fit a narrow column. Drag its divider to resize it (or
+  double-click the divider to put it back to its default width), and use the
+  Assets button in the tab's header to hide or show it. Declare a figure
   slot in the source with `#image-placeholder("caption")`, then drop a
   screenshot into it from the rail: it is placed by path, and the crop and
   the blur rectangles you drew are what lands in the PDF. The `+` on a card
@@ -448,6 +450,7 @@ panel).
 | Code block / Block mode | `Mod+/` ⚙ | Focus the language picker (works with the block selected too) |
 | Language picker | type, `Enter`, `↑`/`↓`, `Esc` | Filter, Enter drops to the closest match, arrows choose, Enter sets, Esc closes |
 | Image editor | `Enter` / `Esc` | Save the crop and redactions / cancel |
+| Place screenshot dialog | `Enter` / `Esc` | Place the image in the selected figure slot (Enter does nothing while no slot is selected) / leave blur mode, or close the dialog when you are not in blur mode. Both keys are ignored while the new-slot caption box is open. |
 | Table | `Backspace`/`Delete` with a table column, row or whole table selected | Delete that structure (a partial cell selection only clears the cells) |
 | Table | `Shift+Enter` in a cell | Insert a row below and move the caret into it |
 | Nmap | `Ctrl+Shift+click` a machine row | Open machine in a new tab |
