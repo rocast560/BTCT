@@ -95,6 +95,51 @@ function webpSize(bytes) {
  * SVG is the one image the staging code accepts without dimensions, so the
  * exemption has to be earned by the bytes and not just by an extension.
  */
+// An SVG is staged without dimensions, so none of the pixel accounting above
+// applies to it. Typst's SVG loader is tight about what it will fetch (no
+// http, no file:// and nothing outside the compile root), but an embedded
+// data URI is a raster it decodes: a 596 KB SVG carrying a 12000x12000 PNG
+// took the typst child to a 431 MB peak, and an SVG may repeat <image> as
+// often as it likes.
+const MAX_SVG_MB = 2;
+const MAX_SVG_BYTES = MAX_SVG_MB * 1024 * 1024;
+// Also catches a namespace prefix, as in `<svg:image>`. `\b` is what keeps
+// `<imageinary>` out of it.
+const SVG_IMAGE_TAG = /<(?:[A-Za-z0-9_.-]+:)?image\b/i;
+
+/**
+ * Why this SVG cannot be staged, or null when it can.
+ *
+ * Only the two levers that make an SVG unbounded are closed: an embedded
+ * bitmap, and a file too big to be worth scanning. A tag smuggled through an
+ * XML entity or a CDATA section is out of scope, except that an SVG which
+ * declares entities at all is refused, since that is how the tag would be
+ * smuggled and no report needs them.
+ */
+export function svgRefusal(bytes, name) {
+  if (!bytes) return null;
+  // UTF-16 cannot be scanned by a regex over a UTF-8 decode, and typst reads
+  // it happily, so it is refused before anything else looks at the content.
+  if ((bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff)) {
+    return `${name}: this SVG is not UTF-8, so the server cannot check it.`;
+  }
+  if (bytes.length > MAX_SVG_BYTES) {
+    return `${name}: this SVG is too large to export from the server (${(bytes.length / 1024 / 1024).toFixed(1)} MB). Export the PDF from the browser instead.`;
+  }
+  const text = new TextDecoder('utf-8').decode(bytes);
+  // The prolog is everything before the root element, which is where a
+  // doctype's internal subset lives. A plain doctype with no subset is fine.
+  const rootAt = text.search(/<svg\b/i);
+  const prolog = rootAt === -1 ? text : text.slice(0, rootAt);
+  if (/<!ENTITY/i.test(prolog)) {
+    return `${name}: this SVG declares XML entities, so the server cannot check it. Export the PDF from the browser instead.`;
+  }
+  if (SVG_IMAGE_TAG.test(text)) {
+    return `${name}: this SVG embeds a bitmap, which the server cannot size. Export the PDF from the browser instead.`;
+  }
+  return null;
+}
+
 export function looksLikeSvg(bytes) {
   if (!bytes || bytes.length < 4) return false;
   let at = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 3 : 0; // UTF-8 BOM

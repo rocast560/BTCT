@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { imageSize, looksLikeSvg } from '../../server/typst/image-size.mjs';
+import { imageSize, looksLikeSvg, svgRefusal } from '../../server/typst/image-size.mjs';
 
 // Dimensions have to come from the header, because the number this guards
 // against is the DECODED size: a 6000x6000 PNG encodes to under a megabyte
@@ -177,5 +177,62 @@ describe('looksLikeSvg', () => {
 
   it('will not hunt past the first kilobyte for the tag', () => {
     expect(looksLikeSvg(bytes(`<!--${'x'.repeat(1100)}--><svg/>`))).toBe(false);
+  });
+});
+
+// SVG is staged without dimensions, so the pixel cap never sees it. Typst's
+// SVG loader refuses http and file hrefs and out-of-root paths, but an
+// embedded data URI is a raster the loader decodes: a 596 KB SVG carrying a
+// 12000x12000 PNG took the typst child to a 431 MB peak.
+describe('svgRefusal', () => {
+  const utf8 = (text: string, prefix: number[] = []) =>
+    new Uint8Array([...prefix, ...new TextEncoder().encode(text)]);
+
+  const LOGO = '<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M2 2h20v20H2z" fill="#036"/><text>image of a logo</text></svg>';
+
+  it('passes a clean logo', () => {
+    expect(svgRefusal(utf8(LOGO), 'logo.svg')).toBeNull();
+  });
+
+  it('passes a plain doctype, which has no internal subset', () => {
+    expect(svgRefusal(utf8('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n<svg/>'), 'logo.svg')).toBeNull();
+  });
+
+  it('refuses an embedded bitmap, whatever the case or namespace', () => {
+    for (const body of [
+      '<svg><image href="data:image/png;base64,iVBORw0KGgo="/></svg>',
+      '<svg><IMAGE xlink:href="data:image/png;base64,iVBORw0KGgo="/></svg>',
+      '<svg xmlns:svg="http://www.w3.org/2000/svg"><svg:image xlink:href="data:image/png;base64,AAAA"/></svg>',
+      '<svg>\n  <image\n    href="x.png"/>\n</svg>',
+    ]) {
+      const out = svgRefusal(utf8(body), 'shot.svg');
+      expect(out, body.slice(0, 40)).toBe('shot.svg: this SVG embeds a bitmap, which the server cannot size. Export the PDF from the browser instead.');
+    }
+  });
+
+  it('does not trip over a tag that merely starts with image', () => {
+    expect(svgRefusal(utf8('<svg><imageinary x="1"/><images/></svg>'), 'logo.svg')).toBeNull();
+    expect(svgRefusal(utf8('<svg><text>an image of a server</text></svg>'), 'logo.svg')).toBeNull();
+  });
+
+  it('refuses a UTF-16 file, which the check cannot read', () => {
+    const message = 'wide.svg: this SVG is not UTF-8, so the server cannot check it.';
+    expect(svgRefusal(utf8('<svg/>', [0xff, 0xfe]), 'wide.svg')).toBe(message);
+    expect(svgRefusal(utf8('<svg/>', [0xfe, 0xff]), 'wide.svg')).toBe(message);
+  });
+
+  it('refuses a declared entity, which is how a tag would be smuggled', () => {
+    const body = '<!DOCTYPE svg [<!ENTITY hidden "<image href=\'data:image/png;base64,AAAA\'/>">]>\n<svg>&hidden;</svg>';
+    expect(svgRefusal(utf8(body), 'sneaky.svg'))
+      .toBe('sneaky.svg: this SVG declares XML entities, so the server cannot check it. Export the PDF from the browser instead.');
+  });
+
+  it('refuses anything over two megabytes', () => {
+    const big = new Uint8Array(2 * 1024 * 1024 + 1);
+    big.set(new TextEncoder().encode('<svg/>'), 0);
+    expect(svgRefusal(big, 'huge.svg')).toBe('huge.svg: this SVG is too large to export from the server (2.0 MB). Export the PDF from the browser instead.');
+    const justUnder = new Uint8Array(2 * 1024 * 1024);
+    justUnder.set(new TextEncoder().encode('<svg/>'), 0);
+    expect(svgRefusal(justUnder, 'huge.svg')).toBeNull();
   });
 });

@@ -7,7 +7,7 @@ import { readTypstSource, listAssetRecords } from '../yjs-data.mjs';
 import { ASSETS_DIR } from '../data-export.mjs';
 import { getAsset } from '../db.mjs';
 import { vetAssetRecord } from './vet-asset.mjs';
-import { imageSize, looksLikeSvg } from './image-size.mjs';
+import { imageSize, looksLikeSvg, svgRefusal } from './image-size.mjs';
 
 export class ExportError extends Error {
   constructor(status, message, diagnostics) { super(message); this.status = status; this.diagnostics = diagnostics; }
@@ -138,9 +138,14 @@ export async function stageReport(workspaceId) {
       const mayBake = !!a.crop || (Array.isArray(a.blurs) && a.blurs.length > 0);
       // The .svg name is what buys the unsized exemption below, and typst
       // picks its decoder from that name too, so the bytes have to agree
-      // with it either way.
-      if (SVG_NAME.test(name) && !looksLikeSvg(bytes)) {
-        throw new ExportError(422, `${name}: this file is named .svg but does not contain SVG, so it cannot be exported from the server.`);
+      // with it either way, and an SVG that could hide a raster inside
+      // itself does not get the exemption at all.
+      if (SVG_NAME.test(name)) {
+        const refusal = svgRefusal(bytes, name);
+        if (refusal) throw new ExportError(422, refusal);
+        if (!looksLikeSvg(bytes)) {
+          throw new ExportError(422, `${name}: this file is named .svg but does not contain SVG, so it cannot be exported from the server.`);
+        }
       }
       if (!dims) {
         // Nothing unsized reaches a decoder. An un-baked image is still
