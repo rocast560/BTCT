@@ -93,15 +93,48 @@ async function toPdf(root) {
   return new Uint8Array(fs.readFileSync(out));
 }
 
+// Every image pandoc will resolve itself, as a plain string literal. The
+// helper's own `image(path, ...)` passes a variable, so it is not matched.
+const IMAGE_LITERAL = /\bimage\(\s*"([^"\\]*)"/g;
+
+/**
+ * Refuse a Word export whose report points an image anywhere but the staged
+ * directory.
+ *
+ * `typst compile --root <staged>` confines the PDF side by itself. pandoc has
+ * no equivalent: measured against pandoc 3.11, a report that names an
+ * absolute path has that file read and embedded in the Word document, and one
+ * that names an http URL has it fetched. `--resource-path .` only says where
+ * RELATIVE paths are looked up, so it stops neither. `toPandocSource` already
+ * turns `image("/x")` into a relative `x`, which leaves a Windows drive path,
+ * a UNC path, a URL and a `..` climb, so those are what this rejects, and the
+ * report gets the same answer the PDF export would give it.
+ */
+function assertStagedImagePaths(rewritten) {
+  for (const m of rewritten.matchAll(IMAGE_LITERAL)) {
+    const p = m[1];
+    const escapes = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(p) // a scheme: http:, file:, C:
+      || p.startsWith('//') || p.startsWith('\\') // a UNC share
+      || path.isAbsolute(p)
+      || p.split(/[\\/]/).includes('..');
+    if (escapes) throw new ExportError(422, `the Word export can only use images staged from this workspace, and this report points at "${p}"`);
+  }
+}
+
 async function toDocx(root, source) {
   const cli = clis().pandoc;
   if (!cli) throw new ExportError(501, 'pandoc not found on this server');
-  fs.writeFileSync(path.join(root, 'docx.typ'), toPandocSource(source));
-  // --sandbox (pandoc 3.x) confines the reader to the working directory and
-  // blocks it from fetching URLs, so a report can neither read the server's
-  // files nor make it issue requests. The staged images still embed: they sit
-  // under cwd, which the sandbox allows.
-  const { code, stderr } = await run(cli, ['docx.typ', '-f', 'typst', '-t', 'docx', '--sandbox', '--resource-path', '.', '-o', 'out.docx'], root);
+  const rewritten = toPandocSource(source);
+  assertStagedImagePaths(rewritten);
+  fs.writeFileSync(path.join(root, 'docx.typ'), rewritten);
+  // Not `--sandbox`: pandoc's sandbox limits reader IO to the files named on
+  // the command line (its manual says so), and an image referenced from the
+  // document is not one of them. Measured with pandoc 3.11, `--sandbox` drops
+  // every image from the Word file, without a word on stderr, which is worse
+  // than no Word export at all: the reader would never learn that the figure
+  // under the caption is missing. assertStagedImagePaths above is what keeps
+  // the reader inside the staged directory instead.
+  const { code, stderr } = await run(cli, ['docx.typ', '-f', 'typst', '-t', 'docx', '--resource-path', '.', '-o', 'out.docx'], root);
   const out = path.join(root, 'out.docx');
   if (code !== 0 || !fs.existsSync(out)) throw new ExportError(422, stderr.trim() || 'pandoc could not convert the report');
   return new Uint8Array(fs.readFileSync(out));
