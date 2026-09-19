@@ -7,7 +7,7 @@ import { readTypstSource, listAssetRecords } from '../yjs-data.mjs';
 import { ASSETS_DIR } from '../data-export.mjs';
 import { getAsset } from '../db.mjs';
 import { vetAssetRecord } from './vet-asset.mjs';
-import { imageSize } from './image-size.mjs';
+import { imageSize, looksLikeSvg } from './image-size.mjs';
 
 export class ExportError extends Error {
   constructor(status, message, diagnostics) { super(message); this.status = status; this.diagnostics = diagnostics; }
@@ -47,6 +47,7 @@ const MAX_MEGAPIXELS = 10;
 const MAX_PIXELS = MAX_MEGAPIXELS * 1_000_000;
 const MAX_DECODED_MB = 512;
 const MAX_DECODED_BYTES = MAX_DECODED_MB * 1024 * 1024;
+const SVG_NAME = /\.svg$/i;
 
 /**
  * Basenames of the `/assets/...` paths the report actually mentions.
@@ -135,11 +136,27 @@ export async function stageReport(workspaceId) {
       // A superset of what bakeImage treats as work: a full-frame crop counts
       // here and not there, which errs towards refusing.
       const mayBake = !!a.crop || (Array.isArray(a.blurs) && a.blurs.length > 0);
-      if (dims && dims.width * dims.height > MAX_PIXELS) {
-        throw new ExportError(422, `${name} is too large to export from the server (${dims.width} x ${dims.height}). Export the PDF from the browser instead, or downscale the screenshot.`);
+      // The .svg name is what buys the unsized exemption below, and typst
+      // picks its decoder from that name too, so the bytes have to agree
+      // with it either way.
+      if (SVG_NAME.test(name) && !looksLikeSvg(bytes)) {
+        throw new ExportError(422, `${name}: this file is named .svg but does not contain SVG, so it cannot be exported from the server.`);
       }
-      if (!dims && mayBake) {
-        throw new ExportError(422, `${name} cannot be sized from its header, so the server will not redact it. Export the PDF from the browser instead.`);
+      if (!dims) {
+        // Nothing unsized reaches a decoder. An un-baked image is still
+        // decoded, by the typst child rather than by jimp: a 5560-byte
+        // 12000x12000 lossless WebP took it to a 958 MB working set, which
+        // is the whole container. SVG is the single exemption, because it
+        // has no pixel dimensions to read and rasterizes at the size the
+        // layout asks for, and it has to look like SVG to claim it.
+        if (!(SVG_NAME.test(name) && looksLikeSvg(bytes))) {
+          throw new ExportError(422, `${name}: this image's size could not be read, so it cannot be exported from the server.`);
+        }
+        if (mayBake) {
+          throw new ExportError(422, `${name} cannot be sized from its header, so the server will not redact it. Export the PDF from the browser instead.`);
+        }
+      } else if (dims.width * dims.height > MAX_PIXELS) {
+        throw new ExportError(422, `${name} is too large to export from the server (${dims.width} x ${dims.height}). Export the PDF from the browser instead, or downscale the screenshot.`);
       }
       if (dims && mayBake) {
         decodedBytes += dims.width * dims.height * 4;

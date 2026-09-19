@@ -5,9 +5,12 @@
 // which is the whole box. Reading the header first is what lets the staging
 // code refuse that image before jimp ever sees it.
 //
-// PNG, JPEG and GIF only. A format whose header is not covered here comes
-// back null, and the caller decides: an image that needs baking is refused
-// (never bake what you cannot size), one that is only copied is staged.
+// PNG, JPEG, GIF and WebP. WebP earns its share of the code because it is
+// the worst of them: a 5560-byte 12000x12000 lossless file took the typst
+// child to a 958 MB working set, and the format allows 16383x16383. A format
+// whose header is not covered here comes back null, and the caller refuses
+// it unless it is an SVG, which has no pixel dimensions to read and nothing
+// for a pixel cap to bound.
 //
 // Pure: no fs, so src/test covers it through the .d.mts beside this file.
 
@@ -56,6 +59,55 @@ function gifSize(bytes) {
   return size(bytes[6] + (bytes[7] << 8), bytes[8] + (bytes[9] << 8));
 }
 
+const fourcc = (bytes, at) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
+
+// The canvas size lives in a different place in each of the three chunk
+// kinds, and every field is little endian.
+function webpSize(bytes) {
+  if (bytes.length < 16 || fourcc(bytes, 8) !== 'WEBP') return null;
+  const chunk = fourcc(bytes, 12);
+
+  if (chunk === 'VP8X') { // extended format: an explicit canvas, 24 bits each
+    if (bytes.length < 30) return null;
+    const le24 = (at) => bytes[at] + (bytes[at + 1] << 8) + (bytes[at + 2] << 16);
+    return size(le24(24) + 1, le24(27) + 1);
+  }
+
+  if (chunk === 'VP8L') { // lossless: 14 bits each, packed from the low bit up
+    if (bytes.length < 25 || bytes[20] !== 0x2f) return null;
+    const packed = (bytes[21] + (bytes[22] << 8) + (bytes[23] << 16) + (bytes[24] << 24)) >>> 0;
+    return size((packed & 0x3fff) + 1, ((packed >>> 14) & 0x3fff) + 1);
+  }
+
+  if (chunk === 'VP8 ') { // lossy: a keyframe header behind the start code
+    if (bytes.length < 30) return null;
+    if (bytes[23] !== 0x9d || bytes[24] !== 0x01 || bytes[25] !== 0x2a) return null;
+    const le14 = (at) => (bytes[at] + (bytes[at + 1] << 8)) & 0x3fff;
+    return size(le14(26), le14(28));
+  }
+
+  return null;
+}
+
+/**
+ * Does this look like SVG, whatever the name says?
+ *
+ * SVG is the one image the staging code accepts without dimensions, so the
+ * exemption has to be earned by the bytes and not just by an extension.
+ */
+export function looksLikeSvg(bytes) {
+  if (!bytes || bytes.length < 4) return false;
+  let at = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 3 : 0; // UTF-8 BOM
+  while (at < bytes.length && bytes[at] <= 0x20) at += 1; // leading whitespace
+  if (bytes[at] !== 0x3c) return false; // must open with '<', which no raster does
+  // The `<svg` tag can sit behind an XML declaration, a doctype or a comment,
+  // all of which real files carry, so look for it in the first kilobyte
+  // rather than demanding it first.
+  let head = '';
+  for (let i = at; i < Math.min(bytes.length, at + 1024); i += 1) head += String.fromCharCode(bytes[i]);
+  return head.toLowerCase().includes('<svg');
+}
+
 /**
  * @param bytes the first bytes of the file (the whole file is fine)
  * @returns `{ width, height }`, or null when the format or the header is not readable
@@ -65,5 +117,6 @@ export function imageSize(bytes) {
   if (startsWith(bytes, PNG_MAGIC)) return pngSize(bytes);
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return jpegSize(bytes);
   if (startsWith(bytes, [0x47, 0x49, 0x46, 0x38])) return gifSize(bytes);
+  if (startsWith(bytes, [0x52, 0x49, 0x46, 0x46])) return webpSize(bytes);
   return null;
 }
