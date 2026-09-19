@@ -132,3 +132,64 @@ describe('replaceOne / replaceAll', () => {
     expect(text).toBe('$5 here');
   });
 });
+
+// The panel searches a debounced copy of the source but the view applies the
+// rewrite to the live Y.Text, so a match's offsets can be stale by the time
+// `replaceOne` runs: a collaborator may have typed above it inside the
+// window. Splicing by those offsets lands on the wrong characters and
+// corrupts the report, so the match is re-verified where it claims to be and
+// a document that moved is left alone.
+describe('replaceOne verifies the match against the text it is given', () => {
+  it('leaves a literal match alone once its offsets have drifted', () => {
+    const hits = searchAll(SRC, 'admin', OPTS());
+    const drifted = `A collaborator typed this first.\n${SRC}`;
+
+    expect(replaceOne(drifted, hits[1]!, 'admin', 'operator', OPTS())).toBe(drifted);
+  });
+
+  it('leaves a regex match alone once its offsets have drifted', () => {
+    const hits = searchAll(SRC, 'adm\\w+', OPTS({ regex: true }));
+    const drifted = `A collaborator typed this first.\n${SRC}`;
+
+    expect(replaceOne(drifted, hits[1]!, 'adm\\w+', 'operator', OPTS({ regex: true }))).toBe(drifted);
+  });
+
+  it('still replaces a literal match that has not moved', () => {
+    const hits = searchAll(SRC, 'admin', OPTS());
+    const out = replaceOne(SRC, hits[1]!, 'admin', 'operator', OPTS());
+
+    expect(out).toContain('The operator should fix it');
+    expect(out.match(/admin/gi)?.length).toBe(3);
+  });
+
+  it('inserts $& and $1 literally in literal mode', () => {
+    const hits = searchAll(SRC, 'admin', OPTS());
+    const out = replaceOne(SRC, hits[1]!, 'admin', '$& and $1', OPTS());
+
+    // Not the matched text, not a capture: the characters themselves.
+    expect(out).toContain('The $& and $1 should fix it');
+  });
+
+  it('keeps expanding captures in regex mode', () => {
+    const src = 'foo=1; bar=2';
+    const hits = searchAll(src, '(\\w+)=(\\d+)', OPTS({ regex: true }));
+    const out = replaceOne(src, hits[1]!, '(\\w+)=(\\d+)', '$2:$1', OPTS({ regex: true }));
+
+    expect(out).toBe('foo=1; 2:bar');
+  });
+
+  it('honours case sensitivity and whole word the way replaceAll does', () => {
+    const sensitive = OPTS({ caseSensitive: true });
+    const hits = searchAll(SRC, 'Admin', sensitive);
+    expect(replaceOne(SRC, hits[0]!, 'Admin', 'Operator', sensitive))
+      .toContain('The Operator should fix it');
+
+    const whole = OPTS({ wholeWord: true });
+    const wholeHits = searchAll(SRC, 'admin', whole);
+    expect(replaceOne(SRC, wholeHits[0]!, 'admin', 'operator', whole))
+      .toContain('The operator panel is exposed');
+    // A query that is only part of a word finds nothing to verify against.
+    const partial = searchAll(SRC, 'admi', whole);
+    expect(partial).toHaveLength(0);
+  });
+});

@@ -128,9 +128,16 @@ export function TypstSearchPanel({ source, caret, onReveal, onReplaceSource, onC
   const doReplaceOne = useCallback(() => {
     if (total === 0) return;
     const m = matches[active]!;
-    // `m`'s offsets were measured against the scanned copy, so a remote edit
-    // above the match can still move it. `replaceOne` re-checks the match in
-    // regex mode and leaves the document alone when it no longer fits.
+    // `m`'s offsets were measured against `debouncedSource`, so a remote edit
+    // above the match can still have moved it. `replaceOne` re-anchors the
+    // match in the live text, in both literal and regex mode, and returns the
+    // document unchanged when it no longer fits there.
+    //
+    // Nothing is surfaced for that no-op on purpose: the match can only be
+    // stale while an update to `source` is still working through the view's
+    // 120 ms mirror and this panel's 150 ms debounce, so within a beat the
+    // scan re-runs against the new text and the user is looking at fresh
+    // matches rather than at a stale list that silently did nothing.
     onReplaceSource((current) => replaceOne(current, m, query, replacement, opts));
     // The source will re-flow; keep the same index so we advance to what is
     // now the next occurrence.

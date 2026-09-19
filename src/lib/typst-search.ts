@@ -153,6 +153,15 @@ function literalReplacement(replacement: string): string {
  * source. In regex mode `$1`/`$&`/`$$` in the replacement expand against this
  * match's captures (native `String.replace` semantics); in literal mode a `$`
  * stays a literal `$`.
+ *
+ * The match is re-checked where it claims to be, in BOTH modes, and the
+ * source is returned untouched when it no longer fits. `match.from/to` are
+ * measured against whatever the caller searched, and the Typst panel searches
+ * a debounced copy while the view applies the rewrite to the live Y.Text: a
+ * collaborator typing above the match inside that window shifts it, and an
+ * unverified splice would then overwrite the wrong characters. "The document
+ * moved under us, so do nothing" is the only safe answer, and the caller
+ * re-scans on the next mirror tick anyway.
  */
 export function replaceOne(
   source: string,
@@ -161,9 +170,8 @@ export function replaceOne(
   replacement: string,
   opts: SearchOptions,
 ): string {
-  if (!opts.regex) {
-    return source.slice(0, match.from) + replacement + source.slice(match.to);
-  }
+  // `compileMatcher` escapes a literal query, so both modes have a regex to
+  // verify with, exactly as in `replaceAll`.
   const re = compileMatcher(query, opts);
   if (!re) return source;
   // A sticky clone anchored at the match runs against the WHOLE source, so a
@@ -175,9 +183,10 @@ export function replaceOne(
   if (!m || m.index !== match.from || m[0].length !== match.to - match.from) return source;
   // String.replace honours lastIndex on a sticky regex, so this replaces
   // exactly this occurrence and still expands $1 / $& from the full-source
-  // match.
+  // match. A literal replacement has its `$`s doubled first, the same way
+  // `replaceAll` does it, so `$&` in the replacement box stays two characters.
   sticky.lastIndex = match.from;
-  return source.replace(sticky, replacement);
+  return source.replace(sticky, opts.regex ? replacement : literalReplacement(replacement));
 }
 
 /** Count matches without materializing them (bounded by `MAX_MATCHES`). */
