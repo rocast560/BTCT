@@ -130,13 +130,16 @@ function PaneSplit({ split }: { split: SplitPane }) {
  * in app-store.ts): `features` starts at `DEFAULT_FEATURES` (typst false)
  * and only flips once `GET /api/settings` resolves, so treating "false" as
  * "prune" would delete every flag-ON user's Report tab on each reload. The
- * render is gated here instead, and only once settings have actually
- * loaded, so a restored tab on a flag-off box never mounts `TypstView` (and
- * never requests its lazy chunk, so the compiler is never downloaded) while
- * a flag-on box never flashes the "off" notice during the load window.
+ * render is gated here instead, and only once the fetch that carries
+ * `features` has actually resolved (theme-store's `featuresLoaded`, not
+ * `loaded`, which also flips true from the live `settingsPublic` mirror and
+ * carries no `features` data), so a restored tab on a flag-off box never
+ * mounts `TypstView` (and never requests its lazy chunk, so the compiler is
+ * never downloaded) while a flag-on box never flashes the "off" notice
+ * during the load window.
  */
-export function typstTabState(features: { typst: boolean }, loaded: boolean): 'loading' | 'on' | 'off' {
-  if (!loaded) return 'loading';
+export function typstTabState(features: { typst: boolean }, featuresLoaded: boolean): 'loading' | 'on' | 'off' {
+  if (!featuresLoaded) return 'loading';
   return features.typst ? 'on' : 'off';
 }
 
@@ -160,7 +163,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
   const reorderTab = useAppStore((s) => s.reorderTab);
   const paneLayout = useAppStore((s) => s.paneLayout);
   const typstFeature = useThemeStore((s) => s.features.typst);
-  const typstLoaded = useThemeStore((s) => s.loaded);
+  const typstFeaturesLoaded = useThemeStore((s) => s.featuresLoaded);
 
   const [dropZone, setDropZone] = useState<DropPosition | null>(null);
   const leafRef = useRef<HTMLDivElement>(null);
@@ -170,7 +173,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
   const paneTabs = pane.tabIds.map((id) => tabs.find((t) => t.id === id)).filter(Boolean) as TabItem[];
   const activeTab = paneTabs.find((t) => t.id === pane.activeTabId) ?? paneTabs[0] ?? null;
   const isActive = activePaneId === pane.id;
-  const typstState = typstTabState({ typst: typstFeature }, typstLoaded);
+  const typstState = typstTabState({ typst: typstFeature }, typstFeaturesLoaded);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(TAB_DRAG_TYPE)) return;

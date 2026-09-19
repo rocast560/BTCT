@@ -55,6 +55,15 @@ interface ThemeState {
   /** Server stamp of the last theme change; older payloads are ignored. */
   updatedAt: number;
   loaded: boolean;
+  /**
+   * True only after `loadTheme`'s `GET /api/settings` fetch has resolved and
+   * set `features`. Kept separate from `loaded`, which also flips true from
+   * the live `settingsPublic` mirror (an IndexedDB replay or websocket sync,
+   * independent of that fetch and carrying no `features` data at all); a
+   * feature-gated render must wait on this flag, not `loaded`, or it can
+   * read the still-default `features` as final.
+   */
+  featuresLoaded: boolean;
   loadTheme: () => Promise<void>;
   /** Accept a server payload (REST seed or live mirror); stale ones are dropped. */
   applyServerTheme: (data: PublicThemeSettings | null | undefined) => void;
@@ -80,6 +89,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   lock: false,
   updatedAt: 0,
   loaded: false,
+  featuresLoaded: false,
   blurDefaults: { gaussian: DEFAULT_BLUR_STRENGTH, pixelate: DEFAULT_BLUR_STRENGTH },
   blurUpdatedAt: 0,
   features: DEFAULT_FEATURES,
@@ -142,7 +152,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       const data = (await res.json()) as PublicThemeSettings & PublicBlurSettings;
       get().applyServerTheme(data);
       get().applyServerBlur(data);
-      set({ features: resolveFeatures(data) });
+      set({ features: resolveFeatures(data), featuresLoaded: true });
     } catch {
       // Network/server hiccup: fall back to the default so the UI never
       // ends up uncolored, but leave `loaded` false so a later retry can
