@@ -8,6 +8,7 @@ import { ASSETS_DIR } from '../data-export.mjs';
 import { getAsset } from '../db.mjs';
 import { vetAssetRecord } from './vet-asset.mjs';
 import { imageSize, looksLikeSvg, svgRefusal } from './image-size.mjs';
+import { createPixelBudget } from './pixel-budget.mjs';
 
 export class ExportError extends Error {
   constructor(status, message, diagnostics) { super(message); this.status = status; this.diagnostics = diagnostics; }
@@ -28,7 +29,8 @@ const MAX_STAGED_BYTES = MAX_STAGED_MB * 1024 * 1024;
 // on top: the bakes are sequential, so this bounds time rather than peak
 // memory, and it stops a report from parking a core for a minute.
 //
-// The ceiling is measured, not guessed. Peak working set of this server for
+// The per-image ceiling is measured, not guessed. Peak working set of this
+// server for
 // one export of a blurred PNG, each on a freshly started process whose
 // baseline was 233 MB (2026-09-19, jimp 1.6, Windows):
 //
@@ -45,8 +47,6 @@ const MAX_STAGED_BYTES = MAX_STAGED_MB * 1024 * 1024;
 // 730 MB. A 5K screenshot is refused and exports from the browser instead.
 const MAX_MEGAPIXELS = 10;
 const MAX_PIXELS = MAX_MEGAPIXELS * 1_000_000;
-const MAX_DECODED_MB = 512;
-const MAX_DECODED_BYTES = MAX_DECODED_MB * 1024 * 1024;
 const SVG_NAME = /\.svg$/i;
 
 /**
@@ -95,7 +95,7 @@ export async function stageReport(workspaceId) {
     let baked = 0;
     let skippedDuplicates = 0;
     let stagedBytes = 0;
-    let decodedBytes = 0;
+    const budget = createPixelBudget();
     const warnings = [];
     const account = (n) => {
       stagedBytes += n;
@@ -163,12 +163,15 @@ export async function stageReport(workspaceId) {
       } else if (dims.width * dims.height > MAX_PIXELS) {
         throw new ExportError(422, `${name} is too large to export from the server (${dims.width} x ${dims.height}). Export the PDF from the browser instead, or downscale the screenshot.`);
       }
-      if (dims && mayBake) {
-        decodedBytes += dims.width * dims.height * 4;
-        if (decodedBytes > MAX_DECODED_BYTES) {
-          throw new ExportError(422, `this report needs more than ${MAX_DECODED_MB} MB of image decoding in one export. Export the PDF from the browser instead, or downscale the screenshots.`);
-        }
-      }
+      // Counted for every staged raster, redacted or not, and counted here
+      // so a report with forty screenshots is refused while it is being
+      // staged rather than after. This replaces a budget that only counted
+      // images with a crop or a blur on them, which left the common case
+      // (placed screenshots, nothing redacted) with no total bound at all:
+      // typst holds each decoded bitmap while it writes the PDF, so file
+      // bytes never stood in for it.
+      const overBudget = budget.add(dims);
+      if (overBudget) throw new ExportError(422, overBudget);
       let out;
       // bakeImage's own message already starts with the filename.
       try { out = await bakeImage(bytes, { crop: a.crop ?? null, blurs: a.blurs ?? null }, name); }
