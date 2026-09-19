@@ -310,12 +310,23 @@ possible while the replacement worker is still starting.
   shadow files are staged before the compile, but not inside the wasm
   instance's VFS until it finishes initializing. It self-corrects on the next
   compile and nothing is visibly wrong. It should be silenced.
-- **Nothing automated covers the font upload path.** No test renders
-  `AssetsPanel`, and the store action that carries the parsed family name has
-  no test either. It was verified by hand in a browser once. A font whose
-  metadata fails to parse degrades to the filename with the insert button
-  disabled, which is the intended behaviour and also what a silent breakage
-  would look like.
+- **The font upload path is covered at its ends, not in its middle.**
+  `src/test/assets-panel-fonts.test.tsx` renders `AssetsPanel` and pins the
+  routing: a dropped `.ttf` is rejected in the Assets Manager and handed to
+  `onAddFont` in the report rail, and neither path loads the placement
+  dialog. What is still untested is what sits between that callback and the
+  record: `TypstView`'s `addFont`, which reads the family name through
+  `getFontInfo` and swallows a parse failure in a bare `catch`, and the
+  store's `addTypstAsset` write of `fontFamily`. Both were verified by hand
+  in a browser once. A font whose metadata will not parse degrades to the
+  filename with the insert button disabled, which is the intended behaviour
+  and also exactly what a silent breakage would look like, so that `catch` is
+  the line worth a test.
+- **Two `loadTheme()` calls in the same tick start two retry chains.** The
+  guard in the settings retry clears a pending timer, which covers a retry
+  that is already scheduled, but two calls that race before either has failed
+  each schedule their own chain. In practice this is React StrictMode in dev
+  double-invoking the effect; production calls it once. Parked knowingly.
 - **The render cache is per page load.** It is module state, so a browser
   reload starts empty. Persisting a few MB of SVG per workspace in IndexedDB is
   not obviously worth it on a 1 GB box.
