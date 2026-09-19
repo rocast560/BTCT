@@ -157,6 +157,15 @@ const STATIC_DIR = process.env.STATIC_DIR
 // box must not be switchable from the UI.
 const ENABLE_TYPST = process.env.ENABLE_TYPST === '1' || process.env.ENABLE_TYPST === 'true';
 
+// Loaded once, on the first Typst request, and only with the flag on: a small
+// box never imports server/typst/ (or jimp behind it). A failed import clears
+// the cache so a later request retries instead of inheriting the rejection.
+let typstModule = null;
+const loadTypst = () => (typstModule ??= import('./typst/index.mjs').catch((err) => {
+  typstModule = null;
+  throw err;
+}));
+
 // ─────────────────────────────────────────────────────────────────────────
 // Admin bootstrap. On first launch (or whenever no admin exists) ensure a
 // default admin account is present. Credentials come from environment
@@ -756,6 +765,21 @@ const httpServer = http.createServer(async (req, res) => {
       const name = decodeURIComponent(req.url.slice('/api/backup/archives/'.length).split('?')[0]);
       try { deleteBackup(name); return sendJson(res, 200, { ok: true }); }
       catch (e) { return sendJson(res, e?.code === 'NOT_FOUND' ? 404 : 400, { error: String(e?.message || e) }); }
+    }
+
+    // ── Typst report export (server/typst/), env-flagged ──────────────
+    // The flag is checked before anything else, auth included: with it off
+    // this is not a route, so it answers 404 without loading the module.
+    if (req.url?.startsWith('/api/typst/')) {
+      if (!ENABLE_TYPST) return sendJson(res, 404, { error: 'not found' });
+      let typst;
+      try {
+        typst = await loadTypst();
+      } catch (err) {
+        console.error('[typst] the export module failed to load:', err);
+        return sendJson(res, 500, { error: 'export unavailable' });
+      }
+      if (await typst.handleTypst(req, res, { user: authFromHeader(req), sendJson })) return;
     }
 
     if (tryServeStatic(req, res)) return;
