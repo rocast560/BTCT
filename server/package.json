@@ -8,6 +8,7 @@
     "dev": "bun --watch run index.mjs"
   },
   "dependencies": {
+    "jimp": "^1.6.1",
     "lib0": "^0.2.99",
     "ws": "^8.18.0",
     "y-leveldb": "^0.1.2",
