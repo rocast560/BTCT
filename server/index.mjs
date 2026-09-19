@@ -779,7 +779,13 @@ const httpServer = http.createServer(async (req, res) => {
         console.error('[typst] the export module failed to load:', err);
         return sendJson(res, 500, { error: 'export unavailable' });
       }
-      if (await typst.handleTypst(req, res, { user: authFromHeader(req), sendJson })) return;
+      // Same rule as the asset and history routes: a token is not enough, the
+      // account row has to still exist, so a deleted account loses export
+      // access at once. Any authenticated account may export any workspace,
+      // because the shared doc already lets it read every workspace.
+      const claims = authFromHeader(req);
+      const user = claims ? getUserById(claims.uid) : null;
+      if (await typst.handleTypst(req, res, { user, sendJson, setCors })) return;
     }
 
     if (tryServeStatic(req, res)) return;

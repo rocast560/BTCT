@@ -132,8 +132,9 @@ export async function stageReport(workspaceId) {
         }
       }
       let out;
+      // bakeImage's own message already starts with the filename.
       try { out = await bakeImage(bytes, { crop: a.crop ?? null, blurs: a.blurs ?? null }, name); }
-      catch (err) { throw new ExportError(422, `${name}: ${err instanceof Error ? err.message : String(err)}`); }
+      catch (err) { throw new ExportError(422, err instanceof Error ? err.message : String(err)); }
       const written = out ?? bytes;
       account(Math.max(0, written.byteLength - stat.size)); // a re-encode can grow
       fs.writeFileSync(dest, written);
@@ -148,7 +149,10 @@ export async function stageReport(workspaceId) {
 
 export function unstage(root) {
   // Never throws: this runs from a finally and from the catch above, where a
-  // second error would replace the one the caller needs to see.
-  try { fs.rmSync(root, { recursive: true, force: true }); }
+  // second error would replace the one the caller needs to see. The retries
+  // are for Windows, where a file a just-killed child had open answers EBUSY
+  // for a moment, and giving up there would leave screenshots in the OS temp
+  // directory.
+  try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
   catch (err) { console.error('[typst] could not remove the staged directory', err); }
 }

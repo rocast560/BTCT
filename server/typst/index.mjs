@@ -1,6 +1,6 @@
 // HTTP surface of the Typst server side. index.mjs imports this file
 // dynamically, and only when ENABLE_TYPST is on.
-import { capabilities, exportReport, ExportError } from './export.mjs';
+import { capabilities, exportReport, ExportError, CLIENT_GONE } from './export.mjs';
 
 const MIME = { pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
 
@@ -17,7 +17,9 @@ const MAX_WARNING_CHARS = 4000;
 
 /** The `X-Export-Warnings` value, or '' when there is nothing to send. */
 export function encodeWarnings(warnings) {
-  let list = (warnings ?? []).slice(0, MAX_WARNINGS);
+  // One duplicate name, or one image pandoc could not fetch, produces the
+  // same sentence per occurrence. The reader needs it once.
+  let list = [...new Set(warnings ?? [])].slice(0, MAX_WARNINGS);
   while (list.length > 0) {
     const encoded = encodeURIComponent(JSON.stringify(list));
     if (encoded.length <= MAX_WARNING_CHARS) return encoded;
@@ -27,7 +29,7 @@ export function encodeWarnings(warnings) {
 }
 
 // Returns true when it handled the request.
-export async function handleTypst(req, res, { user, sendJson }) {
+export async function handleTypst(req, res, { user, sendJson, setCors = () => {} }) {
   const url = new URL(req.url, 'http://x');
   if (!url.pathname.startsWith('/api/typst/')) return false;
   // BTCT has no per-workspace ACL: every authenticated account can already
@@ -47,8 +49,13 @@ export async function handleTypst(req, res, { user, sendJson }) {
     let workspaceId;
     try { workspaceId = decodeURIComponent(m[1]); } catch { workspaceId = m[1]; }
     if (!WORKSPACE_ID.test(workspaceId)) { sendJson(res, 400, { error: 'invalid workspace id' }); return true; }
+    // An export runs for as long as a compile takes, and a queued one can sit
+    // behind another. If the caller gives up in the meantime there is no
+    // point staging anything.
+    let gone = false;
+    res.on('close', () => { if (!res.writableFinished) gone = true; });
     try {
-      const { bytes, baked, warnings } = await exportReport(workspaceId, format);
+      const { bytes, baked, warnings } = await exportReport(workspaceId, format, () => gone);
       const head = {
         'Content-Type': MIME[format],
         'Content-Length': bytes.byteLength,
@@ -57,12 +64,19 @@ export async function handleTypst(req, res, { user, sendJson }) {
       };
       const encoded = encodeWarnings(warnings);
       if (encoded) head['X-Export-Warnings'] = encoded;
+      // Binary responses do not go through sendJson, so CORS is set by hand.
+      // Without the expose list a split-host browser can read neither header.
+      setCors(res);
+      if (res.getHeader('Access-Control-Allow-Origin')) {
+        head['Access-Control-Expose-Headers'] = 'X-Baked-Images, X-Export-Warnings';
+      }
       res.writeHead(200, head);
       res.end(bytes); // already a Buffer: copying it again would double a 100 MB file
     } catch (err) {
       // An ExportError's message is written for the operator. Anything else
       // may carry a staged path or a stack, so it is logged and never sent.
-      if (err instanceof ExportError) sendJson(res, err.status, { error: err.message, diagnostics: err.diagnostics ?? [] });
+      if (err instanceof ExportError && err.status === CLIENT_GONE) { /* nobody to answer */ }
+      else if (err instanceof ExportError) sendJson(res, err.status, { error: err.message, diagnostics: err.diagnostics ?? [] });
       else { console.error('[typst] export failed', err); sendJson(res, 500, { error: 'export failed' }); }
     }
     return true;

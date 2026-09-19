@@ -6,11 +6,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseDiagnostics, scrubPaths } from './diagnostics.mjs';
 import { createSerial } from './serial.mjs';
+import { createAdmission } from './admission.mjs';
 import { toPandocSource, pandocSourceWarnings } from './docx-source.mjs';
 import { filterDocxImages } from './docx-ast.mjs';
 import { stageReport, unstage, ExportError } from './stage.mjs';
 
 export { ExportError };
+
+// Not a real HTTP status: it says "the caller is gone", so the route knows
+// there is nobody left to answer. Nginx uses 499 for the same thing.
+export const CLIENT_GONE = 499;
 
 const TIMEOUT_MS = 120_000;
 // A PDF that reaches this size is a runaway loop, not a report, and the
@@ -18,6 +23,9 @@ const TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_MB = 100;
 const MAX_OUTPUT_BYTES = MAX_OUTPUT_MB * 1024 * 1024;
 const serial = createSerial();
+// One running plus one waiting. A third caller is told to come back rather
+// than being parked on an open socket behind a two-minute compile.
+const admission = createAdmission(2);
 
 function onPath(name) {
   const exts = process.platform === 'win32' ? ['.exe', ''] : [''];
@@ -137,6 +145,14 @@ async function toPdf(root, source) {
   args.push(path.join(root, 'main.typ'), out);
   const result = await run(cli, args, root);
   if (result.code === 'ENOENT') throw failed(result, cli);
+  // `-j 1` puts layout on the main thread, whose stack is smaller than a
+  // worker's, so a very large document aborts there while it compiles with
+  // the default job count. Measured with typst 0.14.2 on Windows: 2000
+  // sections and a 4.2 MB PDF are fine, 3000 sections overflow. Say so,
+  // rather than handing back the runtime's panic line.
+  if (/overflowed its stack/i.test(result.stderr)) {
+    throw new ExportError(422, 'This report is too large for the server compiler. Export the PDF from the browser instead.');
+  }
   // Every string that can reach a response body loses the staged path first:
   // it sits under the OS temp directory, which names the account.
   const diagnostics = parseDiagnostics(result.stderr, root).map((d) => ({
@@ -223,8 +239,16 @@ async function toDocx(root, source) {
   };
 }
 
-export function exportReport(workspaceId, format) {
+/**
+ * @param isCancelled asked once, when this job reaches the front of the queue:
+ *   true means the caller has gone and the work is not worth doing.
+ */
+export function exportReport(workspaceId, format, isCancelled = () => false) {
+  if (!admission.enter()) {
+    return Promise.reject(new ExportError(429, 'Another export is already queued. Try again in a moment.'));
+  }
   return serial(async () => {
+    if (isCancelled()) throw new ExportError(CLIENT_GONE, 'the caller disconnected before the export started');
     const { root, source, baked, warnings } = await stageReport(workspaceId);
     try {
       // A Word file that quietly lost a caption or a figure is worse than one
@@ -239,5 +263,5 @@ export function exportReport(workspaceId, format) {
     } finally {
       unstage(root);
     }
-  });
+  }).finally(() => admission.leave());
 }
