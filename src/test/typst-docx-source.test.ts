@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toPandocSource } from '../../server/typst/docx-source.mjs';
+import { toPandocSource, pandocSourceWarnings } from '../../server/typst/docx-source.mjs';
 
 describe('toPandocSource', () => {
   it('expands a placed slot into a plain figure with a relative path', () => {
@@ -14,5 +14,30 @@ describe('toPandocSource', () => {
   });
   it('escapes brackets in captions', () => {
     expect(toPandocSource('#image-placeholder("a [b]", path: "/assets/x.png")')).toContain('caption: [a \\[b\\]]');
+  });
+  it('escapes slashes so a caption cannot open a Typst line comment', () => {
+    const src = '#image-placeholder("Open redirect to //evil.com", path: "/assets/x.png")';
+    expect(toPandocSource(src)).toContain('caption: [Open redirect to \\/\\/evil.com]');
+  });
+  it('leaves the relative path unescaped', () => {
+    const src = '#image-placeholder("Login bypass", path: "/assets/login.png")';
+    expect(toPandocSource(src)).toBe('#figure(image("assets/login.png"), caption: [Login bypass])');
+  });
+  it('falls back to the word "Figure" for a computed caption', () => {
+    const src = '#image-placeholder(someVar, path: "/assets/y.png")';
+    expect(toPandocSource(src)).toBe('#figure(image("assets/y.png"), caption: [Figure])');
+  });
+});
+
+describe('pandocSourceWarnings', () => {
+  it('reports a slot whose caption is computed, naming its slot number and line', () => {
+    const src = '#image-placeholder("Login bypass", path: "/assets/login.png")\n#image-placeholder(someVar, path: "/assets/y.png")\n';
+    expect(pandocSourceWarnings(src)).toEqual([
+      'Figure slot 2 (line 2): the caption is computed, so the Word file shows "Figure" instead.',
+    ]);
+  });
+  it('returns no warnings when every caption is a literal', () => {
+    const src = '#image-placeholder("Login bypass", path: "/assets/login.png")\n';
+    expect(pandocSourceWarnings(src)).toEqual([]);
   });
 });

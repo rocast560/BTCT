@@ -3,7 +3,7 @@
 export function createSerial() {
   let tail = Promise.resolve();
   return (job) => {
-    const next = tail.then(job, job);
+    const next = tail.then(() => job(), () => job());
     tail = next.then(() => undefined, () => undefined);
     return next;
   };
