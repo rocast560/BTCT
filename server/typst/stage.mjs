@@ -27,7 +27,23 @@ const MAX_STAGED_BYTES = MAX_STAGED_MB * 1024 * 1024;
 // cap applies to those too), and one export gets a cumulative decode budget
 // on top: the bakes are sequential, so this bounds time rather than peak
 // memory, and it stops a report from parking a core for a minute.
-const MAX_MEGAPIXELS = 30;
+//
+// The ceiling is measured, not guessed. Peak working set of this server for
+// one export of a blurred PNG, each on a freshly started process whose
+// baseline was 233 MB (2026-09-19, jimp 1.6, Windows):
+//
+//     3.7 MP (2560x1440)   405 MB
+//     8.3 MP (3840x2160)   654 MB
+//     9.0 MP (3000x3000)   689 MB
+//    12.0 MP (3464x3464)   840 MB
+//    16.0 MP (4000x4000)  1027 MB
+//    25.0 MP (5000x5000)  1361 MB
+//
+// That is about 50 MB of peak per megapixel, on a box with 1 GB for
+// everything including the Yjs relay. 10 MP is the first round number above
+// a 4K screenshot (8.3 MP), which has to keep working, and it lands near
+// 730 MB. A 5K screenshot is refused and exports from the browser instead.
+const MAX_MEGAPIXELS = 10;
 const MAX_PIXELS = MAX_MEGAPIXELS * 1_000_000;
 const MAX_DECODED_MB = 512;
 const MAX_DECODED_BYTES = MAX_DECODED_MB * 1024 * 1024;
