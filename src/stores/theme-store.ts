@@ -83,6 +83,49 @@ interface ThemeState {
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
+/**
+ * Backoff for the `GET /api/settings` seed, in milliseconds.
+ *
+ * That fetch is the only thing that ever sets `features`, and nothing
+ * re-checks it live, so losing it to one hiccup used to leave every
+ * feature-gated view stuck on its loading state for the rest of the session.
+ * Four further attempts over ~22 s, then give up: a server that is still
+ * unreachable after that is not coming back inside a page load.
+ */
+const SETTINGS_RETRY_DELAYS_MS = [1500, 3000, 6000, 12000];
+
+/** One retry timer at a time; `loadTheme` replaces a pending one. */
+let settingsRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** One attempt at the settings seed, scheduling the next one on failure. */
+async function fetchSettings(attempt: number): Promise<void> {
+  const store = useThemeStore;
+  try {
+    const res = await fetch(`${apiUrl()}/api/settings`);
+    if (!res.ok) throw new Error(String(res.status));
+    const data = (await res.json()) as PublicThemeSettings & PublicBlurSettings;
+    store.getState().applyServerTheme(data);
+    store.getState().applyServerBlur(data);
+    store.setState({ features: resolveFeatures(data), featuresLoaded: true });
+  } catch {
+    // Network/server hiccup: fall back to the default so the UI never ends up
+    // uncolored, but only on the first attempt and only while nothing has
+    // painted a real accent yet. A retry must not repaint the default over a
+    // colour the live `settingsPublic` mirror already applied, and `loaded`
+    // stays false either way so a later success still overwrites it.
+    if (attempt === 0 && !store.getState().loaded) {
+      applyThemeColor(DEFAULT_THEME_COLOR);
+      store.setState({ color: DEFAULT_THEME_COLOR });
+    }
+    const delay = SETTINGS_RETRY_DELAYS_MS[attempt];
+    if (delay === undefined) return; // attempts exhausted
+    settingsRetryTimer = setTimeout(() => {
+      settingsRetryTimer = null;
+      void fetchSettings(attempt + 1);
+    }, delay);
+  }
+}
+
 export const useThemeStore = create<ThemeState>((set, get) => ({
   color: DEFAULT_THEME_COLOR,
   headings: { headingColor: null, headings: {} },
@@ -146,20 +189,11 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 
   loadTheme: async () => {
-    try {
-      const res = await fetch(`${apiUrl()}/api/settings`);
-      if (!res.ok) throw new Error(String(res.status));
-      const data = (await res.json()) as PublicThemeSettings & PublicBlurSettings;
-      get().applyServerTheme(data);
-      get().applyServerBlur(data);
-      set({ features: resolveFeatures(data), featuresLoaded: true });
-    } catch {
-      // Network/server hiccup: fall back to the default so the UI never
-      // ends up uncolored, but leave `loaded` false so a later retry can
-      // overwrite it.
-      applyThemeColor(DEFAULT_THEME_COLOR);
-      set({ color: DEFAULT_THEME_COLOR });
+    if (settingsRetryTimer !== null) {
+      clearTimeout(settingsRetryTimer);
+      settingsRetryTimer = null;
     }
+    await fetchSettings(0);
   },
 
   updateTheme: async (patch) => {

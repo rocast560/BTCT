@@ -143,6 +143,23 @@ export function typstTabState(features: { typst: boolean }, featuresLoaded: bool
   return features.typst ? 'on' : 'off';
 }
 
+/**
+ * What a `typst` tab shows while `GET /api/settings` has not answered.
+ *
+ * The pane used to render an empty div in this state, which reads as a
+ * broken tab rather than as a wait. The fetch backs off and retries
+ * (theme-store), so this can be on screen for a few seconds on a server that
+ * is slow to come up. Still no lazy import here: the compiler chunk must not
+ * be fetched before the flag is known.
+ */
+function TypstLoadingNotice() {
+  return (
+    <div className="flex h-full items-center justify-center px-6 text-center text-xs text-[hsl(var(--muted-foreground))]">
+      Checking whether the report editor is available…
+    </div>
+  );
+}
+
 /** Plain-text empty state, same shape as the "Drop a tab here" notice below. */
 function TypstOffNotice() {
   return (
@@ -291,6 +308,7 @@ function PaneLeaf({ pane }: { pane: LeafPane }) {
         {activeTab?.kind === 'shortcuts' && <ShortcutsView />}
         {activeTab?.kind === 'typst' && typstState === 'on' && <TypstView workspaceId={activeTab.entityId} />}
         {activeTab?.kind === 'typst' && typstState === 'off' && <TypstOffNotice />}
+        {activeTab?.kind === 'typst' && typstState === 'loading' && <TypstLoadingNotice />}
         {!activeTab && (
           <div className="flex h-full items-center justify-center text-xs text-[hsl(var(--muted-foreground))]">
             Drop a tab here

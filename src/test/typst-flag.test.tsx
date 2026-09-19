@@ -66,6 +66,8 @@ describe('theme-store featuresLoaded (the render gate must not key off `loaded`)
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    // Discards any retry timer a failed attempt left pending.
+    vi.useRealTimers();
   });
 
   it('applyServerTheme (the settingsPublic mirror path) flips `loaded` without touching `featuresLoaded`', () => {
@@ -85,8 +87,76 @@ describe('theme-store featuresLoaded (the render gate must not key off `loaded`)
   });
 
   it('a rejected settings fetch leaves `featuresLoaded` false', async () => {
+    vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
     await useThemeStore.getState().loadTheme();
     expect(useThemeStore.getState().featuresLoaded).toBe(false);
+  });
+});
+
+// One failed GET /api/settings used to blank the Report tab for the whole
+// session: nothing retried, `featuresLoaded` stayed false, the render gate
+// stayed on 'loading' and every entry point stayed hidden. The fetch now
+// backs off and tries again.
+describe('theme-store settings retry', () => {
+  beforeEach(() => {
+    useThemeStore.setState({ loaded: false, featuresLoaded: false, updatedAt: 0, features: { typst: false } });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('retries with backoff and stops as soon as an attempt succeeds', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ features: { typst: true }, themeUpdatedAt: 1 }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await useThemeStore.getState().loadTheme();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(useThemeStore.getState().featuresLoaded).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(useThemeStore.getState().featuresLoaded).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(useThemeStore.getState().featuresLoaded).toBe(true);
+    expect(useThemeStore.getState().features.typst).toBe(true);
+    // A success ends the chain: nothing is left scheduled.
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('gives up after four retries rather than hammering the server', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await useThemeStore.getState().loadTheme();
+    for (const delay of [1500, 3000, 6000, 12000]) await vi.advanceTimersByTimeAsync(delay);
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(useThemeStore.getState().featuresLoaded).toBe(false);
+  });
+
+  it('replaces a pending retry instead of stacking a second chain', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await useThemeStore.getState().loadTheme();
+    await useThemeStore.getState().loadTheme();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(1);
   });
 });

@@ -990,10 +990,14 @@ scripts/
    `typst` tabs when it is false would delete a flag-on operator's Report tab
    on every reload. `reconcileTabs` keeps the tab alive as long as its
    workspace exists; `SplitContainer`'s pure `typstTabState(features,
-   featuresLoaded)` decides what to paint, and renders a "Report tab is turned
-   off" notice instead of `TypstView` on a flag-off server. It reads
-   `featuresLoaded`, not `loaded`: `loaded` also flips from the live
-   `settingsPublic.theme` mirror, which carries no `features` at all.
+   featuresLoaded)` decides what to paint: `TypstView` on a flag-on server, a
+   "Report tab is turned off" notice on a flag-off one, and "Checking whether
+   the report editor is available…" while the settings fetch is still out, so
+   the pane is never a silent empty div. It reads `featuresLoaded`, not
+   `loaded`: `loaded` also flips from the live `settingsPublic.theme` mirror,
+   which carries no `features` at all. That fetch is also the only thing that
+   ever sets `features`, so `loadTheme` retries a failure four times (1.5 s,
+   3 s, 6 s, 12 s) rather than leaving the tab on "Checking…" for the session.
 
 ### Recipes: how to extend
 
