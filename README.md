@@ -581,8 +581,13 @@ lives inside the CRDT documents the clients share.
   `create()` stands behind this text, so a seed on a cold client would race the
   real one arriving over the websocket and Yjs would pick a winner by client id.
   CodeMirror edits it through `yCollab`, remote carets included;
-  code that rewrites it, such as the ZIP import, goes through
-  `replaceYTextContent` like every other programmatic text write.
+  code that rewrites it goes through `replaceYTextContent` like every other
+  programmatic text write. Those rewrites are the ZIP import and the report tab
+  itself: placing a screenshot in a figure slot, changing a slot's height,
+  repointing the document after a rename, adding a slot, and search
+  replace-all. Each one hands `applySource` a function of the *current* text
+  (`updateYTextContent`), never the 120 ms-stale mirror the view renders, or
+  the delta would read a collaborator's keystrokes as a deletion.
 - **Page bodies** never go in the shared doc. They live in the per-page doc and
   are checkpointed via [page snapshots](#edit-history--versioning-detail).
 

@@ -31,8 +31,13 @@ interface Props {
   caret: number;
   /** Select `[from, to)` in the editor and scroll it into view. */
   onReveal: (from: number, to: number) => void;
-  /** Apply a full-source rewrite (goes through a minimal CRDT delta). */
-  onReplaceSource: (next: string) => void;
+  /**
+   * Apply a full-source rewrite, as a function of the source as it is at the
+   * moment of the write. The panel searches a debounced copy, but the view
+   * writes a minimal CRDT delta against the live Y.Text, so the replacement
+   * has to be computed there rather than here (invariant #3b).
+   */
+  onReplaceSource: (compute: (current: string) => string) => void;
   onClose: () => void;
 }
 
@@ -123,16 +128,18 @@ export function TypstSearchPanel({ source, caret, onReveal, onReplaceSource, onC
   const doReplaceOne = useCallback(() => {
     if (total === 0) return;
     const m = matches[active]!;
-    onReplaceSource(replaceOne(source, m, query, replacement, opts));
+    // `m`'s offsets were measured against the scanned copy, so a remote edit
+    // above the match can still move it. `replaceOne` re-checks the match in
+    // regex mode and leaves the document alone when it no longer fits.
+    onReplaceSource((current) => replaceOne(current, m, query, replacement, opts));
     // The source will re-flow; keep the same index so we advance to what is
     // now the next occurrence.
-  }, [total, matches, active, source, query, replacement, opts, onReplaceSource]);
+  }, [total, matches, active, query, replacement, opts, onReplaceSource]);
 
   const doReplaceAll = useCallback(() => {
     if (total === 0) return;
-    const { text } = replaceAll(source, query, replacement, opts);
-    onReplaceSource(text);
-  }, [total, source, query, replacement, opts, onReplaceSource]);
+    onReplaceSource((current) => replaceAll(current, query, replacement, opts).text);
+  }, [total, query, replacement, opts, onReplaceSource]);
 
   // Keep the active row scrolled into view within the results list.
   useEffect(() => {

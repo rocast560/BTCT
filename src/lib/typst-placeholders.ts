@@ -571,6 +571,20 @@ export function newSlotSnippet(caption: string): string {
 }
 
 /**
+ * `source` with one new empty figure slot appended, helper included.
+ *
+ * Appending at the end is deliberate: it is a predictable spot the picker
+ * then scrolls to, rather than wherever a stale caret happens to be. Pure,
+ * so the caller can run it against the live Y.Text content at the moment of
+ * the write (invariant #3b).
+ */
+export function appendSlot(source: string, caption: string): string {
+  const ensured = ensureHelper(source);
+  const base = ensured.source.endsWith('\n') ? ensured.source : `${ensured.source}\n`;
+  return `${base}\n${newSlotSnippet(caption)}`;
+}
+
+/**
  * Repoint every reference to `oldPath` at `newPath`: used when an asset is
  * renamed, so the document doesn't end up pointing at a file that no longer
  * exists in the virtual filesystem.

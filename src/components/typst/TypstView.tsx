@@ -14,7 +14,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { PanelLeftClose, PanelLeftOpen, FileDown, Image, FileText, Images, Search } from 'lucide-react';
 import { useAppStore } from '@/stores';
 import type { BlurRegion, CropRect, ID, TypstAsset } from '@/types';
-import { replaceYTextContent } from '@/realtime/use-y-text';
+import { updateYTextContent } from '@/realtime/use-y-text';
 import { useTypstSource } from './use-typst-source';
 import {
   TypstEditor,
@@ -37,9 +37,9 @@ import {
 import { ASSET_DIR, assetPath, fetchAssetBytes, resolveAssetBytes } from '@/lib/assets';
 import { matchAssetByHref } from '@/lib/asset-folders';
 import {
+  appendSlot,
   ensureHelper,
   findScreenshotSlots,
-  newSlotSnippet,
   retargetAssetPath,
   setSlotHeight,
   setSlotPath,
@@ -224,11 +224,17 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
   useEffect(() => () => { dragCleanupRef.current?.(); }, []);
 
   // Programmatic source rewrites (assigning a screenshot to a figure slot,
-  // adding a slot) go through a minimal CRDT delta rather than replacing the
-  // whole text, so a collaborator typing elsewhere keeps their cursor and
-  // their edit merges cleanly.
-  const applySource = useCallback((next: string) => {
-    if (ytext) replaceYTextContent(ytext, next);
+  // adding a slot, search replace-all, rename retargeting) go through a
+  // minimal CRDT delta rather than replacing the whole text, so a
+  // collaborator typing elsewhere keeps their cursor and their edit merges
+  // cleanly.
+  //
+  // Every caller hands over a function of the CURRENT source rather than a
+  // finished string: `source` below is a 120 ms trailing mirror of the
+  // Y.Text, and a rewrite computed from it deletes whatever arrived inside
+  // that window (invariant #3b).
+  const applySource = useCallback((compute: (current: string) => string) => {
+    if (ytext) updateYTextContent(ytext, compute);
   }, [ytext]);
 
   /**
@@ -360,19 +366,23 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
       void setTypstAssetCrop(asset.id, crop, blurs);
       if (!slot) return;
 
-      const current = sourceRef.current;
-      let next = ensureHelper(current).source;
+      // `slot.index` was chosen in the dialog against the debounced mirror,
+      // so a collaborator who added a slot above it in the meantime would
+      // shift which figure this writes into. Known and deliberately left:
+      // fixing it needs a stable slot identity, not a fresher read.
+      applySource((current) => {
+        let next = ensureHelper(current).source;
 
-      // Each rewrite shifts the offsets of everything after it, so re-scan
-      // between edits and re-find the slot by its document order.
-      if (heightPt !== null) {
+        // Each rewrite shifts the offsets of everything after it, so re-scan
+        // between edits and re-find the slot by its document order.
+        if (heightPt !== null) {
+          const target = findScreenshotSlots(next)[slot.index];
+          if (target) next = setSlotHeight(next, target, heightPt);
+        }
         const target = findScreenshotSlots(next)[slot.index];
-        if (target) next = setSlotHeight(next, target, heightPt);
-      }
-      const target = findScreenshotSlots(next)[slot.index];
-      if (target) next = setSlotPath(next, target, path);
-
-      if (next !== current) applySource(next);
+        if (target) next = setSlotPath(next, target, path);
+        return next;
+      });
     },
     [setTypstAssetCrop, applySource],
   );
@@ -392,9 +402,7 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
         .then((filename) => {
           const newPath = `${ASSET_DIR}/${filename}`;
           if (newPath === oldPath) return;
-          const current = sourceRef.current;
-          const next = retargetAssetPath(current, oldPath, newPath);
-          if (next !== current) applySource(next);
+          applySource((current) => retargetAssetPath(current, oldPath, newPath));
         })
         .catch((e) => setNotice(e instanceof Error ? e.message : String(e)));
     },
@@ -402,11 +410,7 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
   );
 
   const addSlot = useCallback((caption: string) => {
-    const ensured = ensureHelper(sourceRef.current);
-    // Append at the end of the document: a predictable spot the picker then
-    // scrolls to, rather than wherever a stale caret happens to be.
-    const base = ensured.source.endsWith('\n') ? ensured.source : `${ensured.source}\n`;
-    applySource(`${base}\n${newSlotSnippet(caption)}`);
+    applySource((current) => appendSlot(current, caption));
   }, [applySource]);
 
   // Whole-document find & replace panel (lib/typst-search). Ctrl/⌘+F inside the

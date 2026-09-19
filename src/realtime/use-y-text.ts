@@ -63,6 +63,24 @@ export function replaceYTextContent(ytext: Y.Text, next: string): void {
   });
 }
 
+/**
+ * Rewrite a Y.Text from a function of its CURRENT content.
+ *
+ * The delta `replaceYTextContent` writes is measured against the live text,
+ * so `next` has to be computed from the live text too. Building it from a
+ * React mirror that lags the CRDT (the Typst tab's is a 120 ms trailing
+ * debounce) makes the diff read every character a collaborator typed inside
+ * that window as a deletion: their text disappears, their cursor with it,
+ * and an append near the end turns into delete-and-reinsert of the whole
+ * tail. Reading `toString()` here, one line before the diff, closes that
+ * window.
+ */
+export function updateYTextContent(ytext: Y.Text, compute: (current: string) => string): void {
+  const current = ytext.toString();
+  const next = compute(current);
+  if (next !== current) replaceYTextContent(ytext, next);
+}
+
 export function useYTextInput(
   key: string,
   initial: string,
