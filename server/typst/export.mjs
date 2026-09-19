@@ -7,6 +7,7 @@ import path from 'node:path';
 import { parseDiagnostics } from './diagnostics.mjs';
 import { createSerial } from './serial.mjs';
 import { toPandocSource, pandocSourceWarnings } from './docx-source.mjs';
+import { filterDocxImages } from './docx-ast.mjs';
 import { stageReport, unstage, ExportError } from './stage.mjs';
 
 export { ExportError };
@@ -93,62 +94,85 @@ async function toPdf(root) {
   return new Uint8Array(fs.readFileSync(out));
 }
 
-// Every image pandoc will resolve itself, as a plain string literal. The
-// helper's own `image(path, ...)` passes a variable, so it is not matched.
-const IMAGE_LITERAL = /\bimage\(\s*"([^"\\]*)"/g;
-
-/**
- * Refuse a Word export whose report points an image anywhere but the staged
- * directory.
- *
- * `typst compile --root <staged>` confines the PDF side by itself. pandoc has
- * no equivalent: measured against pandoc 3.11, a report that names an
- * absolute path has that file read and embedded in the Word document, and one
- * that names an http URL has it fetched. `--resource-path .` only says where
- * RELATIVE paths are looked up, so it stops neither. `toPandocSource` already
- * turns `image("/x")` into a relative `x`, which leaves a Windows drive path,
- * a UNC path, a URL and a `..` climb, so those are what this rejects, and the
- * report gets the same answer the PDF export would give it.
- */
-function assertStagedImagePaths(rewritten) {
-  for (const m of rewritten.matchAll(IMAGE_LITERAL)) {
-    const p = m[1];
-    const escapes = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(p) // a scheme: http:, file:, C:
-      || p.startsWith('//') || p.startsWith('\\') // a UNC share
-      || path.isAbsolute(p)
-      || p.split(/[\\/]/).includes('..');
-    if (escapes) throw new ExportError(422, `the Word export can only use images staged from this workspace, and this report points at "${p}"`);
-  }
+/** Is this AST target a regular file sitting directly in the staged assets directory? */
+function stagedImageExists(root, target) {
+  const assetsDir = path.resolve(root, 'assets');
+  const file = path.resolve(assetsDir, path.basename(target));
+  if (path.dirname(file) !== assetsDir) return false;
+  try { return fs.lstatSync(file).isFile(); } catch { return false; }
 }
 
+/** pandoc's own `[WARNING] ...` lines, in the order it printed them. */
+const pandocWarnings = (stderr) => String(stderr).split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter((line) => line.startsWith('[WARNING]'))
+  .map((line) => line.replace(/^\[WARNING\]\s*/, ''));
+
+/**
+ * Typst to Word in two steps, with pandoc's reader sandboxed.
+ *
+ * One `-t docx` call cannot be made safe. Measured against pandoc 3.11:
+ * `#raw(read("C:/Windows/win.ini"))` and `#include "../x"` put outside files
+ * into word/document.xml, and `#let u = "http://host/x.png"; #image(u)` made
+ * pandoc issue the GET, which is a request from inside whatever network this
+ * box sits in. `--sandbox` stops all of that, and also stops the writer
+ * reading the staged images, so the Word file came out with no pictures at
+ * all.
+ *
+ * Splitting the run solves both halves:
+ *   1. read to JSON WITH --sandbox: `read`, `include` and any fetch are
+ *      refused by pandoc itself, and the report's own error comes back as a
+ *      422;
+ *   2. filter the AST in this process: every image target has been evaluated
+ *      by now, so a concatenated or variable path is a plain string here, and
+ *      anything that is not a staged file is replaced with a placeholder;
+ *   3. write the filtered AST to .docx. This step is NOT sandboxed, because
+ *      the sandbox would drop the images again (measured: 10546 bytes and no
+ *      word/media, against 15152 with the pictures). It is fed nothing but
+ *      targets step 2 confirmed are regular files inside the staged
+ *      directory, so there is nothing left for it to reach.
+ */
 async function toDocx(root, source) {
   const cli = clis().pandoc;
   if (!cli) throw new ExportError(501, 'pandoc not found on this server');
-  const rewritten = toPandocSource(source);
-  assertStagedImagePaths(rewritten);
-  fs.writeFileSync(path.join(root, 'docx.typ'), rewritten);
-  // Not `--sandbox`: pandoc's sandbox limits reader IO to the files named on
-  // the command line (its manual says so), and an image referenced from the
-  // document is not one of them. Measured with pandoc 3.11, `--sandbox` drops
-  // every image from the Word file, without a word on stderr, which is worse
-  // than no Word export at all: the reader would never learn that the figure
-  // under the caption is missing. assertStagedImagePaths above is what keeps
-  // the reader inside the staged directory instead.
-  const { code, stderr } = await run(cli, ['docx.typ', '-f', 'typst', '-t', 'docx', '--resource-path', '.', '-o', 'out.docx'], root);
+  fs.writeFileSync(path.join(root, 'docx.typ'), toPandocSource(source));
+
+  const read = await run(cli, ['docx.typ', '-f', 'typst', '-t', 'json', '--sandbox', '-o', 'ast.json'], root);
+  const astFile = path.join(root, 'ast.json');
+  if (read.code !== 0 || !fs.existsSync(astFile)) {
+    throw new ExportError(422, read.stderr.trim() || 'pandoc could not read the report');
+  }
+  let ast;
+  try { ast = JSON.parse(fs.readFileSync(astFile, 'utf8')); }
+  catch { throw new ExportError(422, 'pandoc produced a document this server could not read'); }
+
+  const filtered = filterDocxImages(ast, (target) => stagedImageExists(root, target));
+  fs.writeFileSync(astFile, JSON.stringify(filtered.ast));
+
+  const write = await run(cli, ['ast.json', '-f', 'json', '-t', 'docx', '--resource-path', '.', '-o', 'out.docx'], root);
   const out = path.join(root, 'out.docx');
-  if (code !== 0 || !fs.existsSync(out)) throw new ExportError(422, stderr.trim() || 'pandoc could not convert the report');
-  return new Uint8Array(fs.readFileSync(out));
+  if (write.code !== 0 || !fs.existsSync(out)) {
+    throw new ExportError(422, write.stderr.trim() || 'pandoc could not convert the report');
+  }
+  return {
+    bytes: new Uint8Array(fs.readFileSync(out)),
+    warnings: [...filtered.warnings, ...pandocWarnings(read.stderr), ...pandocWarnings(write.stderr)],
+  };
 }
 
 export function exportReport(workspaceId, format) {
   return serial(async () => {
     const { root, source, baked, warnings } = await stageReport(workspaceId);
     try {
-      const bytes = format === 'docx' ? await toDocx(root, source) : await toPdf(root);
-      // A Word file that quietly lost a caption is worse than one that says
-      // so: pandocSourceWarnings names every slot whose caption could not be
-      // evaluated. PDF goes through Typst itself, which evaluates everything.
-      return { bytes, baked, warnings: format === 'docx' ? [...warnings, ...pandocSourceWarnings(source)] : warnings };
+      // A Word file that quietly lost a caption or a figure is worse than one
+      // that says so: pandocSourceWarnings names every slot whose caption
+      // could not be evaluated, and toDocx adds every image it dropped. PDF
+      // goes through Typst itself, which evaluates everything.
+      if (format === 'docx') {
+        const docx = await toDocx(root, source);
+        return { bytes: docx.bytes, baked, warnings: [...warnings, ...pandocSourceWarnings(source), ...docx.warnings] };
+      }
+      return { bytes: await toPdf(root), baked, warnings };
     } finally {
       unstage(root);
     }
