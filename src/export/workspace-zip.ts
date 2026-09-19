@@ -49,6 +49,31 @@ export interface WorkspaceExportData {
 
 type ID = string;
 
+/** What an import should do with the destination workspace's report. */
+export type ReportImportAction = 'write' | 'clear' | 'none';
+
+/**
+ * Decide the fate of the report on import. Pure, and tested per combination,
+ * because this is the only place in the app that deliberately destroys report
+ * content and the report has no version history to recover it from.
+ *
+ * `typstSource` carries the archive's three states (see `WorkspaceExportData`):
+ * a string is a report to write, `null` means the archive positively recorded
+ * that there was none, and `undefined` means it never said either way. Only
+ * the positive "there was none" clears an existing report, and only when
+ * replacing the workspace it belongs to. An empty string writes nothing and
+ * clears nothing, which is what the truthiness check this replaced did.
+ */
+export function reportImportAction(
+  typstSource: string | null | undefined,
+  mode: 'new' | 'replace',
+  hasExisting: boolean,
+): ReportImportAction {
+  if (typstSource) return 'write';
+  if (typstSource === null && mode === 'replace' && hasExisting) return 'clear';
+  return 'none';
+}
+
 /**
  * Export full workspace to a zip file.
  */

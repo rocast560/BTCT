@@ -9,6 +9,7 @@ import {
   applyImportedPageYjsUpdate,
   collectRetired,
   restoreRetired,
+  reportImportAction,
   RETIRED_TABLES,
 } from '@/export';
 import {
@@ -178,14 +179,18 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
         restoreRetired(data.retired, importedWsId, remap);
 
-        // Three states from parseWorkspaceZip: string (write it below);
-        // null (this build's archive recorded no report, so a faithful
-        // replace clears any existing one); undefined (an older or
-        // manifest-less archive never recorded either way, so an existing
-        // report, which has no version history, is left untouched).
-        if (data.typstSource) {
+        // Three states from parseWorkspaceZip: a string (write it), null
+        // (this build's archive recorded no report, so a faithful replace
+        // clears any existing one) and undefined (an older or manifest-less
+        // archive never recorded either way, so an existing report, which
+        // has no version history, is left untouched). The decision itself is
+        // pure and unit-tested; `reportImportAction` returns 'write' only for
+        // a non-empty string, so the second half of this condition is just
+        // how TypeScript learns that.
+        const reportAction = reportImportAction(data.typstSource, importMode, !!existingWs);
+        if (reportAction === 'write' && data.typstSource) {
           replaceYTextContent(getOrInitYText(textKey('typst', importedWsId, 'source'), ''), data.typstSource);
-        } else if (data.typstSource === null && importMode === 'replace' && existingWs) {
+        } else if (reportAction === 'clear') {
           const existingReport = getSharedDoc().texts.get(textKey('typst', importedWsId, 'source'));
           if (existingReport) replaceYTextContent(existingReport, '');
         }

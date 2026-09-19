@@ -987,10 +987,16 @@ scripts/
    store) must not `await import('./typst-compiler')` either, because Vite
    emits a dynamic import's chunk *and* its 28 MB wasm asset. That is why the
    uploaded font's family name is read in `TypstView` rather than in
-   `lib/assets.ts`. Two checks hold the line: at build time
+   `lib/assets.ts`. Four checks hold the line: at build time
    `grep -l typst_ts_web_compiler dist/assets/index-*.js` must find nothing,
-   and at run time a flag-off browser session must issue zero requests
-   matching `wasm|/fonts/|[Tt]ypst`.
+   at run time a flag-off browser session must issue zero requests
+   matching `wasm|/fonts/|[Tt]ypst`, and two suites cover the source itself.
+   [typst-import-graph.test.ts](src/test/typst-import-graph.test.ts) walks
+   `src/` outside the Typst folders and rejects any reference that is not a
+   type import, a dynamic `import(` or a comment;
+   [typst-render-gate.test.tsx](src/test/typst-render-gate.test.tsx) renders
+   the pane's `typst` branch with the lazy module mocked and asserts it is
+   never even evaluated while the flag is off or still loading.
 28. **A restored Report tab is gated on the render, never pruned on the flag.**
    `features.typst` reads `false` for a moment on every boot, so pruning
    `typst` tabs when it is false would delete a flag-on operator's Report tab
