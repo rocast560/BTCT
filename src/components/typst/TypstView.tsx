@@ -36,6 +36,12 @@ import {
   setTypstShadowFiles,
   typstErrorMessage,
 } from '@/lib/typst-compiler';
+import {
+  displayWarning,
+  exportOnServer,
+  fetchExportCapabilities,
+  type ExportCapabilities,
+} from '@/lib/typst-export-api';
 import { ASSET_DIR, assetPath, fetchAssetBytes, resolveAssetBytes } from '@/lib/assets';
 import { matchAssetByHref } from '@/lib/asset-folders';
 import {
@@ -167,6 +173,8 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
   const addTypstAsset = useAppStore((s) => s.addTypstAsset);
   const setTypstAssetCrop = useAppStore((s) => s.setTypstAssetCrop);
   const renameTypstAsset = useAppStore((s) => s.renameTypstAsset);
+  const workspaces = useAppStore((s) => s.workspaces);
+  const workspaceName = workspaces.find((w) => w.id === workspaceId)?.name;
   // Ref mirror so the preview's click callback stays stable across renders.
   const typstAssetsRef = useRef(typstAssets);
   typstAssetsRef.current = typstAssets;
@@ -180,6 +188,15 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
   // an info banner is selectable, because some of them carry a snippet the
   // operator has to copy by hand.
   const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null);
+  // What the server can export, probed once on mount. Both stay false while
+  // the check is in flight, so the two server buttons default to hidden
+  // rather than flashing in.
+  const [caps, setCaps] = useState<ExportCapabilities>({ pdf: false, docx: false });
+  // Which server export (if any) is running. Separate from `exporting`
+  // (the in-browser PDF/SVG state) because the server admits only two
+  // queued exports at a time: only the two server buttons need to wait on
+  // each other, and the browser export stays available regardless.
+  const [serverExporting, setServerExporting] = useState<'pdf' | 'docx' | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const editorPaneRef = useRef<HTMLDivElement>(null);
   const assetsPaneRef = useRef<HTMLDivElement>(null);
@@ -234,6 +251,15 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
   useEffect(() => {
     cancelTypstRelease();
     return () => scheduleTypstRelease();
+  }, []);
+
+  // Probed once, not polled: the flag and the installed tools do not change
+  // while the tab is open, and a cancelled flag keeps a slow response from
+  // setting state after the tab has already unmounted.
+  useEffect(() => {
+    let cancelled = false;
+    void fetchExportCapabilities().then((c) => { if (!cancelled) setCaps(c); });
+    return () => { cancelled = true; };
   }, []);
 
   // `useTypstSource` refuses to seed a report until the websocket has synced
@@ -621,6 +647,31 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
   }, [source]);
 
   /**
+   * DOCX / PDF (server): compile (or convert) on the server, with the
+   * workspace's redactions baked into the images first. Unlike the in-browser
+   * PDF/SVG buttons this leaves the document, so a failure reports whatever
+   * the server already scrubbed and worded for an operator (a Typst
+   * diagnostic with its file and line, a queue-full sentence, a missing
+   * binary) rather than something derived here.
+   */
+  const serverExport = useCallback(async (format: 'pdf' | 'docx') => {
+    setServerExporting(format);
+    setNotice(null);
+    try {
+      const { blob, warnings } = await exportOnServer(workspaceId, format);
+      triggerDownload(`${workspaceName ?? 'report'}.${format}`, blob, blob.type);
+      if (warnings.length > 0) {
+        const lines = [`Exported, with ${warnings.length} note(s):`, ...warnings.map(displayWarning)];
+        setNotice({ kind: 'info', text: lines.join('\n') });
+      }
+    } catch (err) {
+      setNotice({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setServerExporting(null);
+    }
+  }, [workspaceId, workspaceName]);
+
+  /**
    * The assets rail's props, as one stable object.
    *
    * `AssetsPanel` is memoized, and this view re-renders every 120 ms while
@@ -691,6 +742,26 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
           >
             <FileDown size={13} /> PDF
           </button>
+          {caps.docx && (
+            <button
+              onClick={() => void serverExport('docx')}
+              disabled={serverExporting !== null}
+              title="Word file made on the server with pandoc. Headings, text, tables and figures carry over; custom Typst layout does not. Redactions are baked in first."
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] disabled:opacity-40"
+            >
+              <FileDown size={13} /> {serverExporting === 'docx' ? 'Converting…' : 'DOCX'}
+            </button>
+          )}
+          {caps.pdf && (
+            <button
+              onClick={() => void serverExport('pdf')}
+              disabled={serverExporting !== null}
+              title="Compiled by the server's typst CLI, with redactions baked into the images first."
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] disabled:opacity-40"
+            >
+              <FileDown size={13} /> {serverExporting === 'pdf' ? 'Compiling…' : 'PDF (server)'}
+            </button>
+          )}
         </div>
       </div>
       {notice && (
