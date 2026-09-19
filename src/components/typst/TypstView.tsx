@@ -27,9 +27,11 @@ import { TypstPreview, type SourceCandidate } from './TypstPreview';
 import { TypstSearchPanel } from './TypstSearchPanel';
 import { AssetsPanel } from '@/components/assets/AssetsPanel';
 import {
+  cancelTypstRelease,
   compileTypstPdf,
   compileTypstSvg,
   getFontInfo,
+  scheduleTypstRelease,
   setTypstFonts,
   setTypstShadowFiles,
   typstErrorMessage,
@@ -222,6 +224,15 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
   // orphaned document listeners, cancels the queued frame, and undoes the
   // global cursor/selection lock that mouseup would normally clear).
   useEffect(() => () => { dragCleanupRef.current?.(); }, []);
+
+  // Hold the compiler while the tab is mounted and hand it back when it
+  // closes. The release is on a timer rather than immediate, because a pane
+  // renders only its active tab and flicking between the report and a note
+  // would otherwise rebuild the wasm every time (see lib/typst-compiler).
+  useEffect(() => {
+    cancelTypstRelease();
+    return () => scheduleTypstRelease();
+  }, []);
 
   // Programmatic source rewrites (assigning a screenshot to a figure slot,
   // adding a slot, search replace-all, rename retargeting) go through a

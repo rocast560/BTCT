@@ -34,6 +34,8 @@ interface Transport {
   /** Bumps every time a fresh worker replaces a crashed one. */
   generation: number;
   call<T>(cmd: DriverCommand): Promise<T>;
+  /** Stop the worker/driver and settle anything still in flight. */
+  dispose(): void;
 }
 
 function createWorkerTransport(): Transport {
@@ -50,6 +52,18 @@ function createWorkerTransport(): Transport {
         pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
         w.postMessage({ id, ...cmd } satisfies DriverRequest);
       });
+    },
+    dispose() {
+      const w = worker;
+      worker = null;
+      transport.generation++;
+      // Never leave a caller hanging on a worker that is about to stop.
+      if (pending.size > 0) {
+        const err = new Error('Typst compiler was released');
+        for (const p of pending.values()) p.reject(err);
+        pending.clear();
+      }
+      w?.terminate();
     },
   };
 
@@ -92,6 +106,13 @@ function createInlineTransport(): Transport {
       const { dispatch } = await import('./typst-compiler.driver');
       return dispatch(await getDriver(), cmd) as Promise<T>;
     },
+    dispose() {
+      // Nothing to terminate: the driver runs on this thread, so a call
+      // already in flight finishes. Dropping the reference is what frees the
+      // wasm instance and its fonts once that call returns.
+      driver = null;
+      transport.generation++;
+    },
   };
 
   const getDriver = (): Promise<TypstDriver> => {
@@ -112,6 +133,60 @@ function createInlineTransport(): Transport {
 let transport: Transport | null = null;
 function getTransport(): Transport {
   return (transport ??= typeof Worker === 'undefined' ? createInlineTransport() : createWorkerTransport());
+}
+
+// ── idle release ─────────────────────────────────────────────────────────
+// A worker that has been started holds the instantiated 28 MB wasm module,
+// the 17 default faces and a copy of every image in the workspace for as
+// long as the page lives, and closing the Report tab used to free none of
+// it. So the tab hands the compiler back when it unmounts, and the release
+// happens a few minutes later rather than immediately: a pane renders only
+// its active tab, switching to a note and back is the normal workflow, and
+// an immediate release would re-pay about 1.2 s of wasm instantiation plus
+// 17 font fetches on every switch. `lib/typst-render-cache.ts` is left
+// alone on purpose, which is what lets a reopened tab paint its last pages
+// while the replacement worker starts.
+
+const IDLE_RELEASE_MS = 5 * 60_000;
+let releaseTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Stop the compiler and forget everything that was pushed into it, leaving
+ * the module able to start a fresh worker on the next call.
+ *
+ * The "already sent on this transport" bookkeeping is reset along with the
+ * inputs themselves: a replacement worker starts empty, so the next compile
+ * has to re-send fonts and shadow files before it runs. `TypstView`'s asset
+ * sync effect re-pushes the workspace's files on its next mount.
+ */
+export function releaseTypstCompiler(): void {
+  cancelTypstRelease();
+  const t = transport;
+  transport = null;
+  t?.dispose();
+  customFonts = [];
+  shadowFiles = [];
+  fontGeneration++;
+  shadowGeneration++;
+  sentOnTransport = -1;
+  sentFontGeneration = -1;
+  sentShadowGeneration = -1;
+}
+
+/** Release the compiler once it has been idle for `delayMs`. One timer. */
+export function scheduleTypstRelease(delayMs: number = IDLE_RELEASE_MS): void {
+  if (releaseTimer !== null) return;
+  releaseTimer = setTimeout(() => {
+    releaseTimer = null;
+    releaseTypstCompiler();
+  }, delayMs);
+}
+
+/** Called when a Report tab mounts: the compiler is wanted again. */
+export function cancelTypstRelease(): void {
+  if (releaseTimer === null) return;
+  clearTimeout(releaseTimer);
+  releaseTimer = null;
 }
 
 // ── mutable inputs ───────────────────────────────────────────────────────

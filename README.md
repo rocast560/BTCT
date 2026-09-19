@@ -382,6 +382,12 @@ command palette. There is one report per workspace.
 - A Report tab left open in your browser when the flag gets turned off does
   not load any of this. It restores as an inert "Report tab is turned off"
   notice, and closes like any other tab.
+- **Closing the tab hands the compiler back.** The worker keeps the
+  instantiated wasm, the 17 faces and a copy of every workspace image while
+  the tab is open; five minutes after the last Report tab closes it is
+  terminated and those inputs are dropped. Reopening inside that window costs
+  nothing, and reopening after it repaints from the render cache while a new
+  worker starts.
 
 ### Export & import
 

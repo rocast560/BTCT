@@ -9,6 +9,7 @@ class FakeWorker {
   static instances: FakeWorker[] = [];
   static handler: (cmd: DriverCommand) => unknown = () => undefined;
   posted: DriverRequest[] = [];
+  terminated = 0;
   onmessage: ((e: { data: DriverResponse }) => void) | null = null;
   onerror: ((e: { message: string }) => void) | null = null;
   constructor() { FakeWorker.instances.push(this); }
@@ -23,7 +24,7 @@ class FakeWorker {
       }
     });
   }
-  terminate() { /* nothing to stop */ }
+  terminate() { this.terminated++; }
   crash(message: string) { this.onerror?.({ message }); }
 }
 
@@ -144,6 +145,69 @@ describe('typst compiler client', () => {
     const second = FakeWorker.instances[1]!;
     expect(ops(second)).toEqual(['setFonts', 'setShadow', 'svg']);
     expect(second.posted[0]).toMatchObject({ op: 'setFonts', fonts: [bytes(7)] });
+  });
+
+  // The worker keeps the instantiated wasm, the 17 default faces and a copy
+  // of every workspace image alive for the life of the page. Closing the
+  // Report tab schedules its release; reopening within the window cancels it,
+  // because a tab switch must not re-pay wasm instantiation.
+  it('releases an idle worker after the delay and starts a fresh one on the next compile', async () => {
+    vi.useFakeTimers();
+    try {
+      const c = await loadClient();
+      c.setTypstFonts([bytes(9)]);
+      await c.compileTypstSvg('a');
+      const first = FakeWorker.instances[0]!;
+
+      c.scheduleTypstRelease();
+      c.scheduleTypstRelease(); // scheduling twice keeps one timer
+      expect(vi.getTimerCount()).toBe(1);
+      expect(first.terminated).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(first.terminated).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+
+      await c.compileTypstSvg('b');
+      expect(FakeWorker.instances).toHaveLength(2);
+      // The replacement holds nothing, so fonts and shadow files are pushed
+      // again before the compile that needs them.
+      expect(ops(FakeWorker.instances[1]!)).toEqual(['setFonts', 'setShadow', 'svg']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the worker when the release is cancelled before it fires', async () => {
+    vi.useFakeTimers();
+    try {
+      const c = await loadClient();
+      await c.compileTypstSvg('a');
+      const first = FakeWorker.instances[0]!;
+
+      c.scheduleTypstRelease();
+      c.cancelTypstRelease();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+      expect(first.terminated).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+      await c.compileTypstSvg('b');
+      expect(FakeWorker.instances).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a compile that was in flight when the compiler was released', async () => {
+    const c = await loadClient();
+    FakeWorker.handler = () => new Promise(() => {});
+    const hung = c.compileTypstSvg('a');
+    await vi.waitFor(() => {
+      expect(FakeWorker.instances[0]?.posted.some((p) => p.op === 'svg')).toBe(true);
+    });
+    c.releaseTypstCompiler();
+    await expect(hung).rejects.toThrow(/released/);
+    expect(FakeWorker.instances[0]!.terminated).toBe(1);
   });
 
   it('reads font info through the worker', async () => {

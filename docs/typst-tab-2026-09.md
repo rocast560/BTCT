@@ -267,6 +267,34 @@ document with no images, which is consistent with those.
   0.3 s. I never exercised the jsDelivr fetch path, so I cannot say it works;
   it is untested here.
 
+## What the tab holds open, and when it lets go
+
+While a Report tab is on screen the compiler worker holds the instantiated
+compiler wasm (10.8 MB gzipped on the wire, 29.3 MB unpacked in `dist/`), the
+renderer wasm, the 17 default faces it parsed at init, and one copy of the
+bytes of every image in the workspace, as shadow files. The main thread holds
+a second copy of those image bytes in `setTypstShadowFiles`, plus the rendered
+SVG cache (capped at 4,000,000 chars, about 8 MB). I have not measured the
+resident total in the tab process, so I am not going to quote a number for
+it; what I can say is that it used to last for the life of the page. Closing
+the tab freed none of it.
+
+It now has a lease. `TypstView` calls `cancelTypstRelease()` when it mounts
+and `scheduleTypstRelease()` when it unmounts, and five minutes later
+`releaseTypstCompiler()` terminates the worker, rejects anything still in
+flight, and drops the fonts and shadow files along with the bookkeeping that
+says the worker already has them. The next compile starts a fresh worker and
+re-sends both sets, which the tab's asset sync effect has already refilled on
+mount.
+
+Five minutes rather than "on unmount" because a pane renders only its active
+tab: flicking between the report and a note unmounts the view every time. An
+immediate release would turn every one of those switches back into the cold
+open measured above, 1050 to 1256 ms to a painted page plus 17 font
+revalidations, instead of the 73 ms repaint from the render cache. The render
+cache is deliberately not part of the release, which is what makes that 73 ms
+possible while the replacement worker is still starting.
+
 ## What is still open
 
 - **Steps 2 to 4 of the plan are not implemented.** Server-side PDF and DOCX
