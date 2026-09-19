@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { readTypstSource, listAssetRecords } from '../yjs-data.mjs';
-import { assetPath } from '../data-export.mjs';
+import { ASSETS_DIR } from '../data-export.mjs';
+import { getAsset } from '../db.mjs';
+import { vetAssetRecord } from './vet-asset.mjs';
 
 export class ExportError extends Error {
   constructor(status, message, diagnostics) { super(message); this.status = status; this.diagnostics = diagnostics; }
@@ -16,14 +18,6 @@ export class ExportError extends Error {
 // real report places.
 const MAX_STAGED_MB = 200;
 const MAX_STAGED_BYTES = MAX_STAGED_MB * 1024 * 1024;
-
-// A filename comes from a shared-doc record any client can write: never let
-// it climb out of the staged directory.
-const safeName = (name) => {
-  const base = path.basename(String(name));
-  if (!base || base === '.' || base === '..') throw new ExportError(422, `bad asset filename: ${name}`);
-  return base;
-};
 
 /**
  * Basenames of the `/assets/...` paths the report actually mentions.
@@ -79,11 +73,17 @@ export async function stageReport(workspaceId) {
       }
     };
     for (const a of records) {
-      const from = assetPath(a.id);
+      // Every field that reaches the filesystem is vetted first, and `kind`
+      // comes back from the server's own inventory rather than the record.
+      // A record that fails is skipped without a word: it cannot be a real
+      // upload, so there is nothing to tell the operator about.
+      const id = typeof a?.id === 'string' ? a.id : '';
+      const vetted = vetAssetRecord(a, id ? getAsset(id) : null, workspaceId, ASSETS_DIR);
+      if (!vetted.ok) continue;
+      const { from, name } = vetted;
       const stat = statOrNull(from);
       if (!stat || !stat.isFile()) continue; // Typst reports the unresolved path against its line
-      const name = safeName(a.filename);
-      const isFont = a.kind === 'font';
+      const isFont = vetted.kind === 'font';
       if (!isFont && !referenced.has(name)) continue;
       // Two records can carry the same filename: the Assets Manager
       // de-duplicates on upload, but records sync through a CRDT any client
