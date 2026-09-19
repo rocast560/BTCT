@@ -4,7 +4,7 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseDiagnostics } from './diagnostics.mjs';
+import { parseDiagnostics, scrubPaths } from './diagnostics.mjs';
 import { createSerial } from './serial.mjs';
 import { toPandocSource, pandocSourceWarnings } from './docx-source.mjs';
 import { filterDocxImages } from './docx-ast.mjs';
@@ -13,6 +13,10 @@ import { stageReport, unstage, ExportError } from './stage.mjs';
 export { ExportError };
 
 const TIMEOUT_MS = 120_000;
+// A PDF that reaches this size is a runaway loop, not a report, and the
+// bytes sit in the response buffer of a process that also relays Yjs.
+const MAX_OUTPUT_MB = 100;
+const MAX_OUTPUT_BYTES = MAX_OUTPUT_MB * 1024 * 1024;
 const serial = createSerial();
 
 function onPath(name) {
@@ -70,28 +74,83 @@ function run(cli, args, cwd) {
   return new Promise((resolve) => {
     execFile(cli, args, { cwd, env: childEnv(), windowsHide: true, maxBuffer: 16 * 1024 * 1024, timeout: TIMEOUT_MS, killSignal: 'SIGKILL' }, (err, _stdout, stderr) => {
       if (err && (err.killed || err.signal)) return resolve({ code: 124, stderr: `error: ${path.basename(cli)} timed out after 120 s` });
+      // The binary was on PATH when the capabilities cache was filled and is
+      // gone now. That is not something the report did, so it is a 501 like
+      // any other missing CLI, not a 422 with an empty message.
+      if (err && err.code === 'ENOENT') return resolve({ code: 'ENOENT', stderr: '' });
       resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stderr: String(stderr ?? '') });
     });
   });
 }
 
+/** Turn a finished child into an error, or into nothing when it succeeded. */
+function failed(result, cli, fallback, diagnostics) {
+  if (result.code === 'ENOENT') return new ExportError(501, `${path.basename(cli)} is no longer installed on this server`);
+  if (result.code !== 0) return new ExportError(422, fallback, diagnostics);
+  return null;
+}
+
+/** The finished file, refused when it is too big to hand back. */
+function readOutput(file, label) {
+  const stat = fs.statSync(file);
+  if (stat.size > MAX_OUTPUT_BYTES) {
+    throw new ExportError(422, `The exported ${label} is too large (${Math.round(stat.size / 1024 / 1024)} MB).`);
+  }
+  // A Buffer, which goes straight to res.end: no Uint8Array round trip and no
+  // second copy of a 100 MB file.
+  return fs.readFileSync(file);
+}
+
 // The 17 default faces the browser compiler uses, staged by scripts/fonts.ts.
 const defaultFontDir = () => path.join(process.env.STATIC_DIR || path.resolve('..', 'dist'), 'fonts');
 
-async function toPdf(root) {
+// `#import "@preview/cetz:0.2.2"` or `#include "@local/x:1.0"`: a spec, not a
+// path. Typst downloads those from packages.typst.org at compile time.
+const PACKAGE_IMPORT = /#(?:import|include)\s+"(@[^"\\\n]{1,120})"/;
+
+function assertNoPackages(source) {
+  const m = PACKAGE_IMPORT.exec(source);
+  if (m) {
+    throw new ExportError(422, `This report imports a Typst package (${m[1]}). Packages are not available in server export; use the browser PDF export.`);
+  }
+}
+
+async function toPdf(root, source) {
   const cli = clis().typst;
   if (!cli) throw new ExportError(501, 'typst CLI not found on this server');
+  assertNoPackages(source);
   const out = path.join(root, 'out.pdf');
-  const args = ['compile', '--root', root, '--ignore-system-fonts', '--diagnostic-format', 'short', '--font-path', path.join(root, 'fonts')];
+  const args = [
+    'compile', '--root', root, '--ignore-system-fonts', '--diagnostic-format', 'short',
+    // One core. The default is every core, and the other one is running the
+    // Yjs relay for the whole team.
+    '-j', '1',
+    // Defence in depth behind assertNoPackages: anything that still asks for
+    // a package writes it inside the staged directory, which is deleted with
+    // the export, instead of into the user data directory where it would
+    // outlive the request.
+    '--package-path', path.join(root, 'packages'),
+    '--package-cache-path', path.join(root, 'packages'),
+    '--font-path', path.join(root, 'fonts'),
+  ];
   if (fs.existsSync(defaultFontDir())) args.push('--font-path', defaultFontDir());
   args.push(path.join(root, 'main.typ'), out);
-  const { code, stderr } = await run(cli, args, root);
-  const diagnostics = parseDiagnostics(stderr, root);
-  if (code !== 0 || diagnostics.some((d) => d.severity === 'error') || !fs.existsSync(out)) {
+  const result = await run(cli, args, root);
+  if (result.code === 'ENOENT') throw failed(result, cli);
+  // Every string that can reach a response body loses the staged path first:
+  // it sits under the OS temp directory, which names the account.
+  const diagnostics = parseDiagnostics(result.stderr, root).map((d) => ({
+    ...d,
+    message: scrubPaths(d.message, root),
+    file: d.file && path.isAbsolute(d.file) ? scrubPaths(d.file, root) : d.file,
+  }));
+  if (result.code !== 0 || diagnostics.some((d) => d.severity === 'error') || !fs.existsSync(out)) {
     const first = diagnostics.find((d) => d.severity === 'error');
-    throw new ExportError(422, first ? `Typst error at ${first.file ?? '?'}:${first.line ?? '?'}: ${first.message}` : (stderr.trim() || 'the report did not compile'), diagnostics);
+    throw new ExportError(422, first
+      ? `Typst error at ${first.file ?? '?'}:${first.line ?? '?'}: ${first.message}`
+      : (scrubPaths(result.stderr, root).trim() || 'the report did not compile'), diagnostics);
   }
-  return new Uint8Array(fs.readFileSync(out));
+  return readOutput(out, 'PDF');
 }
 
 /** Is this AST target a regular file sitting directly in the staged assets directory? */
@@ -140,7 +199,7 @@ async function toDocx(root, source) {
   const read = await run(cli, ['docx.typ', '-f', 'typst', '-t', 'json', '--sandbox', '-o', 'ast.json'], root);
   const astFile = path.join(root, 'ast.json');
   if (read.code !== 0 || !fs.existsSync(astFile)) {
-    throw new ExportError(422, read.stderr.trim() || 'pandoc could not read the report');
+    throw failed(read, cli, scrubPaths(read.stderr, root).trim() || 'pandoc could not read the report');
   }
   let ast;
   try { ast = JSON.parse(fs.readFileSync(astFile, 'utf8')); }
@@ -152,11 +211,15 @@ async function toDocx(root, source) {
   const write = await run(cli, ['ast.json', '-f', 'json', '-t', 'docx', '--resource-path', '.', '-o', 'out.docx'], root);
   const out = path.join(root, 'out.docx');
   if (write.code !== 0 || !fs.existsSync(out)) {
-    throw new ExportError(422, write.stderr.trim() || 'pandoc could not convert the report');
+    throw failed(write, cli, scrubPaths(write.stderr, root).trim() || 'pandoc could not convert the report');
   }
   return {
-    bytes: new Uint8Array(fs.readFileSync(out)),
-    warnings: [...filtered.warnings, ...pandocWarnings(read.stderr), ...pandocWarnings(write.stderr)],
+    bytes: readOutput(out, 'Word file'),
+    warnings: [
+      ...filtered.warnings,
+      ...pandocWarnings(read.stderr).map((w) => scrubPaths(w, root)),
+      ...pandocWarnings(write.stderr).map((w) => scrubPaths(w, root)),
+    ],
   };
 }
 
@@ -172,7 +235,7 @@ export function exportReport(workspaceId, format) {
         const docx = await toDocx(root, source);
         return { bytes: docx.bytes, baked, warnings: [...warnings, ...pandocSourceWarnings(source), ...docx.warnings] };
       }
-      return { bytes: await toPdf(root), baked, warnings };
+      return { bytes: await toPdf(root, source), baked, warnings };
     } finally {
       unstage(root);
     }

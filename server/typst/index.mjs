@@ -58,7 +58,7 @@ export async function handleTypst(req, res, { user, sendJson }) {
       const encoded = encodeWarnings(warnings);
       if (encoded) head['X-Export-Warnings'] = encoded;
       res.writeHead(200, head);
-      res.end(Buffer.from(bytes));
+      res.end(bytes); // already a Buffer: copying it again would double a 100 MB file
     } catch (err) {
       // An ExportError's message is written for the operator. Anything else
       // may carry a staged path or a stack, so it is logged and never sent.

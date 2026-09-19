@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { parseDiagnostics } from '../../server/typst/diagnostics.mjs';
+import { parseDiagnostics, scrubPaths } from '../../server/typst/diagnostics.mjs';
 import { createSerial } from '../../server/typst/serial.mjs';
 
 describe('parseDiagnostics', () => {
@@ -29,5 +29,51 @@ describe('createSerial', () => {
     const run = createSerial();
     await expect(run(async () => { throw new Error('boom'); })).rejects.toThrow('boom');
     await expect(run(async () => 'ok')).resolves.toBe('ok');
+  });
+});
+
+describe('scrubPaths', () => {
+  // A compiler message quotes the path it tried, and the staged directory
+  // sits under the OS temp folder, which on Windows names the account.
+  const root = path.resolve('/tmp/btct-typst-AbCdEf');
+
+  it('removes the staged root in its native form', () => {
+    // path.join('.', ...) would normalize the dot away, so the expectation
+    // spells the separator out.
+    expect(scrubPaths(`file not found (searched at ${path.join(root, 'Windows', 'win.ini')})`, root))
+      .toBe(`file not found (searched at .${path.sep}Windows${path.sep}win.ini)`);
+  });
+
+  it('removes it in the other separator flavour too', () => {
+    const forward = root.split(path.sep).join('/');
+    const back = root.split(path.sep).join('\\');
+    expect(scrubPaths(`at ${forward}/main.typ`, root)).toBe('at ./main.typ');
+    expect(scrubPaths(`at ${back}\\main.typ`, root)).toBe('at .\\main.typ');
+  });
+
+  it('removes the Windows extended-length prefix with it', () => {
+    const back = root.split(path.sep).join('\\');
+    expect(scrubPaths(`searched at \\\\?\\${back}\\x`, root)).toBe('searched at .\\x');
+  });
+
+  it('ignores case on Windows, where paths are case insensitive', () => {
+    if (process.platform !== 'win32') return;
+    const shouty = root.split(path.sep).join('\\').toUpperCase();
+    expect(scrubPaths(`at ${shouty}\\MAIN.TYP`, root)).toBe('at .\\MAIN.TYP');
+  });
+
+  it('leaves text that does not mention the root alone', () => {
+    expect(scrubPaths('unknown variable: nope', root)).toBe('unknown variable: nope');
+    expect(scrubPaths('', root)).toBe('');
+  });
+
+  it('is safe with a missing root or a non-string message', () => {
+    expect(scrubPaths('x', '')).toBe('x');
+    expect(scrubPaths(undefined as unknown as string, root)).toBe('');
+  });
+
+  it('removes every occurrence, not just the first', () => {
+    const forward = root.split(path.sep).join('/');
+    expect(scrubPaths(`${forward}/a and ${forward}/b`, root)).toBe('./a and ./b');
   });
 });
