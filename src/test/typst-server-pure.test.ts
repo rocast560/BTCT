@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { parseDiagnostics, scrubPaths, childFailureMessage } from '../../server/typst/diagnostics.mjs';
 import { createSerial } from '../../server/typst/serial.mjs';
 import { findPackageSpec } from '../../server/typst/package-spec.mjs';
+import { referencedAssetNames } from '../../server/typst/referenced-assets.mjs';
 
 describe('parseDiagnostics', () => {
   it('reads file:line:col lines relative to the root', () => {
@@ -161,5 +162,51 @@ describe('findPackageSpec', () => {
   it('will not run away on a long or multiline string', () => {
     expect(findPackageSpec(`#let x = "@preview/${'a'.repeat(200)}"`)).toBeNull();
     expect(findPackageSpec('#let x = "@preview/broken\nstill open"')).toBeNull();
+  });
+});
+
+describe('referencedAssetNames', () => {
+  // Staging every image in the workspace would cost a copy per unplaced
+  // screenshot on every export, so only the names the report actually
+  // mentions are staged. Over-inclusion is harmless (one extra file in a
+  // directory that is deleted with the export); under-inclusion shows up as
+  // a Typst "file not found" against the line that placed the image.
+  const names = (source: string) => [...referencedAssetNames(source)].sort();
+
+  it('finds a slot path and a hand-written image call', () => {
+    const src = '#image-placeholder("Login", path: "/assets/login.png")\n#image("/assets/shell.png", width: 50%)\n';
+    expect(names(src)).toEqual(['login.png', 'shell.png']);
+  });
+
+  it('finds a name with spaces in it', () => {
+    expect(names('#image("/assets/my first shot.png")')).toEqual(['my first shot.png']);
+  });
+
+  it('lists a name referenced twice only once', () => {
+    expect(names('#image("/assets/a.png")\n#image("/assets/a.png")\n')).toEqual(['a.png']);
+  });
+
+  it('matches a subfolder path by its basename, which stages the file flat', () => {
+    // Typst would then fail to resolve /assets/sub/x.png, because staging is
+    // flat. Staging the file anyway costs one copy and keeps the failure a
+    // plain Typst diagnostic rather than a silent skip.
+    expect(names('#image("/assets/sub/x.png")')).toEqual(['x.png']);
+  });
+
+  it('finds nothing in a bare /assets/ with no filename', () => {
+    expect(names('The prefix is "/assets/" and nothing follows it.')).toEqual([]);
+    expect(names('')).toEqual([]);
+  });
+
+  it('does not find a name whose string literal escapes a quote', () => {
+    // The escape ends the match, so the file is not staged and Typst reports
+    // the unresolved path. A filename carrying a double quote is the one
+    // shape this scan gives up on, and it is the safe direction to fail.
+    expect(names('#image("/assets/od\\"d.png")')).toEqual([]);
+  });
+
+  it('matches inside a comment or a raw block, which is accepted over-inclusion', () => {
+    expect(names('// #image("/assets/old.png")')).toEqual(['old.png']);
+    expect(names('```\n#image("/assets/sample.png")\n```')).toEqual(['sample.png']);
   });
 });
