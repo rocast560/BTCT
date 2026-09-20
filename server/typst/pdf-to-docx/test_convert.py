@@ -529,6 +529,12 @@ def run_font_naming_checks(font_tools, docx_path, font_dir, result):
                     if drawn:
                         runs.append((part, run))
 
+    bare = [part for part, run in runs
+            if (run.find(W + "rPr") is None
+                or run.find(W + "rPr").find(RUN_FONTS) is None
+                or not run.find(W + "rPr").find(RUN_FONTS).get(W + "ascii"))]
+    passed &= check(not bare, "fonts: every run that draws something names a font", bare[:3])
+
     wrong = []
     for _, run in runs:
         properties = run.find(W + "rPr")

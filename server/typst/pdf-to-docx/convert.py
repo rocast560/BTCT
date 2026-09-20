@@ -240,6 +240,10 @@ LINK_SCHEME = re.compile(r"^\s*([A-Za-z][A-Za-z0-9+.\-]*)\s*:")
 # of the PDF, which prints a hyphen for it, and visible to a reader of a Word
 # file, which prints it as a hyphen in the middle of a line.
 SOFT_HYPHEN = "\u00ad"
+# What a chart legend's swatch is drawn as when it comes back as a character.
+# A text font often has no glyph for it, so the face it is set in is chosen
+# rather than inherited.
+FILLED_SQUARE = "\u25a0"
 # Invisible characters a typesetter puts around a page number.
 INVISIBLE = "⁠​‌‍﻿"
 DIGITS = re.compile(r"\d+")
@@ -1101,6 +1105,10 @@ RPR_ORDER = (
     " w:spacing w:w w:kern w:position w:sz w:szCs w:highlight w:u w:effect w:bdr w:shd"
     " w:fitText w:vertAlign w:rtl w:cs w:em w:lang w:eastAsianLayout w:specVanish w:oMath"
 ).split()
+# What makes a run something a reader sees. A run of none of these is a
+# bookmark or a comment anchor and has no font to get wrong.
+RUN_CONTENT = ("w:t", "w:tab", "w:br", "w:sym", "w:noBreakHyphen", "w:softHyphen",
+               "w:fldChar", "w:instrText", "w:drawing", "w:pict", "w:object")
 
 
 def insert_ordered(parent, node, order):
@@ -1836,13 +1844,17 @@ def left_border(paragraph, bar):
     insert_ordered(properties, node, PPR_ORDER)
 
 
-def restore_swatches(document, swatches):
+def restore_swatches(document, swatches, face=None):
     """Put a chart legend's colour squares back as coloured glyphs.
 
     pdf2docx drops a small filled square that is not part of a table, so the
     legend arrives as four words with nothing to tell them apart. A filled
     square character in the swatch's colour, in the run the label starts,
     reads the same at the size a legend is printed at.
+
+    The square is a character the report's own text font may well not have,
+    and a font Word picks for a missing glyph is a font this file does not
+    carry. `face` is one it does, chosen for having the glyph.
     """
     body = document.element.body
     paragraphs = body_paragraphs(document)
@@ -1877,7 +1889,7 @@ def restore_swatches(document, swatches):
             if any(run is None for run in runs):
                 continue
         for swatch, target in zip(group, runs):
-            target.addprevious(colour_square(target, swatch["fill"]))
+            target.addprevious(colour_square(target, swatch["fill"], face))
             added += 1
     return added
 
@@ -1892,8 +1904,14 @@ def matching_sequence(paragraphs, squashed, labels):
     return None
 
 
-def colour_square(sibling, fill):
-    """A run holding a filled square in `fill`, styled like its neighbour."""
+def colour_square(sibling, fill, face=None):
+    """A run holding a filled square in `fill`, styled like its neighbour.
+
+    It keeps the neighbour's size, so the line it joins is no taller than it
+    was, and takes `face` when one was found: a font this file carries that
+    has the character, rather than whichever font the reader's Word reaches
+    for when the text font turns out not to.
+    """
     mark = copy.deepcopy(sibling if sibling.tag == qn("w:r") else OxmlElement("w:r"))
     if mark.tag != qn("w:r"):
         mark = OxmlElement("w:r")
@@ -1909,9 +1927,18 @@ def colour_square(sibling, fill):
     colour = OxmlElement("w:color")
     colour.set(qn("w:val"), hex_of(fill))
     insert_ordered(properties, colour, RPR_ORDER)
+    if face:
+        table = properties.find(qn("w:rFonts"))
+        if table is None:
+            table = OxmlElement("w:rFonts")
+            insert_ordered(properties, table, RPR_ORDER)
+        for attribute in ("w:ascii", "w:hAnsi", "w:cs", "w:eastAsia"):
+            table.set(qn(attribute), face["family"])
+        set_flag(properties, "w:b", face["bold"])
+        set_flag(properties, "w:i", face["italic"])
     text = OxmlElement("w:t")
     text.set(qn("xml:space"), "preserve")
-    text.text = "■ "
+    text.text = FILLED_SQUARE + " "
     mark.append(text)
     return mark
 
@@ -3013,6 +3040,11 @@ def named_font(run):
     return table.get(qn("w:ascii")) if table is not None else None
 
 
+def draws(run):
+    """Does this run put anything on the page?"""
+    return any(run.find(qn(tag)) is not None for tag in RUN_CONTENT)
+
+
 def name_runs(document, plan):
     """Name every run by the family Word resolves, with the flags to match.
 
@@ -3051,6 +3083,76 @@ def name_runs(document, plan):
             set_flag(properties, "w:i", face["italic"])
             named += 1
     return named
+
+
+def take_font(properties, donor):
+    """Copy the font and size across, leaving everything else alone."""
+    for tag in ("w:rFonts", "w:sz", "w:szCs"):
+        node = donor.find(qn(tag))
+        if node is not None and properties.find(qn(tag)) is None:
+            insert_ordered(properties, copy.deepcopy(node), RPR_ORDER)
+
+
+def fill_bare_runs(document):
+    """Anything in a paragraph that names no font takes the text's.
+
+    pdf2docx writes a tab as a run with no properties at all, a few more
+    arrive the same way, and no paragraph gets properties for its own
+    paragraph mark. Word sets all of those in the document default, which on
+    a file built from python-docx's template is an 11 pt serif nothing else
+    on the page uses. None of them draws anything a reader would call a
+    glyph, but Word writes the mark out as a space when it makes a PDF, so
+    the finished file is set in a font it does not carry and cannot be shown
+    to use only the fonts it does.
+
+    Each one takes the font and size of the text beside it: a run from the
+    run after it, else the one before; a paragraph mark from the last run of
+    its own paragraph, which is the formatting Word itself would give a mark
+    typed there; and the mark of a paragraph with no text at all from the
+    nearest paragraph that has some. That last one is the only place this
+    could move something, because an empty paragraph's height is its mark's,
+    and it was measured before it was written: over the reference report, 22
+    of them, every page scored to four decimal places exactly as it had.
+    """
+    filled = 0
+    for root in run_parts(document):
+        paragraphs = list(root.iter(qn("w:p")))
+        donors = []
+        for paragraph in paragraphs:
+            runs = list(paragraph.iter(qn("w:r")))
+            named = [run for run in runs if named_font(run)]
+            donors.append(named[-1].find(qn("w:rPr")) if named else None)
+            if not named:
+                continue
+            for index, run in enumerate(runs):
+                if named_font(run) or not draws(run):
+                    continue
+                source = next((r for r in runs[index + 1:] if named_font(r)), None)
+                if source is None:
+                    source = next(r for r in reversed(runs[:index]) if named_font(r))
+                properties = run.find(qn("w:rPr"))
+                if properties is None:
+                    properties = OxmlElement("w:rPr")
+                    run.insert(0, properties)
+                take_font(properties, source.find(qn("w:rPr")))
+                filled += 1
+        for position, paragraph in enumerate(paragraphs):
+            donor = donors[position]
+            if donor is None:
+                donor = next((d for d in reversed(donors[:position]) if d is not None), None)
+            if donor is None:
+                donor = next((d for d in donors[position + 1:] if d is not None), None)
+            if donor is None:
+                continue
+            mark = paragraph.get_or_add_pPr()
+            properties = mark.find(qn("w:rPr"))
+            if properties is None:
+                properties = OxmlElement("w:rPr")
+                insert_ordered(mark, properties, PPR_ORDER)
+            if properties.find(qn("w:rFonts")) is None:
+                take_font(properties, donor)
+                filled += 1
+    return filled
 
 
 # ── the safety net: did the Word file keep the PDF's text? ────────────────
@@ -3353,6 +3455,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         font_plan = fonts.plan(fonts.pdf_faces(doc, pdf_base_name), fonts.collect(font_dirs)) if font_dirs else None
         name_looks(bands, font_plan)
         name_looks(entries, font_plan)
+        swatch_face = fonts.face_for_char(font_plan, ord(FILLED_SQUARE))
         panels, swatches = find_decoration(doc, bands)
         pairs = spaced_pairs(doc)
         broken = broken_words(doc, bands)
@@ -3387,7 +3490,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         if bands:
             repair_warnings.extend(apply_bands(document, bands, page_height, content_left, content_right, pages))
         shaded = shade_run_of_paragraphs(document, panels)
-        restore_swatches(document, swatches)
+        squares = restore_swatches(document, swatches, swatch_face)
         align_paragraphs(document, aligned)
         fit_pictures(document, pictures)
         repairs = time.monotonic() - repairs
@@ -3403,6 +3506,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         if affordable(started, budget_seconds, repairs):
             align_vertical_rhythm(document, anchors, page_height)
         name_runs(document, font_plan)
+        fill_bare_runs(document)
         document.save(part)
         missing = missing_from_docx(repaired_lines, docx_text(part, body_only=bool(bands)))
         checked_lines = repaired_lines
@@ -3438,7 +3542,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             document = Document(part)
             repairs = time.monotonic()
             shaded = shade_run_of_paragraphs(document, panels)
-            restore_swatches(document, swatches)
+            squares = restore_swatches(document, swatches, swatch_face)
             align_paragraphs(document, aligned)
             fit_pictures(document, pictures)
             repairs = time.monotonic() - repairs
@@ -3452,6 +3556,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             if affordable(started, budget_seconds, repairs):
                 align_vertical_rhythm(document, plain_anchors, page_height)
             name_runs(document, font_plan)
+            fill_bare_runs(document)
             document.save(part)
             written = 0
             bands = []
@@ -3481,6 +3586,11 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
                     "%s could not be embedded (%s), so on a computer without it Word will substitute "
                     "another font and some lines may wrap twice." % (family, why)
                 )
+        if squares and swatch_face is None:
+            warnings.append(
+                "A chart legend's colour squares are set in a character none of this report's fonts "
+                "has, so Word will choose a font for them."
+            )
         os.replace(part, docx_path)
     finally:
         for temporary in (plain_pdf, stripped_pdf):
