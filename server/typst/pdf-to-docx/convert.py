@@ -133,6 +133,10 @@ PANEL_MIN_HEIGHT_PT = 12.0
 PANEL_PADDING_RATIO = 1.6
 BAR_MAX_WIDTH_PT = 12.0
 PANEL_MIN_SIDE_PT = 3.0
+# The line height of the empty paragraph that keeps two tables apart. Word
+# measures spacing in twentieths of a point and will not take a line of none,
+# so this is the smallest box it will draw, and it draws nothing in it.
+SPACER_LINE_PT = 0.05
 SWATCH_MAX_SIDE_PT = 14.0
 SWATCH_TEXT_GAP_PT = 10.0
 # How many characters either side of a run boundary identify it. Eight is
@@ -1799,6 +1803,188 @@ def has_grid_neighbour(rect, others):
     return False
 
 
+def panel_padding(panel):
+    """The room the PDF leaves between a panel's edges and the text inside it.
+
+    The right one cannot be measured when no line reaches the right edge,
+    which on a code panel is every line, so the left padding stands in for
+    it: a panel is padded the same on both sides or the text would not start
+    where it does.
+    """
+    rows = panel["rows"]
+    rect = panel["rect"]
+    return (max(0.0, min(row["x0"] for row in rows) - rect.x0),
+            max(0.0, min(row["y0"] for row in rows) - rect.y0),
+            max(0.0, rect.y1 - max(row["y1"] for row in rows)))
+
+
+def paragraph_indent(element):
+    """How far a paragraph is indented from whatever contains it, in points."""
+    properties = element.find(qn("w:pPr"))
+    node = properties.find(qn("w:ind")) if properties is not None else None
+    if node is None:
+        return 0.0
+    for name in ("w:start", "w:left"):
+        value = twips_of(node.get(qn(name)))
+        if value is not None:
+            return value
+    return 0.0
+
+
+def strip_paragraph_frame(element):
+    """Drop a paragraph's own indent, fill and borders.
+
+    They were the panel before this, and the cell is the panel now: leaving
+    them in indents the code a second time and paints a second rectangle
+    inside the first.
+    """
+    properties = element.get_or_add_pPr()
+    for name in ("w:ind", "w:shd", "w:pBdr"):
+        for node in properties.findall(qn(name)):
+            properties.remove(node)
+
+
+def twips_attribute(value):
+    return str(int(round(value * 20)))
+
+
+def keep_paragraph_around(table):
+    """A table needs a paragraph either side of it.
+
+    Two tables that touch are one table to Word, and a cell or a body that
+    ends in a table is not a file Word will open.
+    """
+    for neighbour, place in ((table.getprevious(), table.addprevious),
+                             (table.getnext(), table.addnext)):
+        if neighbour is None or neighbour.tag != qn("w:p"):
+            spacer = OxmlElement("w:p")
+            set_spacing(spacer, before=0.0, after=0.0, line=SPACER_LINE_PT)
+            place(spacer)
+
+
+def panel_cell(width, fill, margins=None):
+    """One cell of a panel table: a width, a colour and its inner margins."""
+    cell = OxmlElement("w:tc")
+    settings = OxmlElement("w:tcPr")
+    node = OxmlElement("w:tcW")
+    node.set(qn("w:w"), twips_attribute(width))
+    node.set(qn("w:type"), "dxa")
+    settings.append(node)
+    shade = OxmlElement("w:shd")
+    shade.set(qn("w:val"), "clear")
+    shade.set(qn("w:color"), "auto")
+    shade.set(qn("w:fill"), hex_of(fill))
+    settings.append(shade)
+    inner = OxmlElement("w:tcMar")
+    # Top and bottom stay at nothing on purpose. A cell's fill covers the
+    # whole cell, spacing and all, so the panel's padding above and below the
+    # code is the spacing the vertical pass writes; and Word grows an exact
+    # row by the bottom margin it is given, which measured 4.7 pt of panel
+    # that the PDF does not have.
+    for name, value in (("w:top", 0.0), ("w:start", margins or 0.0),
+                        ("w:bottom", 0.0), ("w:end", margins or 0.0)):
+        node = OxmlElement(name)
+        node.set(qn("w:w"), twips_attribute(value))
+        node.set(qn("w:type"), "dxa")
+        inner.append(node)
+    settings.append(inner)
+    cell.append(settings)
+    return cell
+
+
+def build_panel_table(panel, elements):
+    """Put a panel's paragraphs inside a table shaped like the panel.
+
+    Word fills a shaded paragraph between its indents and over its line boxes
+    only, never over its spacing, measured on five cases. So no paragraph can
+    carry a panel's padding: the grey hugs the text on all four sides while
+    the PDF leaves room above it, below it and to the left. A table can, and
+    it can carry the accent bar as well, as a narrow cell of its own in the
+    bar's colour, which is how PyMuPDF reads that panel out of the PDF too. A
+    cell's fill covers everything inside the cell, so the padding is whatever
+    spacing the code ends up with.
+
+    The code does not move, and the left edge of whatever contains the panel
+    does not have to be known for that, which is what defeated the earlier
+    attempt on a panel inside a finding card. The indent the converter gave
+    the code is spent on the table's indent, the bar's cell and the text
+    cell's left margin, and those three add up to the same number.
+
+    Returns `(table, top, was_height)`, or None when the panel cannot be
+    placed confidently, in which case the caller shades the paragraphs the
+    way it used to.
+    """
+    parent = elements[0].getparent()
+    if parent is None or any(node.getparent() is not parent for node in elements):
+        return None
+    order = list(parent)
+    start = order.index(elements[0])
+    if order[start:start + len(elements)] != elements:
+        return None   # something else of the page's is in among them
+    metrics = [paragraph_metrics(node) for node in elements]
+    if any(item is None for item in metrics):
+        return None
+    rect = panel["rect"]
+    left, top, bottom = panel_padding(panel)
+    bar = panel["bar"] or {}
+    width = bar.get("width") or 0.0
+    height = rect.y1 - rect.y0
+    inside = rect.x1 - rect.x0
+    # The table replaces the paragraphs in the flow, so it may not be taller
+    # than they were or a page could gain a line and the document a page.
+    occupied = sum(item["before"] + item["lines"] * item["line"] for item in metrics) + metrics[-1]["after"]
+    if height <= 0 or inside <= left or height > occupied + CELL_CLIP_PT:
+        return None
+    inset = paragraph_indent(elements[0]) - (width + left)
+    if inset < 0:
+        return None
+
+    table = OxmlElement("w:tbl")
+    properties = OxmlElement("w:tblPr")
+    for name, attributes in (("w:tblW", {"w:w": twips_attribute(width + inside), "w:type": "dxa"}),
+                             ("w:tblInd", {"w:w": twips_attribute(inset), "w:type": "dxa"}),
+                             ("w:tblLayout", {"w:type": "fixed"})):
+        node = OxmlElement(name)
+        for key, value in attributes.items():
+            node.set(qn(key), value)
+        properties.append(node)
+    table.append(properties)
+    grid = OxmlElement("w:tblGrid")
+    for column in ([width, inside] if width > 0 else [inside]):
+        node = OxmlElement("w:gridCol")
+        node.set(qn("w:w"), twips_attribute(column))
+        grid.append(node)
+    table.append(grid)
+
+    row = OxmlElement("w:tr")
+    span = OxmlElement("w:trHeight")
+    span.set(qn("w:hRule"), "exact")
+    span.set(qn("w:val"), twips_attribute(height))
+    holder = OxmlElement("w:trPr")
+    holder.append(span)
+    row.append(holder)
+    if width > 0:
+        stripe = panel_cell(width, bar["fill"])
+        empty = OxmlElement("w:p")
+        set_spacing(empty, before=0.0, after=0.0, line=SPACER_LINE_PT)
+        stripe.append(empty)
+        row.append(stripe)
+    cell = panel_cell(inside, panel["fill"], left)
+    row.append(cell)
+    table.append(row)
+
+    elements[0].addprevious(table)
+    for node in elements:
+        cell.append(node)
+        strip_paragraph_frame(node)
+    keep_paragraph_around(table)
+    # The top edge the PDF drew, and the height the paragraphs used to take
+    # up. The vertical pass needs both: the first to put the panel where the
+    # PDF has it, the second so that everything under it keeps the place the
+    # converter gave it rather than rising by the difference.
+    return table, rect.y0, occupied
+
+
 def shade_run_of_paragraphs(document, panels):
     """Shade the paragraphs a panel's text ended up in, and draw its bar.
 
@@ -1813,6 +1999,11 @@ def shade_run_of_paragraphs(document, panels):
     fight with it. It does not colour a code block, even though it does put
     one in a cell, which is why "is it in a table" is the wrong question and
     "does it already have a colour" is the right one.
+
+    Returns `(painted, anchors)`: the paragraphs a panel holds, and the panel
+    tables this built with the page coordinate each one's top edge has in the
+    PDF, which is better than any flow the vertical pass could work out for
+    them.
     """
     body = document.element.body
     # Every paragraph, including the ones that already have a colour: a panel
@@ -1821,6 +2012,7 @@ def shade_run_of_paragraphs(document, panels):
     paragraphs = body_paragraphs(document)
     squashed = [compare_squash(paragraph_text(p)) for p in paragraphs]
     painted = []
+    anchors = []
     cursor = 0
     for panel in sorted(panels, key=lambda p: (p["page"], p["rect"].y0)):
         matched = []
@@ -1833,16 +2025,23 @@ def shade_run_of_paragraphs(document, panels):
                 matched.append(position)
         if not matched:
             continue
-        for position in sorted(set(matched)):
-            if already_shaded(body, paragraphs[position]):
-                continue
-            paragraph = Paragraph(paragraphs[position], document)
+        cursor = max(matched) + 1
+        wanted = [paragraphs[position] for position in sorted(set(matched))
+                  if not already_shaded(body, paragraphs[position])]
+        if not wanted:
+            continue
+        built = build_panel_table(panel, wanted)
+        if built is not None:
+            anchors.append(built)
+            painted.extend(wanted)
+            continue
+        for element in wanted:
+            paragraph = Paragraph(element, document)
             shade_paragraph(paragraph, panel["fill"])
             if panel["bar"]:
                 left_border(paragraph, panel["bar"])
-            painted.append(paragraphs[position])
-        cursor = max(matched) + 1
-    return painted
+            painted.append(element)
+    return painted, anchors
 
 
 def already_shaded(body, element):
@@ -2646,7 +2845,21 @@ def block_key(element):
     return compare_squash(paragraph_text(element))
 
 
-def align_table_cells(table, top, left, lines, depth=RHYTHM_NESTING):
+def known_panel(anchors, element):
+    """`(top, was_height)` for a table the decoration pass built, else None.
+
+    A panel table is placed from the rectangle the PDF drew, which is exact,
+    rather than from the flow the converter's own spacing adds up to, and it
+    still counts as the paragraphs it replaced in that flow, so the blocks
+    under it keep the place the converter gave them.
+    """
+    for table, top, height in anchors:
+        if table is element:
+            return top, height
+    return None
+
+
+def align_table_cells(table, top, left, lines, anchors=(), depth=RHYTHM_NESTING):
     """Put the text inside a table on the baselines the PDF has for it.
 
     Returns `(moved, undo)`, and an empty undo means nothing was written.
@@ -2680,7 +2893,7 @@ def align_table_cells(table, top, left, lines, depth=RHYTHM_NESTING):
             while last + 1 < len(rows) and rows[last + 1]["y1"] <= bottom:
                 last += 1
             found, fits = place_cell(box, row["y0"], bottom,
-                                     lines_in_cell(bands, index, last, box), undo, depth)
+                                     lines_in_cell(bands, index, last, box), undo, anchors, depth)
             if not fits:
                 # A correction that would push a cell's last line past the
                 # bottom edge Word clips an exact row at would lose text
@@ -2691,7 +2904,7 @@ def align_table_cells(table, top, left, lines, depth=RHYTHM_NESTING):
     return moved, undo
 
 
-def place_cell(box, row_top, bottom, lines, undo, depth):
+def place_cell(box, row_top, bottom, lines, undo, anchors, depth):
     """Walk one cell's blocks, correcting the spacing between them.
 
     The same walk as a page, with three differences. A cell does not drop its
@@ -2749,29 +2962,35 @@ def place_cell(box, row_top, bottom, lines, undo, depth):
             inner = table_metrics(block)
             if inner is None:
                 return moved, True
+            known = known_panel(anchors, block)
             if above is not None:
                 # A nested table keeps the place the converter gave it, for
                 # the reason a top-level one does: its rules are the PDF's
                 # already. What moves is the gap above it, which takes up
-                # whatever the corrections above have added or removed.
-                step = max(0.0, was + was_pending - cursor)
+                # whatever the corrections above have added or removed. A
+                # panel this pass built is the exception: its top edge is in
+                # the PDF and does not have to inherit the flow's error.
+                step = max(0.0, (was + was_pending if known is None else known[0]) - cursor)
                 keep_spacing(undo, *above)
                 set_spacing(above[0], after=step)
                 pending = step
             if depth > 0:
                 found, deeper = align_table_cells(block, cursor + pending, cell_content_left(box),
-                                                  lines, depth - 1)
+                                                  lines, anchors, depth - 1)
                 moved += found
                 undo.extend(deeper)
             cursor += pending + inner["height"]
             pending = 0.0
-            was += was_pending + inner["height"]
+            was += was_pending + (inner["height"] if known is None else known[1])
             was_pending = 0.0
             above = None
-    # Room for the rounding in the heights themselves before a table is given
-    # back: the converter writes them to a twentieth of a point and a cell
-    # that was already full stays full.
-    return moved, cursor + pending <= max(bottom, was + was_pending) + CELL_CLIP_PT
+    # The bottom of the last line box, not of the spacing under it: Word
+    # clips an exact row, and spacing that falls off the end of a cell costs
+    # nothing while a line that does is a line the reader never sees. Room
+    # for the rounding in the heights themselves, because the converter
+    # writes them to a twentieth of a point and a cell that was already full
+    # stays full.
+    return moved, cursor <= max(bottom, was) + CELL_CLIP_PT
 
 
 def keep_spacing(undo, block, metrics):
@@ -2892,7 +3111,7 @@ class PageWalk:
         self.was_pending = was_after
 
 
-def place_page(section, blocks, rows, lines, page_height, absolute):
+def place_page(section, blocks, rows, lines, page_height, absolute, anchors=()):
     """Walk one page's blocks, correcting the spacing between them.
 
     Returns `(undo, changed, fits, drift)`: what to restore, how many blocks
@@ -3008,8 +3227,9 @@ def place_page(section, blocks, rows, lines, page_height, absolute):
             # lost a point of similarity each when that was tried. What does
             # move is the gap above it, which takes up whatever the
             # corrections above have added or removed.
+            known = known_panel(anchors, block)
             if earlier is not None:
-                gap = max(0.0, walk.was + walk.was_pending - walk.cursor)
+                gap = max(0.0, (walk.was + walk.was_pending if known is None else known[0]) - walk.cursor)
                 if walk.drift is None:
                     walk.drift = gap - walk.pending
                 walk.keep(previous, earlier)
@@ -3018,10 +3238,11 @@ def place_page(section, blocks, rows, lines, page_height, absolute):
                     walk.changed += 1
                 walk.pending = gap
             found, table_undo = align_table_cells(block, walk.cursor + walk.pending,
-                                                  section.left_margin.pt, lines)
+                                                  section.left_margin.pt, lines, anchors)
             walk.changed += found
             walk.undo.extend(table_undo)
-            walk.flow(0.0, metrics["height"], 0.0, 0.0, metrics["height"], 0.0)
+            walk.flow(0.0, metrics["height"], 0.0, 0.0,
+                      metrics["height"] if known is None else known[1], 0.0)
             walk.above = None
             continue
         break
@@ -3038,7 +3259,7 @@ def restore(undo):
         set_spacing(block, before=before, after=after, line=line)
 
 
-def align_vertical_rhythm(document, pages, page_height):
+def align_vertical_rhythm(document, pages, page_height, anchors=()):
     """Put every block's first line on the baseline the PDF gave it.
 
     One walk per section, because the converter writes one section per PDF
@@ -3061,10 +3282,10 @@ def align_vertical_rhythm(document, pages, page_height):
             continue
         section = document.sections[index]
         lines = text_columns(rows)
-        undo, changed, fits, drift = place_page(section, blocks, rows, lines, page_height, True)
+        undo, changed, fits, drift = place_page(section, blocks, rows, lines, page_height, True, anchors)
         if not fits or abs(drift) > RHYTHM_ABSOLUTE_LIMIT_PT:
             restore(undo)
-            undo, changed, fits, _ = place_page(section, blocks, rows, lines, page_height, False)
+            undo, changed, fits, _ = place_page(section, blocks, rows, lines, page_height, False, anchors)
             if not fits:
                 restore(undo)
                 changed = 0
@@ -3799,7 +4020,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         repair_warnings.extend(toc_warnings)
         if bands:
             repair_warnings.extend(apply_bands(document, bands, page_height, content_left, content_right, pages))
-        shaded = shade_run_of_paragraphs(document, panels)
+        shaded, panel_tables = shade_run_of_paragraphs(document, panels)
         squares = restore_swatches(document, swatches, swatch_face)
         align_paragraphs(document, aligned)
         fit_pictures(document, pictures)
@@ -3814,7 +4035,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         # Last, because it reads the spacing and the line count of every block
         # the passes above have finished writing.
         if affordable(started, budget_seconds, repairs):
-            align_vertical_rhythm(document, anchors, page_height)
+            align_vertical_rhythm(document, anchors, page_height, panel_tables)
         name_runs(document, font_plan)
         fill_bare_runs(document)
         document.save(part)
@@ -3851,7 +4072,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             # on the fallback too.
             document = Document(part)
             repairs = time.monotonic()
-            shaded = shade_run_of_paragraphs(document, panels)
+            shaded, panel_tables = shade_run_of_paragraphs(document, panels)
             squares = restore_swatches(document, swatches, swatch_face)
             align_paragraphs(document, aligned)
             fit_pictures(document, pictures)
@@ -3864,7 +4085,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             repair_text(document, pairs, shaded)
             restore_break_hyphens(document, broken, shaded)
             if affordable(started, budget_seconds, repairs):
-                align_vertical_rhythm(document, plain_anchors, page_height)
+                align_vertical_rhythm(document, plain_anchors, page_height, panel_tables)
             name_runs(document, font_plan)
             fill_bare_runs(document)
             document.save(part)

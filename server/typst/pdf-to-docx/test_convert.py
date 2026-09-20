@@ -364,6 +364,126 @@ def anchor_row(text, base, y0, y1, x0=54.0, x1=300.0):
             "columns": [{"x0": x0, "x1": x1, "y0": y0, "y1": y1, "base": base, "text": text}]}
 
 
+def code_document(lines, indent=25.8, before=14.5, line=9.0, after=19.8, shaded=False):
+    """A paragraph of body text and then a shaded code block under it."""
+    document = Document()
+    document.sections[0].top_margin = Pt(72)
+    lead = document.add_paragraph()
+    convert.set_spacing(lead._p, before=0.0, after=8.3, line=13.5)
+    lead.add_run("Step title")
+    made = []
+    for order, text in enumerate(lines):
+        paragraph = document.add_paragraph()
+        convert.set_spacing(paragraph._p, before=before if not order else 3.7,
+                            after=after if order == len(lines) - 1 else 0.0, line=line)
+        paragraph.add_run(text)
+        paragraph.paragraph_format.left_indent = Pt(indent)
+        if shaded:
+            convert.shade_paragraph(paragraph, (0.93, 0.93, 0.93))
+        made.append(paragraph._p)
+    return document, made
+
+
+def code_panel(top, height, x0=71.2, x1=548.0, text_x=80.2, bar=7.2, lines=()):
+    """A panel as `find_decoration` describes one, with an accent bar."""
+    return {
+        "fill": (0.93, 0.93, 0.93),
+        "rect": pymupdf.Rect(x0, top, x1, top + height),
+        "page": 0,
+        "bar": {"fill": (0.1, 0.14, 0.22), "width": bar, "space": text_x - x0},
+        "rows": [{"x0": text_x, "x1": text_x + 200.0, "y0": base - 7.0, "y1": base + 2.0,
+                  "base": base, "text": text,
+                  "columns": [{"x0": text_x, "x1": text_x + 200.0, "y0": base - 7.0,
+                               "y1": base + 2.0, "base": base, "text": text}]}
+                 for text, base in lines],
+    }
+
+
+def run_panel_checks():
+    """A code panel rebuilt as a table, so the grey gets the PDF's padding."""
+    passed = True
+    text = ["import requests", "r = requests.get(url)", "print(r.status_code)"]
+    bases = [128.97, 154.34, 167.03]
+    document, made = code_document(text, shaded=True)
+    panel = code_panel(115.13, 58.9, lines=list(zip(text, bases)))
+    built = convert.build_panel_table(panel, made)
+    passed &= check(built is not None, "panel: the panel was rebuilt as a table")
+    table, top, was = built
+    passed &= check(abs(top - 115.13) < 0.01 and was > 40.0,
+                    "panel: it reports the PDF's top edge and the height it replaced", (top, was))
+    row = table.findall(convert.qn("w:tr"))[0]
+    cells = row.findall(convert.qn("w:tc"))
+    height = row.find(convert.qn("w:trPr")).find(convert.qn("w:trHeight"))
+    passed &= check(height.get(convert.qn("w:hRule")) == "exact"
+                    and abs(convert.twips_of(height.get(convert.qn("w:val"))) - 58.9) < 0.05,
+                    "panel: the row is exactly as tall as the PDF's rectangle",
+                    height.get(convert.qn("w:val")))
+    passed &= check(len(cells) == 2, "panel: the accent bar is a cell of its own", len(cells))
+    fills = [cell.find(convert.qn("w:tcPr")).find(convert.qn("w:shd")).get(convert.qn("w:fill"))
+             for cell in cells]
+    passed &= check(fills == ["1A2438", "EDEDED"], "panel: each cell carries its own colour", fills)
+    widths = [convert.twips_of(cell.find(convert.qn("w:tcPr")).find(
+        convert.qn("w:tcW")).get(convert.qn("w:w"))) for cell in cells]
+    passed &= check(abs(widths[0] - 7.2) < 0.05 and abs(widths[1] - 476.8) < 0.05,
+                    "panel: the bar and the panel are the PDF's own widths", widths)
+    margins = cells[1].find(convert.qn("w:tcPr")).find(convert.qn("w:tcMar"))
+    sides = {name: convert.twips_of(margins.find(convert.qn("w:" + name)).get(convert.qn("w:w")))
+             for name in ("top", "start", "bottom", "end")}
+    passed &= check(abs(sides["start"] - 9.0) < 0.05 and sides["top"] == 0.0 and sides["bottom"] == 0.0,
+                    "panel: the left padding is the PDF's, and Word is left to fill the rest", sides)
+    indent = convert.twips_of(table.find(convert.qn("w:tblPr")).find(
+        convert.qn("w:tblInd")).get(convert.qn("w:w")))
+    passed &= check(abs(indent - (25.8 - 7.2 - 9.0)) < 0.05,
+                    "panel: the table's indent leaves the code at the x it already had", indent)
+    passed &= check([convert.paragraph_text(node) for node in cells[1].findall(convert.qn("w:p"))] == text,
+                    "panel: the code moved in unchanged, byte for byte")
+    properties = made[0].find(convert.qn("w:pPr"))
+    passed &= check(properties.find(convert.qn("w:shd")) is None
+                    and properties.find(convert.qn("w:ind")) is None,
+                    "panel: the paragraph's own fill and indent are gone, the cell has them now")
+    passed &= check(table.getprevious() is not None and table.getprevious().tag == convert.qn("w:p")
+                    and table.getnext() is not None and table.getnext().tag == convert.qn("w:p"),
+                    "panel: a paragraph on either side, so Word does not join two tables")
+
+    # End to end: the vertical pass puts the panel on the PDF's own top edge.
+    rows = [[anchor_row("Step title", 100.0, 92.0, 103.0)]
+            + [anchor_row(line, base, base - 7.0, base + 2.0, x0=80.2)
+               for line, base in zip(text, bases)]]
+    convert.align_vertical_rhythm(document, rows, 792.0, [built])
+    spacing = convert.paragraph_metrics(table.getprevious())
+    passed &= check(spacing is not None and abs(spacing["after"] - (115.13 - 72.0 - 13.5)) < 0.3,
+                    "panel: the gap above it lands the panel on the PDF's top edge",
+                    spacing and spacing["after"])
+    first = convert.paragraph_metrics(made[0])
+    passed &= check(abs(115.13 + first["before"] + convert.EXACT_BASELINE_RATIO * first["line"] - 128.97) < 0.1,
+                    "panel: and the first line of code lands on the PDF's baseline",
+                    first and first["before"])
+
+    # A panel taller than the paragraphs it would replace is left alone, or
+    # the page it is on could gain a line.
+    document, made = code_document(text, before=0.0, after=0.0, line=9.0)
+    tall = code_panel(115.13, 200.0, lines=list(zip(text, bases)))
+    passed &= check(convert.build_panel_table(tall, made) is None,
+                    "panel: a panel taller than the text it replaces is refused")
+
+    # So is one whose paragraphs are not next to each other.
+    document, made = code_document(text)
+    stray = document.add_paragraph("something else")
+    made[1].addprevious(stray._p)
+    passed &= check(convert.build_panel_table(panel, made) is None,
+                    "panel: and one with a stranger in among its lines")
+
+    # The caller then shades them the way it used to.
+    document, made = code_document(text)
+    tall = code_panel(115.13, 200.0, lines=list(zip(text, bases)))
+    painted, anchors = convert.shade_run_of_paragraphs(document, [tall])
+    properties = painted[0].find(convert.qn("w:pPr")) if painted else None
+    passed &= check(len(painted) == 3 and anchors == []
+                    and properties is not None and properties.find(convert.qn("w:shd")) is not None,
+                    "panel: a panel that cannot be a table is still shaded", (len(painted), anchors))
+    return passed
+
+
 def run_rhythm_checks():
     """The vertical pass: its layout model, and what it refuses to do."""
     passed = True
@@ -450,6 +570,7 @@ def run_rhythm_checks():
                     "rhythm: a table Word is free to size is not modelled")
 
     passed &= run_cell_checks()
+    passed &= run_panel_checks()
 
     # A word the typesetter broke keeps its hyphen where the line still ends.
     document = Document()
