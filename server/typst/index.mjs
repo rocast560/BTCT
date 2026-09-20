@@ -1,6 +1,7 @@
 // HTTP surface of the Typst server side. index.mjs imports this file
 // dynamically, and only when ENABLE_TYPST is on.
 import { capabilities, exportReport, ExportError, CLIENT_GONE } from './export.mjs';
+import { encodeWarnings } from './warnings.mjs';
 
 const MIME = { pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
 
@@ -8,25 +9,6 @@ const MIME = { pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-off
 // disk, but it still reaches a Y.Map lookup and an error message: keep it to
 // the shape the client's ids actually have.
 const WORKSPACE_ID = /^[A-Za-z0-9_-]{1,64}$/;
-
-// An HTTP header has a size limit and warnings come from report content, so
-// they are capped twice over: at most this many, and short enough that the
-// whole encoded value cannot push the response head over a proxy's limit.
-const MAX_WARNINGS = 10;
-const MAX_WARNING_CHARS = 4000;
-
-/** The `X-Export-Warnings` value, or '' when there is nothing to send. */
-export function encodeWarnings(warnings) {
-  // One duplicate name, or one image pandoc could not fetch, produces the
-  // same sentence per occurrence. The reader needs it once.
-  let list = [...new Set(warnings ?? [])].slice(0, MAX_WARNINGS);
-  while (list.length > 0) {
-    const encoded = encodeURIComponent(JSON.stringify(list));
-    if (encoded.length <= MAX_WARNING_CHARS) return encoded;
-    list = list.slice(0, list.length - 1);
-  }
-  return '';
-}
 
 // Returns true when it handled the request.
 export async function handleTypst(req, res, { user, sendJson, setCors = () => {} }) {

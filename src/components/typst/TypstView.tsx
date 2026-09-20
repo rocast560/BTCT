@@ -37,9 +37,9 @@ import {
   typstErrorMessage,
 } from '@/lib/typst-compiler';
 import {
-  displayWarning,
   exportOnServer,
   fetchExportCapabilities,
+  serverExportNotice,
   type ExportCapabilities,
 } from '@/lib/typst-export-api';
 import { ASSET_DIR, assetPath, fetchAssetBytes, resolveAssetBytes } from '@/lib/assets';
@@ -85,7 +85,10 @@ function useDebounced<T>(value: T, delay: number): T {
 }
 
 function triggerDownload(filename: string, data: BlobPart, mime: string): void {
-  const blob = new Blob([data], { type: mime });
+  // A server export already arrives as a Blob of the right type. Wrapping it
+  // in another Blob copies it, so a 100 MB Word file would sit in memory
+  // twice for as long as the object URL lives.
+  const blob = data instanceof Blob && data.type === mime ? data : new Blob([data], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -658,12 +661,10 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
     setServerExporting(format);
     setNotice(null);
     try {
-      const { blob, warnings } = await exportOnServer(workspaceId, format);
+      const { blob, baked, warnings } = await exportOnServer(workspaceId, format);
       triggerDownload(`${workspaceName ?? 'report'}.${format}`, blob, blob.type);
-      if (warnings.length > 0) {
-        const lines = [`Exported, with ${warnings.length} note(s):`, ...warnings.map(displayWarning)];
-        setNotice({ kind: 'info', text: lines.join('\n') });
-      }
+      const text = serverExportNotice(baked, warnings);
+      if (text) setNotice({ kind: 'info', text });
     } catch (err) {
       setNotice({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
     } finally {

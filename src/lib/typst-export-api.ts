@@ -64,6 +64,24 @@ export function displayWarning(warning: string): string {
   return m ? `Line ${m[1]}: ${m[2]}` : warning;
 }
 
+/**
+ * The banner after a server export, or null when there is nothing to say.
+ *
+ * `X-Baked-Images` is the only thing that tells whoever clicked the button
+ * that the crops and redactions really did go into the file they just
+ * downloaded, so it leads. Warnings follow in the wording the tab already
+ * used. Nothing baked and nothing to warn about stays silent, as before.
+ */
+export function serverExportNotice(baked: number, warnings: string[]): string | null {
+  const redacted = baked > 0 ? `${baked} image(s) had their redactions baked in.` : null;
+  if (warnings.length === 0) return redacted === null ? null : `Exported. ${redacted}`;
+  return [
+    ...(redacted === null ? [] : [redacted]),
+    `Exported, with ${warnings.length} note(s):`,
+    ...warnings.map(displayWarning),
+  ].join('\n');
+}
+
 export async function exportOnServer(workspaceId: string, format: 'pdf' | 'docx'): Promise<ServerExportResult> {
   let res: Response;
   try {

@@ -4,6 +4,7 @@ import { parseDiagnostics, scrubPaths, childFailureMessage, bakeFailureMessage }
 import { createSerial } from '../../server/typst/serial.mjs';
 import { findPackageSpec } from '../../server/typst/package-spec.mjs';
 import { referencedAssetNames } from '../../server/typst/referenced-assets.mjs';
+import { encodeWarnings } from '../../server/typst/warnings.mjs';
 
 describe('parseDiagnostics', () => {
   it('reads file:line:col lines relative to the root', () => {
@@ -285,5 +286,51 @@ describe('bakeFailureMessage', () => {
   it('survives a result with missing fields', () => {
     expect(bakeFailureMessage({}, 'shot.png')).toBe('shot.png: the redaction step produced no image, so the export was stopped.');
     expect(bakeFailureMessage(null, 'shot.png')).toBe('shot.png: the redaction step produced no image, so the export was stopped.');
+  });
+});
+
+describe('encodeWarnings', () => {
+  // The value of X-Export-Warnings. Report content reaches it, so it is
+  // capped twice: each entry, and the whole encoded header, which has to
+  // stay under a proxy's response-head limit.
+  const decode = (header: string) => JSON.parse(decodeURIComponent(header)) as string[];
+
+  it('is empty when there is nothing to report', () => {
+    expect(encodeWarnings([])).toBe('');
+    expect(encodeWarnings(undefined as unknown as string[])).toBe('');
+  });
+
+  it('deduplicates and keeps at most ten entries', () => {
+    expect(decode(encodeWarnings(['a', 'a', 'b']))).toEqual(['a', 'b']);
+    const many = Array.from({ length: 25 }, (_, i) => `warning ${i}`);
+    expect(decode(encodeWarnings(many))).toHaveLength(10);
+  });
+
+  it('drops whole entries until the encoded header fits', () => {
+    // Each entry is already at the 300-character per-entry cap, and a space
+    // triples under encodeURIComponent, so ten of them do not fit.
+    const list = Array.from({ length: 10 }, (_, i) => `${i} ${'a '.repeat(160)}`);
+    const out = decode(encodeWarnings(list));
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.length).toBeLessThan(10);
+    expect(encodeWarnings(list).length).toBeLessThanOrEqual(4000);
+  });
+
+  it('truncates one over-long entry instead of dropping the header', () => {
+    // A pandoc [WARNING] line has no length bound. Dropping it took every
+    // other warning with it, and the operator was told nothing at all.
+    const out = decode(encodeWarnings([`shot.png: ${'x'.repeat(5000)}`, 'a second note']));
+    expect(out).toHaveLength(2);
+    expect(out[0]).toHaveLength(300);
+    expect(out[0]!.endsWith('\u2026')).toBe(true);
+    expect(out[1]).toBe('a second note');
+  });
+
+  it('survives non-ASCII text, which encodes to several characters each', () => {
+    const out = decode(encodeWarnings(['Figure "café" was not included: naïve path ünicode ✓']));
+    expect(out).toEqual(['Figure "café" was not included: naïve path ünicode ✓']);
+    // Three-byte characters triple under encodeURIComponent, so the whole
+    // cap still has to hold.
+    expect(encodeWarnings(Array.from({ length: 10 }, (_, i) => `${i} ${'✓'.repeat(280)}`)).length).toBeLessThanOrEqual(4000);
   });
 });

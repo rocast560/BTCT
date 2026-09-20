@@ -2,7 +2,7 @@
 // the capability probe, the export call's blob/warnings decoding, and the
 // pure warning rewrite used for display.
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { displayWarning, exportOnServer, fetchExportCapabilities } from '@/lib/typst-export-api';
+import { displayWarning, exportOnServer, fetchExportCapabilities, serverExportNotice } from '@/lib/typst-export-api';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -78,6 +78,33 @@ describe('typst export api', () => {
     it('leaves other text unchanged', () => {
       expect(displayWarning('One image could not be re-encoded and was skipped.'))
         .toBe('One image could not be re-encoded and was skipped.');
+    });
+  });
+
+  describe('serverExportNotice', () => {
+    // X-Baked-Images is the only thing that tells an operator the redactions
+    // actually went into the file they just downloaded, and it was returned
+    // and never shown.
+    it('says nothing when nothing was baked and nothing went wrong', () => {
+      expect(serverExportNotice(0, [])).toBeNull();
+    });
+
+    it('reports the redaction count on a clean export', () => {
+      expect(serverExportNotice(3, [])).toBe('Exported. 3 image(s) had their redactions baked in.');
+    });
+
+    it('leads with the redaction count and then the notes', () => {
+      expect(serverExportNotice(1, ['Figure slot 2 (line 14): the caption is computed, so the Word file shows "Figure" instead.']))
+        .toBe([
+          '1 image(s) had their redactions baked in.',
+          'Exported, with 1 note(s):',
+          'Line 14: the caption is computed, so the Word file shows "Figure" instead.',
+        ].join('\n'));
+    });
+
+    it('keeps the notes-only wording when nothing was baked', () => {
+      expect(serverExportNotice(0, ['Two assets are named a.png; only the first was used.']))
+        .toBe('Exported, with 1 note(s):\nTwo assets are named a.png; only the first was used.');
     });
   });
 });
