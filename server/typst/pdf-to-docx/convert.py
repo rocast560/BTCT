@@ -577,9 +577,10 @@ def detect_band(doc, edge):
     # that would cover a row which is not a band member is not taken.
     members = {row_id(index, row) for rows in repeating for index, row in rows}
     wanted_top, wanted_bottom = top, bottom
-    rule_under = False
+    rule_under = None
     strip_behind = None
     strip_full_width = False
+    strip_span = None
     for drawing in repeating_drawings(doc, pages, edge):
         rect = drawing["rect"]
         if rect.y0 > wanted_bottom + BAND_GLUE_PT or rect.y1 < wanted_top - BAND_GLUE_PT:
@@ -589,15 +590,24 @@ def detect_band(doc, edge):
         if drawing.get("fill") is not None and rect.height > 1.0:
             strip_behind = tuple(drawing["fill"])
             strip_full_width = rect.width >= doc[pages[0]].rect.width - 2.0
+            strip_span = (rect.x0, rect.x1)
         elif edge == "top" and rect.y0 >= text_bottom - 1.0:
-            rule_under = True
+            # Where the rule starts and stops, and how heavy it is, so Word
+            # draws the same line rather than one that runs to the margin.
+            rule_under = {
+                "x0": rect.x0,
+                "x1": rect.x1,
+                "width": max(rect.height, drawing.get("width") or 0.0),
+                "color": drawing.get("color") if drawing.get("color") is not None else drawing.get("fill"),
+            }
     if covers_a_stranger(doc, pages, members, wanted_top, wanted_bottom):
         # The decoration stays in the body. That is a cosmetic price (the rule
         # under the header is drawn twice, once by Word and once by the page
         # it was left on) against deleting a finding.
-        rule_under = False
+        rule_under = None
         strip_behind = None
         strip_full_width = False
+        strip_span = None
     else:
         top, bottom = wanted_top, wanted_bottom
 
@@ -615,6 +625,7 @@ def detect_band(doc, edge):
         "rule_under": rule_under,
         "strip_behind": strip_behind,
         "strip_full_width": strip_full_width,
+        "strip_span": strip_span,
         # The rows this band is made of, so the text check can leave out
         # exactly those and nothing else.
         "members": members,
@@ -1074,13 +1085,20 @@ def shade_paragraph(paragraph, fill):
     insert_ordered(paragraph._p.get_or_add_pPr(), node, PPR_ORDER)
 
 
-def underline_paragraph(paragraph):
+def border_eighths(width):
+    """A stroke width in points as Word wants it: eighths of a point, 2 to 96."""
+    return str(max(2, min(96, int(round((width or 0.0) * 8)) or 6)))
+
+
+def underline_paragraph(paragraph, rule):
+    """The rule under a running header, as heavy and as dark as the PDF's."""
     borders = OxmlElement("w:pBdr")
     bottom = OxmlElement("w:bottom")
     bottom.set(qn("w:val"), "single")
-    bottom.set(qn("w:sz"), "6")  # eighths of a point
+    bottom.set(qn("w:sz"), border_eighths(rule.get("width") if isinstance(rule, dict) else None))
     bottom.set(qn("w:space"), "1")
-    bottom.set(qn("w:color"), "auto")
+    colour = rule.get("color") if isinstance(rule, dict) else None
+    bottom.set(qn("w:color"), hex_of(colour) if colour is not None else "auto")
     borders.append(bottom)
     insert_ordered(paragraph._p.get_or_add_pPr(), borders, PPR_ORDER)
 
@@ -1104,6 +1122,23 @@ def band_height(band):
     return max(text, tallest * 1.15)
 
 
+def band_paint_span(band, left_margin, right_edge):
+    """Where the band's own rule or strip runs, or None when it has neither.
+
+    Word draws both of those as paragraph decoration, between the paragraph's
+    indents, so this is what the indents have to be: the PDF's rule stops
+    short of the right margin on the reference report, and a border run to the
+    indent instead was 3 to 7 pt too wide on every page.
+    """
+    if band["edge"] == "top" and isinstance(band.get("rule_under"), dict):
+        return band["rule_under"]["x0"], band["rule_under"]["x1"]
+    if band["edge"] == "bottom" and band["strip_behind"]:
+        if band.get("strip_full_width"):
+            return 0.0, left_margin + right_edge
+        return band.get("strip_span")
+    return None
+
+
 def fill_band_paragraph(paragraph, band, left_margin, right_margin, content_left, content_right):
     """One paragraph holding the band's left, centre and right columns.
 
@@ -1118,22 +1153,23 @@ def fill_band_paragraph(paragraph, band, left_margin, right_margin, content_left
     fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
     fmt.line_spacing = Pt(round(band_height(band), 1))
     indent = max(0.0, content_left - left_margin)
-    # A strip that runs to the page edges in the PDF has to do the same here,
-    # and Word shades a paragraph between its indents, so the paragraph is
-    # pushed out into the margins and an extra tab stop puts the text back
-    # where the text area starts. Without this the strip stops at the text
-    # area and the page has two grey ends.
-    bleeds = band["edge"] == "bottom" and band["strip_behind"] and band.get("strip_full_width")
-    if bleeds:
-        fmt.left_indent = Pt(-round(left_margin, 1))
-        fmt.right_indent = Pt(-round(right_margin, 1))
+    # Word draws a rule or a filled strip between the paragraph's indents, so
+    # when the band has one the indents are the PDF's own: a strip that runs
+    # to the page edges pushes the paragraph out into the margins, a rule that
+    # stops short of the margin pulls the right indent in. An extra tab stop
+    # then puts the text back where the text area starts, because the text
+    # does not move with the decoration.
+    span = band_paint_span(band, left_margin, content_right + max(0.0, right_margin))
+    if span:
+        fmt.left_indent = Pt(round(span[0] - left_margin, 1))
+        fmt.right_indent = Pt(round((content_right + max(0.0, right_margin)) - span[1], 1))
     else:
         fmt.left_indent = Pt(round(indent, 1))
         fmt.right_indent = Pt(0)
     reset_tab_stops(paragraph)
     centre = (content_left + content_right) / 2.0 - left_margin
     right = content_right - left_margin
-    if bleeds:
+    if span:
         fmt.tab_stops.add_tab_stop(Pt(round(max(1.0, indent), 1)), WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.SPACES)
     fmt.tab_stops.add_tab_stop(Pt(round(max(1.0, centre), 1)), WD_TAB_ALIGNMENT.CENTER, WD_TAB_LEADER.SPACES)
     fmt.tab_stops.add_tab_stop(Pt(round(max(2.0, right), 1)), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.SPACES)
@@ -1142,7 +1178,7 @@ def fill_band_paragraph(paragraph, band, left_margin, right_margin, content_left
     for column in band["columns"]:
         slots[alignment_of(column, content_left, content_right)].append(column)
 
-    if bleeds:
+    if span:
         paragraph.add_run("\t")
     for order, name in enumerate(("left", "centre", "right")):
         if order:
@@ -1155,7 +1191,7 @@ def fill_band_paragraph(paragraph, band, left_margin, right_margin, content_left
                     style_run(paragraph.add_run(part["text"]), column)
 
     if band["edge"] == "top" and band["rule_under"]:
-        underline_paragraph(paragraph)
+        underline_paragraph(paragraph, band["rule_under"])
     if band["edge"] == "bottom" and band["strip_behind"]:
         shade_paragraph(paragraph, band["strip_behind"])
 

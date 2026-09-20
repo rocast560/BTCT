@@ -93,6 +93,16 @@ def run_built_in():
 
     passed &= check(header["pages"] == [1, 2, 3], "the cover carries no header", header["pages"])
     passed &= check(header["rule_under"], "the rule under the header joined the band")
+    if header["rule_under"]:
+        rule = header["rule_under"]
+        passed &= check(abs(rule["x0"] - LEFT) < 2 and abs(rule["x1"] - RIGHT) < 2,
+                        "the rule's own ends were measured", (rule["x0"], rule["x1"]))
+        passed &= check(convert.border_eighths(rule["width"]) == str(int(round(rule["width"] * 8))),
+                        "the rule's weight comes from the stroke", convert.border_eighths(rule["width"]))
+        passed &= check(convert.border_eighths(0.0) == "6" and convert.border_eighths(40.0) == "96",
+                        "a border weight stays inside what Word accepts")
+        passed &= check(convert.band_paint_span(header, 0.0, RIGHT) == (rule["x0"], rule["x1"]),
+                        "the header paragraph is indented to the rule")
     passed &= check(header["bottom"] >= 53.0, "the header band reaches the rule", header["bottom"])
     passed &= check(len(header["columns"]) == 2, "the header has a left and a right piece", len(header["columns"]))
     passed &= check(
