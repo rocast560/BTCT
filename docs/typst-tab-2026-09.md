@@ -1880,6 +1880,110 @@ Google Docs sees any of it, or that the control substituting to Calibri here
 means it substitutes to Calibri anywhere. It proves that this Word, given this
 file, drew the report in fonts it could only have read out of the file.
 
+### Fidelity, part five: the fonts Word will not carry at all
+
+Part four ended with a finding I did not go looking for: Word embeds TrueType
+outlines and nothing else, so an `.otf` face is written into the package,
+declared in the table with a key and a relationship, and ignored. I refused
+those with a warning and moved on. That was the wrong place to stop, because
+six of the seventeen fonts the compiler ships are in that position and one of
+them is typst's default, which is what BTCT's own starter template asks for.
+So a report nobody had customised exported to a Word file set entirely in
+Cambria.
+
+Now they are redrawn. Each cubic curve is approximated by a quadratic within
+a thousandth of an em, using fontTools' `Cu2QuPen` into a `TTGlyphPen`, which
+is the approach the well-known `otf2ttf` script takes; fontTools 4.65 has the
+pens but no ready-made converter, so the table bookkeeping is here: build
+`glyf` and `loca`, drop `CFF `, `VORG` and `DSIG`, `maxp` to version 1.0,
+`post` to format 2 with the glyph names kept, `head.glyphDataFormat` to 0,
+`sfntVersion` to `\x00\x01\x00\x00`.
+
+The measurement that matters is that nothing moved. Over all thirteen
+OpenType faces in `public/fonts`, every advance width is the number it was,
+every vertical metric in `hhea`, `OS/2` and `head` is unchanged, and `GPOS`,
+`GSUB` and `MATH` came across untouched. Only the side bearings move, and
+only to the redrawn outline's own left edge, which is where the format says
+they belong. The forced line endings rest on those widths, so that is the
+property the test asserts rather than anything about the curves.
+
+It costs 1.0 to 4.9 seconds a face and grows the bytes: Libertinus Serif
+Regular 329 KB to 616 KB, New Computer Modern 10 Regular 573 KB to 803 KB,
+the Math face 1124 KB to 1520 KB. A family is four of those, so it is the one
+optional step here that can be worth ten seconds, and it is given what is
+left of the export's deadline after a margin for writing the file. A face
+there is no time for is refused with a warning rather than started.
+
+On the starter template: Word's render went from `Cambria`, `Cambria-Bold`
+and `Cambria-Italic` to `___WRD_EMBED_SUB_46` and `___WRD_EMBED_SUB_46,Bold`,
+which read back as `NewCM10-Regular` and `NewCM10-Bold`. Similarity 0.9483 to
+0.9585, mean absolute difference 0.9925 to 0.9950, and the ink box's height
+error fell from 3.6 pt to 2.88 pt. The bold spans now land within 0.1 pt of
+the PDF: `2.1 Example Finding` 136.90 pt in the PDF against 122.15 in Cambria
+and 136.82 now; `CVSS` 32.76 against 24.63 and 32.82.
+
+#### Redrawing a font is a modification, so the licence is read too
+
+`fsType` says whether a font may be embedded. It does not say whether it may
+be altered, and redrawing outlines is altering. So the licence name records
+are read as well, IDs 13 and 14 and, because New Computer Modern states its
+terms there and has no 13 at all, ID 0. A face is redrawn only under a
+licence recognised here: the SIL Open Font License, Apache 2.0, Bitstream
+Vera, the GUST Font License, the Ubuntu Font Licence. Anything else is
+refused with `its outlines are a kind Word cannot embed, and its licence does
+not clearly allow converting them`, which is a refusal to guess rather than a
+finding about the font.
+
+The OFL question, plainly, because two of its clauses pull against each
+other. Clause 3 says no Modified Version may use a Reserved Font Name, and
+the embedded copy deliberately keeps its family name, because that name is
+the only thing Word matches on. Clause 2 allows modified copies to be
+redistributed under the same terms. The reading this takes is that a font
+embedded in a document is not font software being distributed to anyone as a
+font: it is one document, the copy cannot be installed, and every word
+processor and PDF writer subsets and re-formats fonts to embed them. That is
+the common industry reading and I believe it is the right one, but I have not
+read the OFL FAQ's wording on it on this machine and I am not a lawyer, so it
+is a judgement call and it is recorded here as one. Anyone who disagrees has
+`--no-font-conversion`, which puts the old behaviour back.
+
+#### The preview-and-print bit, which cost me an afternoon
+
+The starter template's first converted build would not render through Word at
+all: `Repaginate` answered `the Repaginate method or property is not
+available because a macro is currently running` and `SaveAs2` answered `this
+command is not available`. I assumed my converted font was malformed. It was
+not. New Computer Modern's italic and bold-italic carry `fsType` 12, which
+sets the preview-and-print bit, and Word honours that bit by opening the
+entire document read-only. Embedding one takes away the thing this export
+exists to hand somebody, so it is now refused per face with its own reason,
+and a family whose italic is restricted is carried in the faces that are not.
+
+The four levels are now: installable and editable are carried, restricted and
+preview-and-print are not.
+
+#### And a rule from part four that was half right
+
+Name ID 2 says which of Word's four slots a face fills. Part four read it as
+words so that `SemiBold` would not be taken for `Bold`. New Computer Modern
+spells its bold italic `BoldItalic`, one word, which that rule read as
+neither bold nor italic: it took the regular slot, and the real regular face
+was never carried, so Word set the body text in the bold one. The rule now
+reads the whole record instead of searching it: the slant is a suffix, and
+what is in front of it is the weight, which is bold when it is the word
+`bold` and nothing else. Ten spellings are pinned in `test_convert.py`,
+including both of the ones that were bugs.
+
+#### What the probe says now
+
+The probe grew a fourth family whose outlines are PostScript, and its control
+is the same document converted again with `--no-font-conversion`: one flag
+apart, the same face. With conversion on, all seven probe faces come out of
+the file, twice over, including `BtctProbeSerif-Regular`. With it off, that
+one family substitutes to Cambria and the other three still come out of the
+file. No probe family can be installed anywhere, so Word can only have read
+them from the document.
+
 #### What a DOCX cannot express
 
 Some of the remaining difference is not a bug to be fixed.

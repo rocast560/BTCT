@@ -747,7 +747,7 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
             <button
               onClick={() => void serverExport('docx')}
               disabled={serverExporting !== null}
-              title="Word file made on the server from the finished PDF, matching its layout line for line. Redactions are baked in first. The report's fonts travel inside the file when their licence allows it and their outlines are TrueType, which is all Word will carry; anything it cannot carry is named in a warning."
+              title="Word file made on the server from the finished PDF, matching its layout line for line. Redactions are baked in first. The report's fonts travel inside the file when their licence allows it, with PostScript outlines redrawn as TrueType because that is all Word carries; a font it cannot carry is named in a warning."
               className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] disabled:opacity-40"
             >
               <FileDown size={13} /> {serverExporting === 'docx' ? 'Converting…' : 'DOCX'}

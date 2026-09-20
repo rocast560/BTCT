@@ -495,14 +495,30 @@ command palette. There is one report per workspace.
     unused inside the same file. A weight Word does not keep per family, a
     semibold say, is declared as the family of its own that its file says it
     is, with the bold bit cleared, rather than as the family below it with a
-    fake weight painted over. Two things Word will not do: it carries TrueType
-    outlines only, so a font whose outlines are PostScript (most `.otf` files,
-    including Libertinus Serif and New Computer Modern) is refused with a
-    warning rather than written in and ignored; and it substitutes for
-    anything the file does not carry, so the warnings are worth reading.
-    `server/typst/pdf-to-docx/font_probe.py` is the check behind all of that:
-    it builds font families nothing can have installed, sets a report in them
-    and reads Word's own render back.
+    fake weight painted over.
+  - **Fonts with PostScript outlines are redrawn as TrueType** before they go
+    in, because Word carries TrueType and nothing else and would otherwise
+    substitute for them silently. That is most `.otf` files, including the
+    Libertinus Serif and New Computer Modern the compiler ships, so it is the
+    starter template's own case: before this the whole report came out in
+    Cambria. Every advance width, every vertical metric and the kerning and
+    shaping tables are unchanged, so no line moves; only the outlines are
+    approximated, within a thousandth of an em. Redrawing is a modification,
+    so it is done only under a licence read off the font that this recognises
+    as allowing it (the SIL Open Font License, Apache 2.0, Bitstream Vera,
+    the GUST Font License, the Ubuntu Font Licence), and a font that says
+    something else is refused and named in a warning. Pass
+    `--no-font-conversion` to `convert.py` to turn it off, and such a font is
+    refused instead. It costs 1.0 to 4.9 seconds a face, taken out of the
+    export's own deadline, and a face it has no time left for is refused
+    rather than started.
+  - **A font licensed for preview and print only is refused**, whatever its
+    outlines, because Word honours that bit by opening the whole document
+    read-only: it cannot be repaginated, exported or edited. That is per face,
+    so a family whose italic is restricted is carried in the faces that are
+    not. `server/typst/pdf-to-docx/font_probe.py` is the check behind all of
+    this: it builds font families nothing can have installed, sets a report in
+    them and reads Word's own render back.
   - **Temporary disk.** An export stages into the OS temp directory (`/tmp` in
     the container, on its writable layer, not on the data volume) and uses up
     to about 300 MB while it runs: the 200 MB of staged files, one image being
