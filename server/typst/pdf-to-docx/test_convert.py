@@ -279,6 +279,43 @@ def run_rhythm_checks():
     passed &= check(convert.table_metrics(table._tbl) is None,
                     "rhythm: a table Word is free to size is not modelled")
 
+    # A row's text is put on the PDF's baseline by resizing its box, which
+    # leaves the row height, and so every rule the table draws, alone.
+    document = Document()
+    table = document.add_table(rows=1, cols=1)
+    properties = table.rows[0]._tr.get_or_add_trPr()
+    node = convert.OxmlElement("w:trHeight")
+    node.set(convert.qn("w:val"), "802")   # 40.1 pt
+    node.set(convert.qn("w:hRule"), "exact")
+    properties.append(node)
+    inner = table.rows[0].cells[0].paragraphs[0]
+    convert.set_spacing(inner._p, before=0.0, after=0.0, line=25.2)
+    inner.add_run("2. INTRODUCTION")
+    # The PDF has that baseline 18.9 below the table's top, not 0.8 x 25.2.
+    pdf_rows = [{"base": 118.9, "y0": 100.0, "y1": 123.0,
+                 "key": convert.compare_squash("2. INTRODUCTION")}]
+    moved = convert.align_table_text(table._tbl, 100.0, pdf_rows, 0, 1)
+    after = convert.paragraph_metrics(inner._p)
+    passed &= check(moved == 1 and abs(after["line"] - 23.63) < 0.1,
+                    "rhythm: a row's text is put on the PDF's baseline", after and after["line"])
+    height = table.rows[0]._tr.find(convert.qn("w:trPr")).find(convert.qn("w:trHeight"))
+    passed &= check(height.get(convert.qn("w:val")) == "802",
+                    "rhythm: and the row keeps its height", height.get(convert.qn("w:val")))
+    # A box that would have to grow past the row, or shrink under the row's
+    # own ascent, is left as it was.
+    convert.set_spacing(inner._p, line=25.2)
+    tall = [dict(pdf_rows[0], base=101.0, y0=82.0)]
+    convert.align_table_text(table._tbl, 100.0, tall, 0, 1)
+    floored = convert.paragraph_metrics(inner._p)["line"]
+    passed &= check(floored >= 19.0 / convert.EXACT_BASELINE_RATIO - 0.1,
+                    "rhythm: never under the row's own ascent", floored)
+    # And a correction inside the model's own error is not worth writing.
+    convert.set_spacing(inner._p, line=25.2)
+    near = [dict(pdf_rows[0], base=100.0 + convert.EXACT_BASELINE_RATIO * 25.2 + 0.4)]
+    passed &= check(convert.align_table_text(table._tbl, 100.0, near, 0, 1) == 0
+                    and convert.paragraph_metrics(inner._p)["line"] == 25.2,
+                    "rhythm: a correction under a point is left alone")
+
     # A word the typesetter broke keeps its hyphen where the line still ends.
     document = Document()
     first = document.add_paragraph()

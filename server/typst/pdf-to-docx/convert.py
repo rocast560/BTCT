@@ -192,6 +192,12 @@ RHYTHM_NESTING = 4
 # this pass does not understand (a floating table, a frame), and there the
 # first block keeps its place and only the rhythm below it is corrected.
 RHYTHM_ABSOLUTE_LIMIT_PT = 12.0
+# How far a table row's text has to be from the PDF's baseline before its box
+# is rewritten. A table's top is wherever the blocks above it left it, so it
+# carries whatever their own errors came to, and a correction smaller than
+# this is inside that and not worth trusting. The one this is for, the heading
+# that opens a section, is 1.25 pt out on every page that has one.
+ROW_TEXT_WORTH_PT = 1.0
 # English Metric Units, which is what a drawing in a Word file is measured in.
 EMU_PER_PT = 12700
 
@@ -2367,6 +2373,64 @@ def block_key(element):
     return compare_squash(paragraph_text(element))
 
 
+def align_table_text(table, top, rows, start, end):
+    """Put each row's first line on the baseline the PDF has for it.
+
+    The table itself does not move. The converter takes a table's top and its
+    row heights off the PDF's own grid lines, so its rules land where the
+    PDF's rules are; what it does not get right is where the text sits inside
+    a row, and on the reference report the heading that opens a section came
+    out 1.25 pt below its own rule on every page that has one.
+
+    The knob is the cell paragraph's exact line height, because Word draws its
+    baseline at 0.8 of it. Changing that moves the text within a row whose
+    height is fixed, so no rule moves and no page can grow. The floor is the
+    row's own ascent over 0.8, under which Word would cut the capitals off.
+    """
+    moved = 0
+    cursor = start
+    offset = 0.0
+    for row in table.findall(qn("w:tr")):
+        properties = row.find(qn("w:trPr"))
+        height = properties.find(qn("w:trHeight")) if properties is not None else None
+        if height is None:
+            return moved
+        span = twips_of(height.get(qn("w:val")))
+        if span is None:
+            return moved
+        cells = row.findall(qn("w:tc"))
+        key = compare_squash("".join(paragraph_text(cell) for cell in cells))
+        found = consume_rows(rows, cursor, key) if len(key) >= COMPARE_MIN_CHARS else None
+        if found is not None and found[1] <= end:
+            cursor = found[1]
+            mine = rows[found[0]]
+            want = mine["base"] - (top + offset)
+            ascent = max(0.0, mine["base"] - mine["y0"])
+            for cell in cells:
+                paragraph = cell.find(qn("w:p"))
+                metrics = paragraph_metrics(paragraph) if paragraph is not None else None
+                if metrics is None or metrics["lines"] > 1 or len(cell.findall(qn("w:p"))) > 1:
+                    continue
+                line = (want - metrics["before"]) / EXACT_BASELINE_RATIO
+                # Never below the box that holds this row's own ascent, or
+                # Word cuts the capitals off.
+                line = max(line, ascent / EXACT_BASELINE_RATIO)
+                if line <= 0 or line > span:
+                    continue
+                # The floor can ask for a box taller than the one the
+                # converter wrote, which would push the text further from the
+                # PDF than it already is. Write the correction only when it
+                # closes the gap.
+                was = abs(metrics["before"] + EXACT_BASELINE_RATIO * metrics["line"] - want)
+                now = abs(metrics["before"] + EXACT_BASELINE_RATIO * line - want)
+                if now >= was - ROW_TEXT_WORTH_PT:
+                    continue
+                set_spacing(paragraph, line=line)
+                moved += 1
+        offset += span
+    return moved
+
+
 def consume_rows(rows, cursor, key):
     """`(start, end)` of the PDF rows whose text joins to `key`, or None.
 
@@ -2602,6 +2666,8 @@ def place_page(section, blocks, rows, page_height, absolute):
                 if abs(gap - walk.pending) >= RHYTHM_TOLERANCE_PT:
                     walk.changed += 1
                 walk.pending = gap
+            if span is not None:
+                walk.changed += align_table_text(block, walk.cursor + walk.pending, rows, span[0], span[1])
             walk.flow(0.0, metrics["height"], 0.0, 0.0, metrics["height"], 0.0)
             walk.above = None
             continue
