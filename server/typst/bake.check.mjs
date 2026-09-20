@@ -7,8 +7,15 @@
 // an earlier review round). A seeded PRNG has no period a fixed kernel can
 // exploit. 1px cells are the right scale because both blur paths operate
 // at roughly 8px or coarser (pixelate's block-size floor; the gaussian
-// downscale's effective stride), so a correctly redacted region should
-// carry almost none of a 1px signal while a too-weak blur still does.
+// downscale's effective stride).
+//
+// What that proves and what it does not: a bake that does nothing, or one
+// that leaves a token blur, scores far over the limit and fails here. A
+// WEAKENED bake does not. A 2px pixelate block scores 0.236 and a gaussian
+// path with the blur kept but the downscale dropped scores 0.161, and both
+// pass. The block-size floor and the downscale are what actually make the
+// pixels unrecoverable, and they are guarded by the unit tests over
+// src/lib/blur-math.ts, not by this correlation.
 //
 // The 0.25 correlation limit below is measured, not guessed (2026-09-19).
 // Against this pattern and region: the real gaussian path (no `style`, the
