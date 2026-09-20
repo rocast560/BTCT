@@ -88,7 +88,13 @@ function resolveSpecifier(specifier: string, fromFile: string): string | null {
 function isTypstModule(absolute: string): boolean {
   const rel = toPosix(path.relative(SRC, absolute));
   if (rel.startsWith('..')) return false; // outside src/
-  return rel.startsWith('components/typst/') || /^lib\/typst-/.test(rel);
+  // The bare directory counts too: `import { X } from '@/components/typst'`
+  // resolves to the folder, which a future index.ts barrel would answer.
+  return (
+    rel === 'components/typst' ||
+    rel.startsWith('components/typst/') ||
+    /^lib\/typst-/.test(rel)
+  );
 }
 
 /** A reference that does not link Typst code into this module's graph. */
