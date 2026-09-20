@@ -32,6 +32,12 @@ const MAX_OUTPUT_BYTES = MAX_OUTPUT_MB * 1024 * 1024;
 // warnings.mjs caps the header again, but nothing should arrive unbounded.
 const MAX_CONVERT_WARNINGS = 10;
 const MAX_CONVERT_WARNING_CHARS = 300;
+// A PDF this big is a report nobody will open in Word either, and the
+// converter would spend minutes on it. The reference 23-page report with a
+// cover and six fonts compiles to 1.8 MB, so this is more than ten times a
+// real one.
+const MAX_CONVERT_INPUT_MB = 25;
+const MAX_CONVERT_INPUT_BYTES = MAX_CONVERT_INPUT_MB * 1024 * 1024;
 const serial = createSerial();
 // One running plus one waiting. A third caller is told to come back rather
 // than being parked on an open socket behind a two-minute compile.
@@ -239,6 +245,15 @@ async function toDocx(root, source) {
   const python = clis().python;
   if (!python) throw new ExportError(501, 'no Python interpreter for the Word converter on this server');
   const pdf = await compilePdf(root, source);
+  // The conversion's cost follows what is on the pages rather than the
+  // request, and neither the image budget nor the output cap sees a PDF full
+  // of vector drawings, so the input gets its own ceiling before a child is
+  // started. convert.py refuses on page count and per-page complexity too;
+  // this is the cheap one the parent can do without reading the file.
+  const size = (await fs.promises.stat(pdf)).size;
+  if (size > MAX_CONVERT_INPUT_BYTES) {
+    throw new ExportError(422, `This report's PDF is ${Math.round(size / 1024 / 1024)} MB, too large to convert to Word on this server. Export the PDF instead.`);
+  }
   const out = path.join(root, 'out.docx');
   const resultFile = path.join(root, 'docx-result.json');
   const child = await run(python, ['-I', '-B', CONVERTER, pdf, out, resultFile], root, CONVERT_TIMEOUT_MS);
@@ -248,16 +263,20 @@ async function toDocx(root, source) {
   // child's stderr is the best thing left to say.
   let result = null;
   try { result = JSON.parse(await fs.promises.readFile(resultFile, 'utf8')); } catch { /* the child died before it could say anything */ }
-  const size = fs.existsSync(out) ? (await fs.promises.stat(out)).size : 0;
-  if (result?.ok !== true || size <= 0) {
+  const outSize = fs.existsSync(out) ? (await fs.promises.stat(out)).size : 0;
+  // Python names the interpreter in an import traceback, and in the image
+  // that path is the virtualenv under /opt. Nothing about where this server
+  // keeps its tools belongs in a response body.
+  const scrub = (text) => pythonRoots(python).reduce((acc, dir) => scrubPaths(acc, dir), scrubPaths(text, root));
+  if (result?.ok !== true || outSize <= 0) {
     throw new ExportError(422, docxFailureMessage({
       code: child.code,
       killed: child.killed,
       signal: child.signal,
-      stderr: scrubPaths(child.stderr, root),
+      stderr: scrub(child.stderr),
       resultOk: result?.ok === true,
-      resultMessage: result === null ? null : (typeof result.message === 'string' ? result.message : ''),
-      outputExists: size > 0,
+      resultMessage: result === null ? null : (typeof result.message === 'string' ? scrub(result.message) : ''),
+      outputExists: outSize > 0,
     }));
   }
   const warnings = Array.isArray(result.warnings) ? result.warnings : [];
@@ -266,8 +285,17 @@ async function toDocx(root, source) {
     warnings: warnings
       .filter((w) => typeof w === 'string' && w.trim())
       .slice(0, MAX_CONVERT_WARNINGS)
-      .map((w) => truncate(scrubPaths(w, root), MAX_CONVERT_WARNING_CHARS)),
+      .map((w) => truncate(scrub(w), MAX_CONVERT_WARNING_CHARS)),
   };
+}
+
+/** The interpreter's own directory and the virtualenv above it. */
+function pythonRoots(python) {
+  const bin = path.dirname(python);
+  const roots = [bin];
+  const prefix = path.dirname(bin);
+  if (prefix && prefix !== bin) roots.push(prefix);
+  return roots;
 }
 
 /**
