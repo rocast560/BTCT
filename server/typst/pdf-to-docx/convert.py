@@ -1364,7 +1364,8 @@ INVISIBLE_FOR_COMPARE = dict.fromkeys(
 # and Word draws them from a tab stop, so neither side may count them.
 DOT_RUN = re.compile(r"(?:\.[ \t ]*){3,}")
 # Whitespace, hyphens and dashes: everything a re-flow may add, drop or move.
-SQUASH_DROP = re.compile(r"[\s\-‐‑‒–—−]+", re.UNICODE)
+DASHES = "".join(chr(c) for c in (0x2D, 0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2212))
+SQUASH_DROP = re.compile("[\\s%s]+" % re.escape(DASHES), re.UNICODE)
 HAS_ALNUM = re.compile(r"\w", re.UNICODE)
 # A piece of text shorter than this proves nothing: "1." and "LOW" occur all
 # over a report, so finding one somewhere does not mean this one survived, and
