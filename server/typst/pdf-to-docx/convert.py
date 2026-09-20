@@ -1690,7 +1690,13 @@ def find_decoration(doc, bands):
                 if panel["page"] != index or panel["bar"] is not None:
                     continue
                 if abs(rect.x1 - panel["rect"].x0) <= 1.5 and abs(rect.y0 - panel["rect"].y0) <= 2.0:
-                    panel["bar"] = {"fill": tuple(fill), "width": rect.width}
+                    # How far the bar stands off the text it runs beside. Word
+                    # draws a paragraph border at the indent unless it is told
+                    # otherwise, and the indent is where the text starts, so
+                    # without this the bar sits inside the panel against the
+                    # code rather than down the panel's own edge.
+                    inset = min(row["x0"] for row in panel["rows"]) - rect.x1
+                    panel["bar"] = {"fill": tuple(fill), "width": rect.width, "space": max(0.0, inset)}
     return panels, swatches
 
 
@@ -1770,7 +1776,8 @@ def left_border(paragraph, bar):
     left.set(qn("w:val"), "single")
     # Eighths of a point, and Word refuses anything above 48.
     left.set(qn("w:sz"), str(max(4, min(48, int(round(bar["width"] * 8))))))
-    left.set(qn("w:space"), "0")
+    # Points, and Word takes 0 to 31 of them.
+    left.set(qn("w:space"), str(max(0, min(31, int(round(bar.get("space") or 0.0))))))
     left.set(qn("w:color"), hex_of(bar["fill"]))
     node.append(left)
     properties = paragraph._p.get_or_add_pPr()

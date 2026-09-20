@@ -254,6 +254,19 @@ def run_rhythm_checks():
     passed &= check(moved == 0 and kept is not None and abs(kept["before"] - 2.0) < 0.05,
                     "rhythm: a correction past the bottom margin is refused", kept and kept["before"])
 
+    # A code panel's accent bar stands off the text by the panel's padding.
+    document = Document()
+    paragraph = document.add_paragraph("nmap -sV")
+    convert.left_border(paragraph, {"fill": (0.4, 0.4, 0.4), "width": 7.2, "space": 9.0})
+    left = paragraph._p.find(convert.qn("w:pPr")).find(convert.qn("w:pBdr")).find(convert.qn("w:left"))
+    passed &= check(left.get(convert.qn("w:sz")) == "48" and left.get(convert.qn("w:space")) == "9",
+                    "rhythm: the accent bar's width and stand-off come from the PDF",
+                    (left.get(convert.qn("w:sz")), left.get(convert.qn("w:space"))))
+    convert.left_border(paragraph, {"fill": (0.4, 0.4, 0.4), "width": 7.2, "space": 90.0})
+    left = paragraph._p.find(convert.qn("w:pPr")).find(convert.qn("w:pBdr")).find(convert.qn("w:left"))
+    passed &= check(left.get(convert.qn("w:space")) == "31",
+                    "rhythm: a stand-off stays inside what Word accepts", left.get(convert.qn("w:space")))
+
     # A tab is already a gap, so the space repair may not add one across it.
     document = Document()
     paragraph = document.add_paragraph()
