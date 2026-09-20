@@ -148,6 +148,59 @@ LINKS = """
 - #link("mailto:team@example.com")[Mail us]
 """
 
+# A running header, a per-page DISTINCT finding title just under it, and a
+# repeating full-width rule below the title. The rule is a band decoration, so
+# the erased rectangle used to be grown to reach it, and that rectangle is the
+# whole page width: all eight titles were deleted, with the text check blind
+# to it because it excluded the same rectangle from both sides.
+RULE_OVER_TITLES = """
+#set page(
+  paper: "a4",
+  margin: 2cm,
+  header: align(left)[Acme Security Assessment],
+)
+#set text(size: 11pt)
+#for i in range(8) [
+  #v(2pt)
+  #text(size: 13pt, weight: "bold")[Finding #(i + 1): unique title #(i + 1)]
+  #v(1pt)
+  #line(length: 100%, stroke: 0.6pt)
+  #lorem(80)
+  #pagebreak(weak: true)
+]
+"""
+
+# Every page holds one line of text and nothing else, so the gap between the
+# candidate and the body cannot be measured anywhere. That used to count as a
+# pass, and the one line on each page was lifted into the Word header while
+# the text check, left with nothing to compare, reported success.
+NOTHING_BUT_A_BAND = """
+#set page(paper: "a4", margin: 2cm)
+#set text(size: 11pt)
+#for i in range(4) [
+  Quarterly review of the control set
+  #pagebreak(weak: true)
+]
+"""
+
+# A justified paragraph that hyphenates at a line end, plus a real hyphen at a
+# line end. Typst writes its own break hyphens as U+00AD and the real one as
+# U+002D, so the first must disappear from the Word file and the second must
+# not.
+HYPHENS = """
+#set page(paper: "a4", margin: (x: 2cm, y: 2cm))
+#set text(size: 11pt, lang: "en")
+#set par(justify: true)
+= Hyphenation
+{{OUR_COMPANY}} employed a custom, heuristic risk assessment system to measure
+overall criticality, and the likelihood ratings were assigned appropriately by
+the assessment team throughout the engagement so that every finding carries a
+defensible rating.
+
+Affects a small number of users and results in the disclosure of non-critical
+information such as verification that a user exists on the system.
+"""
+
 # Cheap for typst, expensive for the converter: 120,000 one-point rectangles
 # a page. It has to be refused before pdf2docx is started.
 SHAPES = """

@@ -34,6 +34,7 @@ import math
 import os
 import re
 import sys
+import time
 import unicodedata
 import zipfile
 from collections import Counter
@@ -85,6 +86,12 @@ BAND_LINE_GLUE = 1.6
 # tightest true one. Without it the repeated first body line of every page is
 # deleted from the document and pasted into the Word header.
 BAND_SEPARATION_RATIO = 0.5
+# The gap above has to be measurable on more than this many of the band's
+# pages. A page whose only text is the candidate cannot be measured, and a
+# document made of those was accepted by default: every page's one body line
+# was lifted into the Word header and the text check, having nothing left to
+# compare, called it clean.
+BAND_SEPARATION_MIN_PAGES = 2
 # Room left around a band rectangle when it is removed, so a glyph that
 # overhangs its reported box does not survive as a sliver.
 BAND_PAD_PT = 1.0
@@ -120,6 +127,12 @@ TOC_MAX_SPACE_BEFORE_PT = 24.0
 MAX_PAGES = 300
 MAX_PAGE_CONTENT_BYTES = 3_000_000
 MAX_PAGE_DRAWINGS = 10_000
+# And a budget for the whole document, because the page bound misses the shape
+# that really costs: 60 pages of 9,000 drawings clears every per-page test and
+# still takes the converter 50.5 s and 403 MB. The reference report draws 479
+# shapes across its 23 pages, so 150,000 is over 300 times a real report and
+# still refuses that document at its 17th page, before the converter starts.
+MAX_DOCUMENT_DRAWINGS = 150_000
 # Address space for this process on Linux. PyMuPDF and OpenCV map far more
 # than they touch, so this is well above the RSS it is meant to bound; it is
 # a backstop that turns a runaway conversion into a MemoryError and a 422
@@ -321,9 +334,11 @@ def alternating_at_edge(groups, edge, quorum):
 def separation(doc, cluster, edge):
     """How far the cluster sits from the body, as a multiple of the body's pitch.
 
-    Returns (gap, pitch) medians over the pages that carry the cluster, or
-    (None, None) when no page has anything outside the cluster to measure
-    against.
+    Returns `(gap, pitch, pages)`: the medians over the pages that carry the
+    cluster, and how many pages could be measured at all. A page whose only
+    text is the candidate contributes nothing, and a document made of those
+    used to be accepted by default, which lifted every page's one body line
+    into the header.
     """
     members = {row_id(index, row) for rows in cluster for index, row in rows}
     gaps, pitches = [], []
@@ -342,8 +357,8 @@ def separation(doc, cluster, edge):
         if steps:
             pitches.append(median(steps))
     if not gaps:
-        return None, None
-    return median(gaps), (median(pitches) if pitches else None)
+        return 0.0, None, 0
+    return median(gaps), (median(pitches) if pitches else None), len(gaps)
 
 
 def is_outermost(doc, cluster, edge):
@@ -360,6 +375,17 @@ def is_outermost(doc, cluster, edge):
         if edge == "bottom" and any(r["y1"] > max(m["y1"] for m in mine) + 1.0 for r in rest):
             return False
     return True
+
+
+def covers_a_stranger(doc, pages, members, top, bottom):
+    """Would erasing this rectangle take a row that is not part of the band?"""
+    for index in pages:
+        for row in page_rows(doc[index]):
+            if row_id(index, row) in members:
+                continue
+            if row["y0"] >= top - BAND_PAD_PT and row["y1"] <= bottom + BAND_PAD_PT:
+                return True
+    return False
 
 
 def detect_band(doc, edge):
@@ -408,7 +434,9 @@ def detect_band(doc, edge):
     if alternation:
         return None, alternation
 
+    name = "header" if edge == "top" else "footer"
     keep = []
+    rejected = None
     for rows in groups.values():
         if len(rows) < quorum:
             continue
@@ -420,6 +448,7 @@ def detect_band(doc, edge):
             if absent and absent != [populated[0]]:
                 continue
         if describe_columns(rows) is None:  # test 2, reported by the describer
+            rejected = ("the %s's number changes from page to page and is not a page number" % name)
             continue
         keep.append(rows)
 
@@ -429,17 +458,25 @@ def detect_band(doc, edge):
     # drop it and measure again, which is how a genuine header survives having
     # a repeated first body line stuck to it.
     while cluster:
-        gap, pitch = separation(doc, cluster, edge)
-        if gap is None:
+        gap, pitch, measured = separation(doc, cluster, edge)
+        if measured <= BAND_SEPARATION_MIN_PAGES:
+            # Nothing to measure against on almost every page. That used to
+            # count as a pass, and then a document whose only body line is the
+            # candidate had that line lifted into the header with the text
+            # check reporting "0 lines, 0 missing" as success.
+            rejected = ("the %s could not be told apart from the body on enough pages" % name)
+            cluster = []
             break
         if gap > 0 and (pitch is None or gap >= BAND_SEPARATION_RATIO * pitch):
             break
+        rejected = ("the %s sits too close to the first line of the page to lift safely" % name
+                    if edge == "top"
+                    else "the footer sits too close to the last line of the page to lift safely")
         cluster = cluster[:-1]
     if not cluster:
-        return None, None
+        return None, rejected
     if not is_outermost(doc, cluster, edge):  # test 4
-        return None, ("something else is printed outside the repeating %s on some pages"
-                      % ("header" if edge == "top" else "footer"))
+        return None, ("something else is printed outside the repeating %s on some pages" % name)
 
     repeating = cluster
     pages = sorted({index for rows in repeating for index, _ in rows})
@@ -447,18 +484,35 @@ def detect_band(doc, edge):
     text_bottom = max(row["y1"] for rows in repeating for _, row in rows)
     top, bottom = text_top, text_bottom
 
+    # A rule under a header or a strip behind a footer is part of the band,
+    # and swallowing it grows the rectangle that gets erased. That rectangle
+    # is the whole page width, so growing it past the band's own text can take
+    # body content with it: a per-page finding title at y 60 to 72 under a
+    # header, with a repeating full-width rule at y 72.4, had all eight titles
+    # erased. So the enlargement is offered and then checked, and a rectangle
+    # that would cover a row which is not a band member is not taken.
+    members = {row_id(index, row) for rows in repeating for index, row in rows}
+    wanted_top, wanted_bottom = top, bottom
     rule_under = False
     strip_behind = None
     for drawing in repeating_drawings(doc, pages, edge):
         rect = drawing["rect"]
-        if rect.y0 > bottom + BAND_GLUE_PT or rect.y1 < top - BAND_GLUE_PT:
+        if rect.y0 > wanted_bottom + BAND_GLUE_PT or rect.y1 < wanted_top - BAND_GLUE_PT:
             continue
-        top = min(top, rect.y0)
-        bottom = max(bottom, rect.y1)
+        wanted_top = min(wanted_top, rect.y0)
+        wanted_bottom = max(wanted_bottom, rect.y1)
         if drawing.get("fill") is not None and rect.height > 1.0:
             strip_behind = tuple(drawing["fill"])
         elif edge == "top" and rect.y0 >= text_bottom - 1.0:
             rule_under = True
+    if covers_a_stranger(doc, pages, members, wanted_top, wanted_bottom):
+        # The decoration stays in the body. That is a cosmetic price (the rule
+        # under the header is drawn twice, once by Word and once by the page
+        # it was left on) against deleting a finding.
+        rule_under = False
+        strip_behind = None
+    else:
+        top, bottom = wanted_top, wanted_bottom
 
     columns = []
     for rows in sorted(repeating, key=lambda rows: rows[0][1]["x0"]):
@@ -473,6 +527,9 @@ def detect_band(doc, edge):
         "columns": columns,
         "rule_under": rule_under,
         "strip_behind": strip_behind,
+        # The rows this band is made of, so the text check can leave out
+        # exactly those and nothing else.
+        "members": members,
     }, None
 
 
@@ -687,6 +744,7 @@ def refuse_oversized(doc):
             "this report is %d pages, more than the %d the Word converter will take. Export the PDF instead."
             % (doc.page_count, MAX_PAGES)
         )
+    total = 0
     for index in range(doc.page_count):
         page = doc[index]
         # The page's own instruction stream first, because reading its length
@@ -705,6 +763,17 @@ def refuse_oversized(doc):
             raise ConvertError(
                 "page %d of this report draws %d shapes, more than the %d the Word converter will take. "
                 "Export the PDF instead." % (index + 1, count, MAX_PAGE_DRAWINGS)
+            )
+        total += count
+        # And the whole document, because the per-page bound misses the shape
+        # that actually costs: 60 pages of 9,000 drawings clears every page
+        # test and still takes the converter most of a minute. The loop stops
+        # at the first page that puts the total over, so a long dense document
+        # is refused without counting the rest of it.
+        if total > MAX_DOCUMENT_DRAWINGS:
+            raise ConvertError(
+                "this report draws more than %d shapes, more than the Word converter will take. "
+                "Export the PDF instead." % MAX_DOCUMENT_DRAWINGS
             )
 
 
@@ -1410,16 +1479,21 @@ def body_lines(doc, bands):
     "TECHNIQUES MITIGATIONS" across the page and the converter writes the
     cells down one column and then the other, which is a re-ordering rather
     than a loss, and only the columns survive it.
+
+    What is left out is the band's own MEMBER ROWS, never "everything inside
+    the rectangle the band erases". Those are two different things: the
+    rectangle is grown to swallow a rule or a strip, and excluding by
+    rectangle hid from this check exactly the rows that growing it deleted.
+    Anything else the erase removes is now reported as missing, which is what
+    sends the conversion to the fallback.
     """
-    spans = {}
+    members = set()
     for band in bands:
-        for index in band["pages"]:
-            spans.setdefault(index, []).append((band["top"] - BAND_PAD_PT, band["bottom"] + BAND_PAD_PT))
+        members |= band.get("members") or set()
     lines = []
     for index in range(doc.page_count):
-        page_spans = spans.get(index, [])
         for row in page_rows(doc[index]):
-            if any(row["y0"] >= top and row["y1"] <= bottom for top, bottom in page_spans):
+            if row_id(index, row) in members:
                 continue
             lines.append({"text": row["text"], "pieces": [c["text"] for c in row["columns"]]})
     return lines
@@ -1473,11 +1547,24 @@ def missing_from_docx(pdf_lines, docx_body_text):
     catch every deletion the tests below make.
     """
     haystack = compare_squash(docx_body_text)
+    # Presence is not enough: three identical rows of a table against one in
+    # the Word file is two rows lost, and a substring test calls it a pass. So
+    # each distinct piece has to occur at least as often as the PDF prints it.
+    # Occurrences are counted without overlap, which is the reading that
+    # matches "how many times does the page show this".
+    wanted = Counter()
+    for line in pdf_lines:
+        for piece in (line["pieces"] or [line["text"]]):
+            squashed = compare_squash(piece)
+            if len(squashed) >= COMPARE_MIN_CHARS:
+                wanted[squashed] += 1
+    have = {piece: haystack.count(piece) for piece in wanted}
+
     missing = []
     for line in pdf_lines:
-        pieces = [compare_squash(piece) for piece in line["pieces"]] or [compare_squash(line["text"])]
+        pieces = [compare_squash(piece) for piece in (line["pieces"] or [line["text"]])]
         looked_for = [p for p in pieces if len(p) >= COMPARE_MIN_CHARS]
-        if any(p not in haystack for p in looked_for):
+        if any(have.get(p, 0) < wanted[p] for p in looked_for):
             missing.append(line["text"])
     return missing
 
@@ -1504,7 +1591,7 @@ def run_pdf2docx(source, target):
         converter.close()
 
 
-def convert(pdf_path, docx_path):
+def convert(pdf_path, docx_path, budget_seconds=None):
     """Read the PDF, decide the repairs, convert, and check nothing was lost.
 
     The two repairs delete part of the document and write something back, and
@@ -1577,7 +1664,9 @@ def convert(pdf_path, docx_path):
     written = 0
     fell_back = False
     try:
+        started = time.monotonic()
         run_pdf2docx(stripped_pdf, part)
+        first_pass = time.monotonic() - started
         if not os.path.exists(part) or os.path.getsize(part) == 0:
             raise ConvertError("the converter produced no Word file")
         repair_warnings = []
@@ -1589,8 +1678,21 @@ def convert(pdf_path, docx_path):
         document.save(part)
         missing = missing_from_docx(repaired_lines, docx_text(part, body_only=bool(bands)))
         checked_lines = repaired_lines
+        if bands and not repaired_lines:
+            # Everything on every page was a band member, so the check had
+            # nothing to compare and would otherwise report a clean pass on a
+            # document whose whole body was lifted into the header.
+            missing = ["(the whole document was read as a running header or footer)"]
 
         if missing and (bands or written):
+            # Doing it again costs about what the first pass cost, and the
+            # server kills the child at its own timeout with a message that
+            # says nothing useful. Better to stop here and say why.
+            if budget_seconds is not None and time.monotonic() - started + first_pass > budget_seconds:
+                raise ConvertError(
+                    "The header and footer repair lost text and there was not enough time to convert "
+                    "again. Export the PDF instead."
+                )
             # Something the repairs touched is gone. Convert again with both
             # of them off and keep that file instead, whatever it costs in
             # page count: a Word file that reads wrong is recoverable, one
@@ -1663,6 +1765,12 @@ def cap_address_space():
     Below about 2.5 GB the import of OpenCV itself fails, so a tighter limit
     would refuse every export rather than only the runaway one. Windows has no
     `resource` module and relies on the page, shape and size bounds instead.
+
+    On the 1 GB box this server is built for the limit is inert: the cgroup
+    kills the child long before 3 GB of address space is mapped, and the
+    existing "a SIGKILL we did not send is the memory killer" mapping turns
+    that into a 422. It earns its place on a larger host, where nothing else
+    would stop one export taking the machine.
     """
     try:
         import resource
@@ -1682,12 +1790,18 @@ def cap_address_space():
 
 def main(argv):
     cap_address_space()
-    if len(argv) != 4:
-        print("usage: convert.py <in.pdf> <out.docx> <result.json>", file=sys.stderr)
+    if len(argv) not in (4, 5):
+        print("usage: convert.py <in.pdf> <out.docx> <result.json> [budget-seconds]", file=sys.stderr)
         return 2
     pdf_path, docx_path, result_path = argv[1], argv[2], argv[3]
+    # How long the caller will wait, so the decision to convert a second time
+    # is made here rather than by a SIGKILL with a generic message.
+    budget = None
+    if len(argv) == 5:
+        with contextlib.suppress(ValueError):
+            budget = max(1.0, float(argv[4]))
     try:
-        result = convert(pdf_path, docx_path)
+        result = convert(pdf_path, docx_path, budget_seconds=budget)
     except ConvertError as err:
         write_result(result_path, {"ok": False, "message": str(err)[:300]})
         print(str(err)[:300], file=sys.stderr)

@@ -182,6 +182,24 @@ def run_comparison_checks():
         convert.missing_from_docx([{"text": "LOW", "pieces": ["LOW"]}], "nothing here") == [],
         "a piece too short to be evidence is not reported",
     )
+    # Presence is not enough: three identical rows against one is two rows
+    # lost, and a substring test calls that a pass.
+    thrice = [line("Host-200 is vulnerable")] * 3
+    passed &= check(convert.missing_from_docx(thrice, "Host-200 is vulnerable") != [],
+                    "three identical lines against one copy are reported")
+    passed &= check(
+        convert.missing_from_docx(thrice, "Host-200 is vulnerable " * 3) == [],
+        "three identical lines against three copies are not",
+    )
+    # A soft hyphen is where typst broke the word, so the PDF's two lines have
+    # to match the one word the Word file writes.
+    passed &= check(
+        convert.missing_from_docx([line("em­"), line("ploying a custom system")],
+                                  "employing a custom system") == [],
+        "a word broken at a soft hyphen is not missing",
+    )
+    passed &= check(convert.compare_squash("em­ploying") == "employing",
+                    "a soft hyphen counts as nothing", convert.compare_squash("em­ploying"))
     return passed
 
 
@@ -298,7 +316,27 @@ def run_documents():
                         "links: the removal is reported", result["warnings"])
         passed &= check(convert.unsafe_docx_targets(path) == [], "links: the output check agrees")
 
-        # 7. Too many shapes for the converter.
+        # 7. A repeating rule under the header with a distinct title above it.
+        #    The rectangle that gets erased is the whole page width, so growing
+        #    it to reach the rule used to delete every title on every page,
+        #    with the text check blind to it.
+        result, path = run_case(cases.RULE_OVER_TITLES, workdir, "rule")
+        passed &= check(result["textCheck"]["missing"] == 0, "rule: nothing was lost", result["textCheck"])
+        body = squashed_docx(path, body_only=False)
+        kept = [i + 1 for i in range(8) if convert.compare_squash("unique title %d" % (i + 1)) in body]
+        passed &= check(kept == list(range(1, 9)), "rule: every finding title survived", kept)
+        passed &= check(result["headerFooter"]["header"], "rule: the header was still lifted")
+
+        # 8. A document whose every page is nothing but the candidate.
+        result, _ = run_case(cases.NOTHING_BUT_A_BAND, workdir, "bandonly")
+        passed &= check(result["textCheck"]["missing"] == 0, "band only: nothing was lost", result["textCheck"])
+        passed &= check(result["textCheck"]["pdfLines"] > 0, "band only: there was something to check",
+                        result["textCheck"])
+        passed &= check(not result["headerFooter"]["header"], "band only: the header was declined")
+        passed &= check(any("told apart from the body" in w for w in result["warnings"]),
+                        "band only: the warning says why", result["warnings"])
+
+        # 9. Too many shapes for the converter.
         pdf_path = os.path.join(workdir, "shapes.pdf")
         compile_case(cases.SHAPES, pdf_path)
         started = time.perf_counter()
@@ -310,7 +348,7 @@ def run_documents():
             passed &= check("too complex" in str(err), "shapes: the document was refused", err)
             passed &= check(spent < 1.0, "shapes: refused in under a second", "%.3f s" % spent)
 
-        # 8. A paragraph the converter dropped, simulated by taking one out of
+        # 10. A paragraph the converter dropped, simulated by taking one out of
         #    the PDF's side of the comparison's counterpart.
         result, path = run_case(cases.REPORT, workdir, "report2")
         text = convert.docx_text(path, body_only=True)
