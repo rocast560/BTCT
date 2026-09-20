@@ -48,7 +48,44 @@ COPY server/package.json server/bun.lock* ./
 RUN bun install --frozen-lockfile || bun install
 
 # ─────────────────────────────────────────────────────────────────────────
-# Stage 3: minimal runtime image. Server code + server node_modules +
+# Stage 3: the report export binaries. They are only ever spawned when
+# ENABLE_TYPST=1, but they ship unconditionally so turning the flag on is a
+# restart rather than a rebuild. Both archives are pinned by version and by
+# sha256. Neither project publishes a checksum file, so the digests below
+# were computed from the release artefacts the first build downloaded, and
+# the build now fails if those bytes ever change.
+# ─────────────────────────────────────────────────────────────────────────
+FROM debian:bookworm-slim AS report-bins
+ARG TYPST_VERSION=0.14.2
+ARG PANDOC_VERSION=3.11
+ARG TARGETARCH
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) T=x86_64-unknown-linux-musl; P=amd64; \
+        TS=a6044cbad2a954deb921167e257e120ac0a16b20339ec01121194ff9d394996d; \
+        PS=37edb3bbcf722f921a009941bf5874e2e0c09263226c9b4a2d980788cb062ab6;; \
+      arm64) T=aarch64-unknown-linux-musl; P=arm64; \
+        TS=491b101aa40a3a7ea82a3f8a6232cabb4e6a7e233810082e5ac812d43fdcd47a; \
+        PS=56ed5566ec41d22ec9ee0704e6ac0b98ba102e92384efd5306173a22d314c79a;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1;; \
+    esac; \
+    curl -fsSL -o /tmp/typst.tar.xz "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${T}.tar.xz"; \
+    echo "${TS}  /tmp/typst.tar.xz" | sha256sum -c -; \
+    tar -xJf /tmp/typst.tar.xz -C /tmp; \
+    install -m 0755 "/tmp/typst-${T}/typst" /usr/local/bin/typst; \
+    curl -fsSL -o /tmp/pandoc.tar.gz "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-linux-${P}.tar.gz"; \
+    echo "${PS}  /tmp/pandoc.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/pandoc.tar.gz -C /tmp; \
+    install -m 0755 "/tmp/pandoc-${PANDOC_VERSION}/bin/pandoc" /usr/local/bin/pandoc; \
+    rm -rf /tmp/typst.tar.xz /tmp/pandoc.tar.gz "/tmp/typst-${T}" "/tmp/pandoc-${PANDOC_VERSION}"; \
+    typst --version; \
+    pandoc --version | head -1
+
+# ─────────────────────────────────────────────────────────────────────────
+# Stage 4: minimal runtime image. Server code + server node_modules +
 # the built client. Runs as a non-root user; persistent SQLite goes to
 # /data which is the standard volume mount point.
 # ─────────────────────────────────────────────────────────────────────────
@@ -82,6 +119,26 @@ COPY --chown=bun:bun server/history.mjs       /app/server/history.mjs
 COPY --chown=bun:bun server/history-diff.mjs  /app/server/history-diff.mjs
 COPY --chown=bun:bun server/retention.mjs     /app/server/retention.mjs
 
+# The server-side report export (ENABLE_TYPST=1). The whole server/typst/
+# directory is copied rather than a line per file, so a new module there
+# cannot be forgotten; the cost is the .d.mts declarations and
+# bake.check.mjs, a few kilobytes the runtime never loads.
+COPY --from=report-bins /usr/local/bin/typst /usr/local/bin/pandoc /usr/local/bin/
+COPY --chown=bun:bun server/typst/ /app/server/typst/
+# The crop, blur and placeholder math the browser uses, imported by
+# server/typst/bake.mjs and docx-source.mjs rather than copied, so a
+# redaction bakes with the same numbers the preview drew. The list comes
+# from reading those imports and then the imports of each file named:
+# blur-math and crop-math take only types (erased by Bun), image-format and
+# typst-geometry take nothing, and typst-placeholders takes typst-geometry.
+# cwd is /app/server, so ../../src/lib from /app/server/typst resolves here.
+# A new src/lib import under server/typst/ needs a name on this line.
+COPY --chown=bun:bun src/lib/blur-math.ts src/lib/crop-math.ts src/lib/image-format.ts \
+     src/lib/typst-placeholders.ts src/lib/typst-geometry.ts /app/src/lib/
+# Fail the build here rather than at somebody's first export: the typst
+# binary is static musl, but pandoc's linux release links against glibc and
+# this base image is not the one that fetched it.
+RUN typst --version && pandoc --version | head -1
 
 # Copy the static client build.
 COPY --from=client-build --chown=bun:bun /app/dist /app/dist
