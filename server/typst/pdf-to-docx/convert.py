@@ -154,6 +154,44 @@ JUSTIFY_LINE_GAP_PT = 6.0
 # that fills the column exactly in the PDF wraps twice here without it.
 LINE_FIT_RELIEF_PT = 4.0
 LINE_FIT_MAX_RELIEF_PT = 12.0
+
+# ── where Word puts a line, so a block can be placed without rendering ────
+# With `w:lineRule="exact"` and a line height of L, Word puts the baseline
+# exactly 0.8 x L below the top of the line box, whatever the font and
+# whatever the point size. Measured over 30 cases (six sizes from 8 to 18 pt,
+# five line heights each from 1.0 to 2.0 em, one per page so nothing above
+# could contribute): every one landed on 0.8 x L within 0.10 pt, which is the
+# 1/600 inch Word rounds to when it writes a PDF. The same probe showed that
+# spacing before and after sum rather than collapse, and that space before is
+# dropped at the top of a page. Those three facts are the whole layout model
+# the vertical pass needs, and none of them is about this report.
+EXACT_BASELINE_RATIO = 0.8
+# How far ahead of the cursor a block may look for its first PDF row. The
+# converter writes a stray empty paragraph here and there; it never re-orders
+# a page.
+RHYTHM_LOOKAHEAD = 6
+# PDF rows one converted paragraph may hold. A paragraph broken at the PDF's
+# own line ends holds one row per line, and the report's longest is 8.
+RHYTHM_MAX_ROWS = 16
+# Spacing is not rewritten for less than this. Word rounds a paragraph's
+# spacing to twentieths of a point and its own output to 0.12 pt, so a
+# correction smaller than this is noise being written into the file.
+RHYTHM_TOLERANCE_PT = 0.25
+# Room left between the last block a section places and the bottom margin. A
+# correction that would not clear it is abandoned for that section rather than
+# risk pushing a block onto the next page.
+RHYTHM_BOTTOM_GUARD_PT = 6.0
+# How deep a table may be nested and still be placed against the PDF. The
+# reference report's finding card is a table of tables two levels down; past
+# that the converter is describing a drawing rather than a layout.
+RHYTHM_NESTING = 4
+# How far the first block of a page may be moved before the model is taken to
+# have misread the page. Measured against the converter's own layout, the
+# reference report's pages start within 1.6 pt of where the model says they
+# do; a page that disagrees by more than a line of text has something on it
+# this pass does not understand (a floating table, a frame), and there the
+# first block keeps its place and only the rhythm below it is corrected.
+RHYTHM_ABSOLUTE_LIMIT_PT = 12.0
 # English Metric Units, which is what a drawing in a Word file is measured in.
 EMU_PER_PT = 12700
 
@@ -297,6 +335,10 @@ def page_rows(page):
                     "size": span["size"],
                     "bold": bool(span["flags"] & BOLD_FLAG),
                     "color": span["color"],
+                    # Where the glyphs actually sit on the line. Word positions
+                    # a line by its baseline, so the vertical pass compares
+                    # baselines rather than the bounding boxes above them.
+                    "base": span["origin"][1],
                 }
             )
         for column in columns:
@@ -310,6 +352,7 @@ def page_rows(page):
                 "y1": row["y1"],
                 "x0": columns[0]["x0"],
                 "x1": columns[-1]["x1"],
+                "base": median(sorted(c["base"] for c in columns)),
                 "columns": columns,
                 "text": " ".join(c["text"] for c in columns),
             }
@@ -2019,7 +2062,459 @@ def align_paragraphs(document, runs):
     return done
 
 
-# ── step 6: the text the converter ran together ───────────────────────────
+# ── step 6: the vertical rhythm ───────────────────────────────────────────
+#
+# pdf2docx reads each block's own geometry off the PDF and then writes a
+# spacing that does not reproduce it, because it does not model what Word will
+# do with the line height it wrote next to it. The errors are small and they
+# all point the same way, so they add up: on the reference report the two inks
+# agree at the top of a page and are 8 to 14 pt apart by the bottom.
+#
+# Three of them, measured on the reference report:
+#
+# 1. The exact line height is the converter's own guess at the font's line
+#    box, not the distance the PDF put between two lines. A paragraph the PDF
+#    set at a 17.0 pt pitch came out at 19.6 pt, so every line after it sat
+#    2.6 pt lower than the last.
+# 2. A paragraph's spacing before is measured from the previous row's ink,
+#    while Word measures from the previous line box, which is taller.
+# 3. Spacing after on one paragraph and spacing before on the next both
+#    apply, and the converter writes both from the same gap.
+#
+# The repair is one walk per page. Every block's first baseline is known from
+# the PDF, and where Word will draw it is known from the layout model above,
+# so the spacing between two blocks is whatever makes the second land on its
+# own baseline. Nothing here knows what a report is: the target comes from the
+# PDF's own text rows and the correction from the file's own line heights.
+
+
+def twips_of(value):
+    try:
+        return int(value) / 20.0
+    except (TypeError, ValueError):
+        return None
+
+
+def paragraph_metrics(element):
+    """Spacing and exact line height, in points, or None when it does not say.
+
+    Only a paragraph that carries its own exact line height can be modelled: a
+    value inherited from a style is not in this file's hands, and a line that
+    Word is free to size is not a length this pass can add up.
+    """
+    properties = element.find(qn("w:pPr"))
+    spacing = properties.find(qn("w:spacing")) if properties is not None else None
+    if spacing is None or spacing.get(qn("w:lineRule")) != "exact":
+        return None
+    line = twips_of(spacing.get(qn("w:line")))
+    if not line or line <= 0:
+        return None
+    return {
+        "before": twips_of(spacing.get(qn("w:before"))) or 0.0,
+        "after": twips_of(spacing.get(qn("w:after"))) or 0.0,
+        "line": line,
+        "lines": 1 + sum(1 for node in element.iter(qn("w:br"))
+                         if (node.get(qn("w:type")) or "textWrapping") == "textWrapping"),
+    }
+
+
+def set_spacing(element, before=None, after=None, line=None):
+    properties = element.get_or_add_pPr()
+    spacing = properties.find(qn("w:spacing"))
+    if spacing is None:
+        spacing = OxmlElement("w:spacing")
+        insert_ordered(properties, spacing, PPR_ORDER)
+    if before is not None:
+        spacing.set(qn("w:before"), str(int(round(max(0.0, before) * 20))))
+    if after is not None:
+        spacing.set(qn("w:after"), str(int(round(max(0.0, after) * 20))))
+    if line is not None:
+        spacing.set(qn("w:line"), str(int(round(line * 20))))
+        spacing.set(qn("w:lineRule"), "exact")
+
+
+def last_row_border(row):
+    """The bottom border Word draws under a table's last row, in points.
+
+    It is drawn below the row rather than inside it, so the table stands that
+    much taller than the heights its rows declare.
+    """
+    widest = 0.0
+    for cell in row.findall(qn("w:tc")):
+        properties = cell.find(qn("w:tcPr"))
+        borders = properties.find(qn("w:tcBorders")) if properties is not None else None
+        bottom = borders.find(qn("w:bottom")) if borders is not None else None
+        if bottom is None or (bottom.get(qn("w:val")) or "none") in ("none", "nil"):
+            continue
+        with contextlib.suppress(TypeError, ValueError):
+            widest = max(widest, int(bottom.get(qn("w:sz"))) / 8.0)
+    return widest
+
+
+def table_metrics(element):
+    """A table's height and where its first line of text sits inside it.
+
+    Every row has to declare an exact height. One that does not is sized by
+    Word from its contents, and a block placed under a guess is worse than a
+    block left where the converter put it.
+    """
+    rows = element.findall(qn("w:tr"))
+    if not rows:
+        return None
+    total = 0.0
+    for row in rows:
+        properties = row.find(qn("w:trPr"))
+        height = properties.find(qn("w:trHeight")) if properties is not None else None
+        if height is None or (height.get(qn("w:hRule")) or "atLeast") != "exact":
+            return None
+        value = twips_of(height.get(qn("w:val")))
+        if value is None:
+            return None
+        total += value
+    insides = []
+    for cell in rows[0].findall(qn("w:tc")):
+        margin = 0.0
+        properties = cell.find(qn("w:tcPr"))
+        cell_margin = properties.find(qn("w:tcMar")) if properties is not None else None
+        top = cell_margin.find(qn("w:top")) if cell_margin is not None else None
+        if top is not None:
+            margin = twips_of(top.get(qn("w:w"))) or 0.0
+        offset = first_baseline(cell, RHYTHM_NESTING)
+        if offset is not None:
+            insides.append(margin + offset)
+    # The row's own first line of text, which is the row the PDF matched, so
+    # the topmost of the cells rather than the first one: a card's leftmost
+    # cell often opens with a spacer thinner than its neighbour's text.
+    return {"height": total + last_row_border(rows[-1]), "inside": min(insides) if insides else None}
+
+
+def first_baseline(holder, depth):
+    """How far below `holder`'s top its first line of text is drawn.
+
+    The same walk as a page, inside a table cell: an empty paragraph is run-up
+    space, the first one with text gives the baseline, and a nested table is
+    read the same way. None when anything on the way cannot be measured, which
+    is how a card the converter built out of boxes declines to be an anchor.
+    """
+    if depth <= 0:
+        return None
+    cursor = 0.0
+    pending = 0.0
+    for order, block in enumerate(holder):
+        if block.tag == qn("w:p"):
+            metrics = paragraph_metrics(block)
+            if metrics is None:
+                return None
+            lead = 0.0 if order == 0 else metrics["before"]
+            if compare_squash(paragraph_text(block)):
+                return cursor + pending + lead + EXACT_BASELINE_RATIO * metrics["line"]
+            cursor += pending + lead + metrics["lines"] * metrics["line"]
+            pending = metrics["after"]
+        elif block.tag == qn("w:tbl"):
+            rows = block.findall(qn("w:tr"))
+            if not rows:
+                return None
+            inner = None
+            for cell in rows[0].findall(qn("w:tc")):
+                offset = first_baseline(cell, depth - 1)
+                if offset is not None:
+                    inner = offset if inner is None else min(inner, offset)
+            if inner is None:
+                return None
+            return cursor + pending + inner
+    return None
+
+
+def block_key(element):
+    return compare_squash(paragraph_text(element))
+
+
+def consume_rows(rows, cursor, key):
+    """`(start, end)` of the PDF rows whose text joins to `key`, or None.
+
+    A converted block holds whole PDF rows and never a piece of one, so the
+    match is exact on the squashed text. Starting a little ahead of the cursor
+    is allowed, because the converter writes the occasional empty paragraph
+    that no row of the page corresponds to.
+    """
+    for start in range(cursor, min(len(rows), cursor + RHYTHM_LOOKAHEAD + 1)):
+        joined = ""
+        for end in range(start, min(len(rows), start + RHYTHM_MAX_ROWS)):
+            joined += rows[end]["key"]
+            if joined == key:
+                return start, end + 1
+            if not key.startswith(joined):
+                break
+    return None
+
+
+def wanted_line_height(rows, current):
+    """The exact line height for this block, and the smallest it may become.
+
+    Several rows give their own pitch, which is the distance the PDF put
+    between them and the one number that makes a broken paragraph read like
+    the page it came from. A single row has no pitch of its own, so the
+    converter's height is kept.
+
+    The floor is what stops a box being shrunk into the text it holds. Word
+    clips an exact line box at the top, and the baseline sits at 0.8 of it, so
+    a box shorter than the row's own ascent over 0.8 cuts the capitals off.
+    Descenders are not part of it: every ordinary leading puts them past the
+    bottom of their box and into the next line's, which is why a 15.4 pt box
+    round a 3.8 pt descender is what the converter writes and what the page
+    looks right with.
+    """
+    floor = 1.0
+    for row in rows:
+        floor = max(floor, max(0.0, row["base"] - row["y0"]) / EXACT_BASELINE_RATIO)
+    if len(rows) >= 2:
+        pitch = median(sorted(b["base"] - a["base"] for a, b in zip(rows, rows[1:])))
+        if pitch > 0:
+            return max(pitch, floor), floor
+    return current, min(floor, current)
+
+
+def first_baseline_target(rows, line):
+    """Where a block's first baseline goes if its lines are to straddle the PDF's."""
+    return median(sorted(row["base"] - order * line for order, row in enumerate(rows)))
+
+
+def page_anchor_rows(doc, bands):
+    """Every page's text rows, band members dropped, each with its own key."""
+    members = set()
+    for band in bands:
+        members |= band.get("members") or set()
+    pages = []
+    for index in range(doc.page_count):
+        rows = []
+        for row in page_rows(doc[index]):
+            if row_id(index, row) in members:
+                continue
+            entry = dict(row)
+            entry["key"] = compare_squash(row["text"])
+            rows.append(entry)
+        pages.append(rows)
+    return pages
+
+
+def has_own_shape(element):
+    """Does this paragraph paint something whose size the reader would notice?
+
+    A shaded panel and a bordered block are drawn to the line box, so shrinking
+    the box to buy back a point of spacing would shrink the grey rectangle with
+    it. Those keep the height the shape pass gave them.
+    """
+    properties = element.find(qn("w:pPr"))
+    if properties is None:
+        return False
+    return properties.find(qn("w:shd")) is not None or properties.find(qn("w:pBdr")) is not None
+
+
+class PageWalk:
+    """One page's blocks, placed against the baselines the PDF has for them.
+
+    `cursor` is where the next block's box would start with no spacing at all,
+    and `pending` is the spacing after the last paragraph, which is still a
+    knob until the next block is placed: the gap between two blocks is written
+    once, either as the second one's spacing before or, when the second one is
+    a table and has none, as the first one's spacing after. `was` and
+    `was_pending` are the same walk over the values the converter wrote, which
+    is how the page knows whether a correction made it taller.
+    """
+
+    def __init__(self, top):
+        self.cursor = self.was = top
+        self.pending = self.was_pending = 0.0
+        self.undo = []
+        self.changed = 0
+        self.placed = 0
+        self.drift = None
+        self.last_lines = 1
+        self.above = None
+
+    def keep(self, block, metrics):
+        self.undo.append((block, metrics["before"], metrics["after"], metrics["line"]))
+
+    def flow(self, lead, height, after, was_lead, was_height, was_after, lines=1):
+        self.last_lines = lines
+        self.cursor += self.pending + lead + height
+        self.pending = after
+        self.was += self.was_pending + was_lead + was_height
+        self.was_pending = was_after
+
+
+def place_page(section, blocks, rows, page_height, absolute):
+    """Walk one page's blocks, correcting the spacing between them.
+
+    Returns `(undo, changed, fits, drift)`: what to restore, how many blocks
+    were really moved, whether the page still ends above its bottom margin,
+    and how far the first block had to move, which is what decides whether the
+    model understood where this page starts.
+    """
+    # Word reserves the top margin for the body and drops a paragraph's
+    # spacing before at the top of a page, so the first block starts there
+    # whatever it asks for.
+    walk = PageWalk(section.top_margin.pt) if absolute else None
+    for order, block in enumerate(blocks):
+        if block.tag == qn("w:p"):
+            metrics = paragraph_metrics(block)
+            if metrics is None:
+                break
+            lead = 0.0 if order == 0 else metrics["before"]
+            key = block_key(block)
+            span = consume_rows(rows, walk.placed if walk else 0, key) if len(key) >= COMPARE_MIN_CHARS else None
+            if span is None:
+                if walk:
+                    walk.flow(lead, metrics["lines"] * metrics["line"], metrics["after"],
+                              lead, metrics["lines"] * metrics["line"], metrics["after"],
+                              metrics["lines"])
+                    walk.above = (block, metrics)
+                continue
+            mine = rows[span[0]:span[1]]
+            line, floor = wanted_line_height(mine, metrics["line"])
+            if has_own_shape(block):
+                line, floor = metrics["line"], metrics["line"]
+            # How many lines Word will draw, which is how many the PDF drew:
+            # counting the manual breaks alone misses a paragraph the
+            # converter left whole and Word wraps by itself, and a block
+            # placed under that count lands a line high, which is what used to
+            # push a page over.
+            count = max(metrics["lines"], len(mine))
+            # Where the block's first baseline has to land. A block of several
+            # lines gets one line height for all of them, so pinning its first
+            # line to the PDF leaves the rest to drift: the reference report
+            # writes a sub-heading and the paragraph under it as one block,
+            # and the gap below the heading is wider than the gap between two
+            # body lines. Straddling instead, so the residuals fall either
+            # side of zero, halves the worst of them.
+            target = first_baseline_target(mine, line)
+            if walk is None:
+                # Relative mode: this block stays where the converter put it
+                # and everything below is measured from here.
+                walk = PageWalk(target - EXACT_BASELINE_RATIO * metrics["line"])
+                walk.placed = span[1]
+                walk.drift = 0.0
+                walk.flow(0.0, count * metrics["line"], metrics["after"],
+                          0.0, count * metrics["line"], metrics["after"], count)
+                walk.above = (block, metrics)
+                continue
+            walk.placed = span[1]
+            gap = target - EXACT_BASELINE_RATIO * line - walk.cursor - walk.pending
+            if gap < 0 and walk.pending > 0 and walk.above is not None:
+                # The spacing after the block above is the first thing to give
+                # back, because it and this block's spacing before both apply.
+                walk.keep(*walk.above)
+                set_spacing(walk.above[0], after=0.0)
+                gap += walk.pending
+                walk.pending = 0.0
+            if gap < 0 and line > floor:
+                # Still no room for the box the converter asked for. A shorter
+                # one gives back its height less the part above the baseline,
+                # down to the smallest box that holds this text's own ascent.
+                room = count - EXACT_BASELINE_RATIO
+                if room > 0:
+                    line = max(floor, line + gap / room)
+                    target = first_baseline_target(mine, line)
+                    gap = target - EXACT_BASELINE_RATIO * line - walk.cursor - walk.pending
+            gap = 0.0 if order == 0 else max(0.0, gap)
+            if walk.drift is None:
+                walk.drift = gap - lead
+            walk.keep(block, metrics)
+            set_spacing(block, before=gap, line=line)
+            if abs(gap - lead) >= RHYTHM_TOLERANCE_PT or abs(line - metrics["line"]) >= RHYTHM_TOLERANCE_PT:
+                walk.changed += 1
+            walk.flow(gap, count * line, metrics["after"],
+                      lead, count * metrics["line"], metrics["after"], count)
+            walk.above = (block, metrics)
+            continue
+        if block.tag == qn("w:tbl"):
+            metrics = table_metrics(block)
+            if metrics is None:
+                break
+            key = block_key(block)
+            span = consume_rows(rows, walk.placed if walk else 0, key) if len(key) >= COMPARE_MIN_CHARS else None
+            if walk is None:
+                if span is None or metrics["inside"] is None:
+                    continue
+                # A table anchors a page too: the numbered heading that opens
+                # a section arrives as a one-row table.
+                walk = PageWalk(rows[span[0]]["base"] - metrics["inside"])
+                walk.placed = span[1]
+                walk.drift = 0.0
+                walk.flow(0.0, metrics["height"], 0.0, 0.0, metrics["height"], 0.0)
+                continue
+            if span is not None:
+                walk.placed = span[1]
+            previous = blocks[order - 1] if order else None
+            earlier = paragraph_metrics(previous) if previous is not None and previous.tag == qn("w:p") else None
+            # A table keeps the place the converter gave it. It reads a
+            # table's top off the PDF's own grid lines and sizes the rows from
+            # them, so its rules already land on the PDF's; a target taken
+            # from the text inside the first row would move the whole grid to
+            # put one baseline right, and the reference report's finding cards
+            # lost a point of similarity each when that was tried. What does
+            # move is the gap above it, which takes up whatever the
+            # corrections above have added or removed.
+            if earlier is not None:
+                gap = max(0.0, walk.was + walk.was_pending - walk.cursor)
+                if walk.drift is None:
+                    walk.drift = gap - walk.pending
+                walk.keep(previous, earlier)
+                set_spacing(previous, after=gap)
+                if abs(gap - walk.pending) >= RHYTHM_TOLERANCE_PT:
+                    walk.changed += 1
+                walk.pending = gap
+            walk.flow(0.0, metrics["height"], 0.0, 0.0, metrics["height"], 0.0)
+            walk.above = None
+            continue
+        break
+    if walk is None:
+        return [], 0, True, 0.0
+    end = walk.cursor + walk.pending
+    fits = (end <= walk.was + walk.was_pending + RHYTHM_TOLERANCE_PT
+            or end <= page_height - section.bottom_margin.pt - RHYTHM_BOTTOM_GUARD_PT)
+    return walk.undo, walk.changed, fits, walk.drift or 0.0
+
+
+def restore(undo):
+    for block, before, after, line in reversed(undo):
+        set_spacing(block, before=before, after=after, line=line)
+
+
+def align_vertical_rhythm(document, pages, page_height):
+    """Put every block's first line on the baseline the PDF gave it.
+
+    One walk per section, because the converter writes one section per PDF
+    page. Every block's spacing becomes whatever puts the next block's first
+    baseline where the PDF has it, given the line heights this file declares,
+    and a block whose height the file does not state ends the walk for that
+    page. Two things are refused rather than risked: a page whose first block
+    would move further than a line, which means the model has not understood
+    where this page starts, and a page that would end below its bottom margin,
+    which is how a page count changes.
+    """
+    body = document.element.body
+    sections = section_blocks(body)
+    if len(sections) != len(pages) or len(sections) != len(document.sections):
+        return 0
+    moved = 0
+    for index, blocks in enumerate(sections):
+        rows = pages[index]
+        if not rows:
+            continue
+        section = document.sections[index]
+        undo, changed, fits, drift = place_page(section, blocks, rows, page_height, True)
+        if not fits or abs(drift) > RHYTHM_ABSOLUTE_LIMIT_PT:
+            restore(undo)
+            undo, changed, fits, _ = place_page(section, blocks, rows, page_height, False)
+            if not fits:
+                restore(undo)
+                changed = 0
+        moved += changed
+    return moved
+
+
+# ── step 7: the text the converter ran together ───────────────────────────
 
 
 def typed_soft_hyphens(doc, bands):
@@ -2357,6 +2852,10 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         # band zone is still described, and kept for the post-processing pass
         # that runs once the converter has produced a file.
         pictures = pdf_pictures(doc)
+        anchors = page_anchor_rows(doc, bands)
+        # The fallback keeps the bands in the body, so its pages carry rows
+        # this one does not and the targets have to be read again without them.
+        plain_anchors = anchors if not bands else page_anchor_rows(doc, [])
         families = fonts.wanted_families(doc, font_family) if font_dirs else set()
         panels, swatches = find_decoration(doc, bands)
         pairs = spaced_pairs(doc)
@@ -2396,6 +2895,9 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         if line_breaks == "pdf":
             force_line_breaks(document, aligned, shaded)
         repair_text(document, pairs, shaded)
+        # Last, because it reads the spacing and the line count of every block
+        # the passes above have finished writing.
+        align_vertical_rhythm(document, anchors, page_height)
         document.save(part)
         missing = missing_from_docx(repaired_lines, docx_text(part, body_only=bool(bands)))
         checked_lines = repaired_lines
@@ -2436,6 +2938,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             if line_breaks == "pdf":
                 force_line_breaks(document, aligned, shaded)
             repair_text(document, pairs, shaded)
+            align_vertical_rhythm(document, plain_anchors, page_height)
             document.save(part)
             written = 0
             bands = []

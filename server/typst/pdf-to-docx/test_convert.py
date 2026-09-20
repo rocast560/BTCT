@@ -25,6 +25,8 @@ import zipfile
 from xml.etree import ElementTree
 
 import pymupdf
+from docx import Document
+from docx.shared import Pt
 
 # Isolated mode drops the script's own directory from the import path, and
 # this file is run with it so it sees what the server's child process sees.
@@ -140,6 +142,95 @@ def run_built_in():
     passed &= check(convert.squash("第一章") == "第一章", "squash keeps CJK")
     doc.close()
     passed &= run_comparison_checks()
+    passed &= run_rhythm_checks()
+    return passed
+
+
+def rhythm_document(before, after, line, text="Second block here"):
+    """A two-paragraph document whose spacing the vertical pass can rewrite."""
+    document = Document()
+    section = document.sections[0]
+    section.top_margin = Pt(72)
+    section.bottom_margin = Pt(72)
+    first = document.add_paragraph()
+    convert.set_spacing(first._p, before=0.0, after=0.0, line=12.0)
+    first.add_run("First block here")
+    second = document.add_paragraph()
+    convert.set_spacing(second._p, before=before, after=after, line=line)
+    second.add_run(text)
+    return document
+
+
+def run_rhythm_checks():
+    """The vertical pass: its layout model, and what it refuses to do."""
+    passed = True
+
+    # The model itself, which is the whole of the correction.
+    metrics = convert.paragraph_metrics(rhythm_document(6.0, 3.0, 15.0).paragraphs[1]._p)
+    passed &= check(metrics is not None and abs(metrics["before"] - 6.0) < 0.05
+                    and abs(metrics["after"] - 3.0) < 0.05 and abs(metrics["line"] - 15.0) < 0.05,
+                    "rhythm: spacing is read back in points", metrics)
+    inherited = Document().add_paragraph("no spacing of its own")
+    passed &= check(convert.paragraph_metrics(inherited._p) is None,
+                    "rhythm: a paragraph without an exact line height is not modelled")
+
+    rows = [{"base": 100.0, "y0": 92.0, "y1": 103.0, "key": "a"},
+            {"base": 116.0, "y0": 108.0, "y1": 119.0, "key": "b"}]
+    line, floor = convert.wanted_line_height(rows, 19.6)
+    passed &= check(abs(line - 16.0) < 0.01, "rhythm: the line height is the PDF's own pitch", line)
+    passed &= check(abs(floor - 10.0) < 0.01, "rhythm: the floor holds the row's ascent", floor)
+    single, single_floor = convert.wanted_line_height(rows[:1], 19.6)
+    passed &= check(abs(single - 19.6) < 0.01, "rhythm: one row keeps the converter's height", single)
+    passed &= check(single_floor <= single, "rhythm: the floor never raises a height", single_floor)
+    passed &= check(abs(convert.first_baseline_target(rows, 16.0) - 100.0) < 0.01,
+                    "rhythm: an even block is placed on its first line")
+    staggered = [dict(rows[0]), dict(rows[1], base=120.0)]
+    passed &= check(convert.first_baseline_target(staggered, 16.0) > 100.0,
+                    "rhythm: an uneven block straddles its lines")
+
+    # The correction, end to end on a document whose PDF says where to put it.
+    pdf_rows = [
+        [{"base": 100.0, "y0": 92.0, "y1": 103.0, "key": convert.compare_squash("First block here")},
+         {"base": 160.0, "y0": 152.0, "y1": 163.0, "key": convert.compare_squash("Second block here")}]
+    ]
+    document = rhythm_document(0.0, 0.0, 15.0)
+    moved = convert.align_vertical_rhythm(document, pdf_rows, 792.0)
+    after = convert.paragraph_metrics(document.paragraphs[1]._p)
+    # 72 top margin, a 12 pt first box, then the gap that puts the second
+    # baseline at 160: 160 - 0.8 x 15 - 84.
+    passed &= check(moved == 1, "rhythm: one block was moved", moved)
+    passed &= check(after is not None and abs(after["before"] - 64.0) < 0.3,
+                    "rhythm: the spacing is what the PDF's baseline asks for", after and after["before"])
+
+    # A gap the PDF makes negative comes out of the block above first.
+    tight = [
+        [{"base": 100.0, "y0": 92.0, "y1": 103.0, "key": convert.compare_squash("First block here")},
+         {"base": 92.0, "y0": 84.0, "y1": 95.0, "key": convert.compare_squash("Second block here")}]
+    ]
+    document = rhythm_document(0.0, 20.0, 15.0)
+    convert.align_vertical_rhythm(document, tight, 792.0)
+    above = convert.paragraph_metrics(document.paragraphs[0]._p)
+    below = convert.paragraph_metrics(document.paragraphs[1]._p)
+    passed &= check(above is not None and above["after"] == 0.0,
+                    "rhythm: the block above gives its spacing back first", above and above["after"])
+    passed &= check(below is not None and below["before"] == 0.0 and below["line"] < 15.0,
+                    "rhythm: a box too tall for its place is shortened", below and below["line"])
+
+    # And a page that would end below its bottom margin keeps what it had.
+    far = [
+        [{"base": 100.0, "y0": 92.0, "y1": 103.0, "key": convert.compare_squash("First block here")},
+         {"base": 900.0, "y0": 892.0, "y1": 903.0, "key": convert.compare_squash("Second block here")}]
+    ]
+    document = rhythm_document(2.0, 0.0, 15.0)
+    moved = convert.align_vertical_rhythm(document, far, 792.0)
+    kept = convert.paragraph_metrics(document.paragraphs[1]._p)
+    passed &= check(moved == 0 and kept is not None and abs(kept["before"] - 2.0) < 0.05,
+                    "rhythm: a correction past the bottom margin is refused", kept and kept["before"])
+
+    # A page count the converter did not write one section per is left alone.
+    document = rhythm_document(2.0, 0.0, 15.0)
+    passed &= check(convert.align_vertical_rhythm(document, pdf_rows + pdf_rows, 792.0) == 0,
+                    "rhythm: sections and pages have to line up")
     return passed
 
 
