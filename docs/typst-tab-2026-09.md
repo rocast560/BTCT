@@ -1190,7 +1190,8 @@ script does not, so it declines the edge rather than concatenating both texts,
 which is what it used to do.
 
 **The safety net.** After conversion, every line of the PDF is looked for in
-the Word file: body, tables, text boxes, headers and footers. A line is present
+the Word file, except the band's own member rows: body, tables, text boxes,
+headers and footers. A line is present
 when its squashed characters (whitespace, hyphens, dot leaders and invisible
 characters removed) appear unbroken somewhere in the Word file's squashed text.
 If anything is missing, that file is discarded and the report is converted
@@ -1291,3 +1292,156 @@ template is unchanged too, at 2 pages against 2.
   what keep the usual case small, and the existing "the child is the OOM
   victim, not the relay" mapping is what covers the rest. Windows has no
   `resource` module and relies on the other three.
+
+### Round two: the rectangle that is erased, and the decoration that was not kept
+
+A second safety pass found a hole underneath the first one, and the owner,
+who called the export "super good already", asked for a page-by-page look at
+what still differs from the PDF. The two turned out to be about the same
+thing: filled rectangles.
+
+#### The hole: the band's rectangle is not the band
+
+The four detection tests all run on the band's *text*. Then the rectangle that
+gets erased is grown to swallow any repeating drawing within 30 pt, because a
+rule under a header and a strip behind a footer are part of the band. That
+rectangle is the whole page width, and the erase removes text inside it.
+
+A running header with a per-page finding title underneath and a repeating
+full-width rule below the title: the rule pulls the rectangle down past the
+title, and all eight titles are deleted. `ok: true`, `missing: 0`, because the
+text check excluded the same rectangle from both sides. The check was blind to
+exactly the rows that growing the rectangle removed.
+
+Two changes, and both are needed. The band records its member rows, and the
+text check leaves out those and nothing else, so anything else the erase takes
+is reported and sends the conversion to the fallback. And the enlargement is
+now offered and then checked: if the bigger rectangle would cover a row that
+is not a band member, it is not taken, and the decoration stays in the body.
+The rule is then drawn twice, once by Word's header and once by the page it
+was left on. That is the price, and it is the right way round.
+
+Three smaller things came out of the same pass.
+
+- **"Nothing to measure" was a pass.** A document whose every page holds one
+  line gave the separation test nothing to compare, and the cluster was
+  accepted: every page's one line went into the Word header, and the text
+  check, left with no body lines at all, reported a clean run. The gap now has
+  to be measurable on more than two of the band's pages, and lifting bands
+  with nothing left to check counts as a failure.
+- **A declined edge said the wrong thing.** A group rejected by the digit test
+  or the separation test reported "No repeating header was found", which is
+  false: one was found and not lifted. Each rejection carries its own sentence
+  now.
+- **The fallback could blow the budget.** It doubles the conversion, and a
+  report that takes 95 seconds a pass was being SIGKILLed halfway through the
+  second one with a message that said nothing. The server passes the converter
+  its remaining budget, and a second pass that will not fit stops with a
+  sentence saying so.
+- **The document-wide cost had no bound.** 60 pages of 9,000 drawings clears
+  every per-page test and still costs 50.5 s and 403 MB. There is a budget of
+  150,000 drawings for the whole document now, over 300 times the 479 the
+  reference report draws, and the count stops at the first page that goes over.
+- **The text check tested presence, not count.** Three identical table rows
+  against one copy in the Word file passed. It counts occurrences now, and the
+  reference report still reports 0 missing of 390 lines, which is the number
+  that matters: this was the fourth reading of the comparison and the first
+  three all produced false positives there.
+
+#### The decoration: one cause, four symptoms
+
+pdf2docx keeps a filled rectangle when it becomes a table cell and drops it
+otherwise. That single fact explains every visual difference the owner found
+that was not a re-flow:
+
+| what was missing | what it is in the PDF |
+|---|---|
+| the grey panel behind every code block | a filled rectangle behind three lines of text |
+| the dark bar down that panel's left edge | a 7.2 pt filled rectangle touching it |
+| the chart legend's four colour squares | 9 pt filled squares beside four labels |
+| the footer strip running edge to edge | a full-bleed filled rectangle |
+
+So the rectangles are read out of the PDF and put back. The hard part is
+telling a panel from a table cell, and size does not do it: this report's risk
+matrix has cells as tall as its code blocks, and painting one of those onto a
+paragraph puts a red bar through a sentence, which is what the first attempt
+did and what dropped page 4 from 0.976 to 0.968. What does tell them apart is
+that **a cell has neighbours**: another filled rectangle sharing its top and
+bottom (the rest of the row) or its left and right (the rest of the column). A
+panel stands alone. The accent bar is excluded from that test, since it shares
+its panel's top and bottom by construction.
+
+Matching a panel to the paragraphs its text ended up in is done in document
+order against a cursor, because the same code block appears on every finding
+page and "the only paragraph containing this line" is the wrong question. A
+panel whose paragraph already carries a fill is skipped but still consumes its
+place in the order, or the cursor runs ahead and the next panel lands on the
+wrong text.
+
+The footer strip needed a different trick: Word shades a paragraph between its
+indents, so the footer paragraph is pushed out into the margins with negative
+indents and an extra left tab stop puts its text back where the text area
+starts. The page number still lands on the right tab stop, because tab stops
+are measured from the margin and not from the indent.
+
+Two text repairs, both from the PDF's own characters. Typst writes its
+line-break hyphens as U+00AD and real hyphens as U+002D, and Word was printing
+the first kind mid-line: "em-ployed", "likeli-hood", "appro-priate",
+"assess-ment". The soft ones are removed and the real ones left. This is why
+pdf2docx's own `delete_end_line_hyphen` is not switched on: it works on the
+character, not the intent, and would turn "non-critical" into "noncritical".
+And the space after a list marker, which pdf2docx loses when it writes two PDF
+spans as two runs, is put back from the gaps the PDF records, so a numbered
+step reads "1. {{REMEDIATION STEP}}" again.
+
+Alignment last. A paragraph whose lines all reach the column's right edge
+except the last one is justified, which pdf2docx gets right on some paragraphs
+and not others in the same document. The edge is taken from the run of lines
+itself and then checked against the page's, because justified prose overshoots
+the layout column by a glyph's overhang, by up to 5 pt here, while a table
+stops exactly on it.
+
+#### What it did to the numbers
+
+Per page, before and after this round, on the owner's report:
+
+| page | before | after | | page | before | after |
+|---|---|---|---|---|---|---|
+| 1 | 0.8962 | 0.8962 | | 13 | 0.9952 | **0.9954** |
+| 2 | 0.9611 | 0.9608 | | 14 | 0.9687 | **0.9704** |
+| 3 | 0.9647 | 0.9648 | | 15 | 0.9865 | **0.9892** |
+| 4 | 0.9756 | **0.9759** | | 16 | 0.9827 | **0.9837** |
+| 5 | 0.9740 | 0.9742 | | 17 | 0.9869 | **0.9896** |
+| 6 | 0.9894 | 0.9895 | | 18 | 0.9828 | **0.9839** |
+| 7 | 0.9907 | 0.9910 | | 19 | 0.9869 | **0.9896** |
+| 8 | 0.9934 | 0.9936 | | 20 | 0.9832 | **0.9843** |
+| 9 | 0.9693 | 0.9694 | | 21 | 0.9868 | **0.9896** |
+| 10 | 0.9839 | 0.9838 | | 22 | 0.9570 | 0.9571 |
+| 11 | 0.9798 | 0.9799 | | 23 | 0.9813 | 0.9815 |
+| 12 | 0.9851 | 0.9852 | | | | |
+
+Median 0.9828 to **0.9838**, mean 0.9766 to **0.9773**, worst unchanged at
+0.8962 (the cover). Every finding page is up, which is the code panels. No
+page is worse by more than 0.0003, which is rendering noise. Still 23 pages
+against 23, 27 table-of-contents entries rebuilt, 0 of 390 lines missing, no
+fallback.
+
+#### What is still imperfect after this round
+
+- **The cover, still 0.8962.** Looking at pdf2docx's shape handling for the
+  panels did explain it: it renders a full-page image as a picture sized to
+  the page box rather than to the image's own placement, so a full-bleed cover
+  comes out about a tenth larger. That is inside its image placement, not its
+  shape handling, and it is not a setting.
+- **The figure placeholder's border still looks heavier** than the PDF's. It
+  falls out of pdf2docx's own table borders rather than the shapes this round
+  touched.
+- **The table-of-contents dot leaders are tighter** than the PDF's spaced
+  dots, because Word draws them from the tab stop at its own pitch. Cosmetic,
+  and not worth a custom leader.
+- **A panel whose text the converter split across a table boundary is not
+  shaded**, because the match is per paragraph and a paragraph that already
+  has a fill is left alone. On this report every code block is matched.
+- **The justification rule needs three lines.** Two lines that both reach the
+  edge is also what a centred pair looks like, so a two-line justified
+  paragraph stays as the converter left it.

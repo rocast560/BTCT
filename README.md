@@ -435,11 +435,20 @@ command palette. There is one report per workspace.
     the 1 GB container on a 23-page report with a cover and six fonts: 0.8 s
     for the PDF and 6.9 s for the Word file, peaking at 176 MiB.
   - **Word conversion bounds**, on top of the compile's own: **300 pages**,
-    **25 MB** of compiled PDF, and a per-page complexity ceiling (3 MB of
-    instruction stream, 10,000 vector drawings). A report's page holds about
-    60 drawings, so these only ever catch a document that would have taken
+    **25 MB** of compiled PDF, a per-page complexity ceiling (3 MB of
+    instruction stream, 10,000 vector drawings) and **150,000 drawings for the
+    whole document**. A report's page holds about 60 drawings and the whole of
+    one about 480, so these only ever catch a document that would have taken
     minutes: three pages of 120,000 rectangles are refused in 0.04 s instead
     of costing the converter half a minute.
+  - **The decoration the converter drops is put back.** A code block's grey
+    panel and the bar down its left edge, a chart legend's colour squares and
+    a footer's full-width strip are all filled rectangles that pdf2docx keeps
+    only when they become table cells. They come back as paragraph shading, a
+    paragraph border and a coloured square, read from the PDF's own geometry.
+    Typst's line-break hyphens (soft hyphens) are removed so Word does not
+    print "em-ployed" in the middle of a line, real hyphens are left alone,
+    and a space the converter ran together after a list marker is restored.
   - **Links with unsupported addresses are removed** from the Word file.
     Word follows a hyperlink's address, and `FILE://host/share/x` resolves as
     UNC and leaks the reader's credentials to whoever owns that host, so only
@@ -448,7 +457,7 @@ command palette. There is one report per workspace.
   - **The Word file is checked against the PDF's text before you get it.**
     Lifting a running header out of the page body and rewriting a table of
     contents both delete part of the document, so afterwards every line of the
-    PDF is looked for in the Word file. If anything is missing, that file is
+    PDF, except the band's own, is looked for in the Word file. If anything is missing, that file is
     thrown away and the report is converted again with both repairs off, and
     the banner says: "The header and footer could not be lifted safely on this
     report, so the Word file keeps them in the page body and its page count
