@@ -24,6 +24,10 @@ const TIMEOUT_MS = 120_000;
 // design was tested against: 3.8 s of pdf2docx plus about 2 s of reading and
 // rewriting, on one core. Two minutes is roughly twenty times that.
 const CONVERT_TIMEOUT_MS = 120_000;
+// What the converter keeps back from that when it decides whether there is
+// room to convert a second time: reading the PDF, both text checks and
+// writing the file are outside the pdf2docx pass it measures.
+const CONVERT_BUDGET_MARGIN_MS = 15_000;
 // A PDF that reaches this size is a runaway loop, not a report, and the
 // bytes sit in the response buffer of a process that also relays Yjs.
 const MAX_OUTPUT_MB = 100;
@@ -256,7 +260,11 @@ async function toDocx(root, source) {
   }
   const out = path.join(root, 'out.docx');
   const resultFile = path.join(root, 'docx-result.json');
-  const child = await run(python, ['-I', '-B', CONVERTER, pdf, out, resultFile], root, CONVERT_TIMEOUT_MS);
+  // The converter is told how long it has, so it can decline to convert a
+  // second time rather than be SIGKILLed halfway through one. The margin
+  // covers reading the PDF, both text checks and writing the file.
+  const budget = Math.round((CONVERT_TIMEOUT_MS - CONVERT_BUDGET_MARGIN_MS) / 1000);
+  const child = await run(python, ['-I', '-B', CONVERTER, pdf, out, resultFile, String(budget)], root, CONVERT_TIMEOUT_MS);
   if (child.code === 'ENOENT') throw new ExportError(501, 'the Word converter is no longer installed on this server');
 
   // null means no result file at all, which is the only case where the
@@ -289,13 +297,19 @@ async function toDocx(root, source) {
   };
 }
 
-/** The interpreter's own directory and the virtualenv above it. */
+// A system prefix is not a secret and scrubbing it makes a message worse:
+// "/usr/bin/python3: cannot import" would become "./python3: cannot import".
+// Only a directory that is longer than this and not one of these is worth
+// removing, which is what leaves /opt/pdf2docx scrubbed and /usr alone.
+const SYSTEM_PREFIXES = new Set(['/usr', '/bin', '/lib', '/opt', '/var', '/etc', '/', 'C:\\', 'C:']);
+const MIN_SCRUB_ROOT_CHARS = 8;
+
+/** The interpreter's own directory and the virtualenv above it, worth hiding. */
 function pythonRoots(python) {
   const bin = path.dirname(python);
-  const roots = [bin];
   const prefix = path.dirname(bin);
-  if (prefix && prefix !== bin) roots.push(prefix);
-  return roots;
+  return [bin, prefix].filter((dir, index, all) =>
+    dir && all.indexOf(dir) === index && dir.length >= MIN_SCRUB_ROOT_CHARS && !SYSTEM_PREFIXES.has(dir));
 }
 
 /**
