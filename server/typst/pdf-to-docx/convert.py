@@ -2089,6 +2089,13 @@ def split_paragraph_at(element, lines):
         if cut is None:
             seen += length
             continue
+        # The space between the last word of this line and the first of the
+        # next belongs to the end of this line, where Word does not count it
+        # against the column, rather than to the start of the next, where it
+        # is a real character that makes the line a space wider than the PDF
+        # made it and can send its last word round again.
+        while cut < len(raw) and raw[cut].isspace():
+            cut += 1
         if cut < len(raw):
             tail = copy.deepcopy(node)
             spare = tail.find(qn("w:t"))
