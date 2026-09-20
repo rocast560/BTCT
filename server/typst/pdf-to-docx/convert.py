@@ -2031,7 +2031,7 @@ def build_panel_table(panel, elements):
     return table, rect.y0, occupied
 
 
-def shade_run_of_paragraphs(document, panels):
+def shade_run_of_paragraphs(document, panels, plain=False):
     """Shade the paragraphs a panel's text ended up in, and draw its bar.
 
     Matching is by text, in document order: the same code block appears on
@@ -2050,6 +2050,11 @@ def shade_run_of_paragraphs(document, panels):
     tables this built with the page coordinate each one's top edge has in the
     PDF, which is better than any flow the vertical pass could work out for
     them.
+
+    `plain` shades the paragraphs where they stand and builds no table at all,
+    which is what the rung below the fallback asks for: it is the level where
+    nothing this file does may move a paragraph out of the place the converter
+    wrote it.
     """
     body = document.element.body
     # Every paragraph, including the ones that already have a colour: a panel
@@ -2076,7 +2081,7 @@ def shade_run_of_paragraphs(document, panels):
                   if not already_shaded(body, paragraphs[position])]
         if not wanted:
             continue
-        built = build_panel_table(panel, wanted)
+        built = None if plain else build_panel_table(panel, wanted)
         if built is not None:
             anchors.append(built)
             painted.extend(wanted)
@@ -4269,6 +4274,64 @@ def run_pdf2docx(source, target, plan=None):
 
 CROWDED_OUT = ("This report is large, so the Word file skips the final layout pass and may sit a "
                "little differently from the PDF.")
+PLAIN_LAYOUT = ("Text was missing from the Word file until the layout passes were turned off, so it "
+                "carries the converter's own spacing and panels and will sit differently from the PDF.")
+
+
+def decorate_document(document, look, anchors, started, budget_seconds, repairs, place=True):
+    """Everything that makes a converted file look like the PDF it came from.
+
+    Two levels. `place=True` is the whole of it: a run of code becomes a panel
+    table, a picture is cropped to the part of it the PDF shows, each
+    paragraph is broken where the PDF broke it, and the layout passes put
+    blocks, tables and the text inside a cell on the PDF's own baselines.
+
+    `place=False` leaves the structure exactly as the converter wrote it:
+    paragraphs are shaded where a panel would have been built, and nothing is
+    broken, cropped, cut or moved. That is the rung below the fallback, for a
+    document that has lost text with both repairs already off, where the only
+    passes left to suspect are the ones that rearrange what the converter
+    wrote. It costs the file its resemblance to the PDF and is never the first
+    answer.
+
+    Returns `(swatches, warnings)`. `repairs` is what the passes before this
+    one cost, which is the only measure of the document's size the budget has.
+    """
+    warnings = []
+    started_look = time.monotonic()
+    shaded, panel_tables = shade_run_of_paragraphs(document, look["panels"], plain=not place)
+    squares = restore_swatches(document, look["swatches"], look["face"])
+    align_paragraphs(document, look["aligned"])
+    if place:
+        fit_pictures(document, look["pictures"])
+    repairs += time.monotonic() - started_look
+    room = affordable(started, budget_seconds, repairs)
+    if place and room and look["lineBreaks"] == "pdf":
+        force_line_breaks(document, look["aligned"], shaded)
+    if place and not room:
+        warnings.append(CROWDED_OUT)
+    repair_text(document, look["pairs"], shaded)
+    restore_break_hyphens(document, look["broken"], shaded)
+    # Last, because it reads the spacing and the line count of every block the
+    # passes above have finished writing.
+    if place and room:
+        seams = split_pitch_changes(document, anchors, shaded)
+        align_vertical_rhythm(document, anchors, look["height"], panel_tables, look["rules"],
+                              seams, look["boxes"])
+    name_runs(document, look["plan"])
+    fill_bare_runs(document)
+    return squares, warnings
+
+
+def redo_plainly(source, part, look, anchors, started, budget_seconds, place):
+    """Convert the untouched PDF again and decorate it at the given level."""
+    run_pdf2docx(source, part, look["plan"])
+    if not os.path.exists(part) or os.path.getsize(part) == 0:
+        raise ConvertError("the converter produced no Word file")
+    document = Document(part)
+    squares, warnings = decorate_document(document, look, anchors, started, budget_seconds,
+                                          0.0, place)
+    return document, squares, warnings
 
 
 def affordable(started, budget, repairs):
@@ -4419,26 +4482,14 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         repair_warnings.extend(toc_warnings)
         if bands:
             repair_warnings.extend(apply_bands(document, bands, page_height, content_left, content_right, pages))
-        shaded, panel_tables = shade_run_of_paragraphs(document, panels)
-        squares = restore_swatches(document, swatches, swatch_face)
-        align_paragraphs(document, aligned)
-        fit_pictures(document, pictures)
         repairs = time.monotonic() - repairs
-        if affordable(started, budget_seconds, repairs):
-            if line_breaks == "pdf":
-                force_line_breaks(document, aligned, shaded)
-        else:
-            repair_warnings.append(CROWDED_OUT)
-        repair_text(document, pairs, shaded)
-        restore_break_hyphens(document, broken, shaded)
-        # Last, because it reads the spacing and the line count of every block
-        # the passes above have finished writing.
-        if affordable(started, budget_seconds, repairs):
-            seams = split_pitch_changes(document, anchors, shaded)
-            align_vertical_rhythm(document, anchors, page_height, panel_tables, rules, seams,
-                                  drawn_boxes)
-        name_runs(document, font_plan)
-        fill_bare_runs(document)
+        look = {"panels": panels, "swatches": swatches, "face": swatch_face, "aligned": aligned,
+                "pictures": pictures, "pairs": pairs, "broken": broken, "rules": rules,
+                "boxes": drawn_boxes, "height": page_height, "lineBreaks": line_breaks,
+                "plan": font_plan}
+        squares, look_warnings = decorate_document(document, look, anchors, started,
+                                                   budget_seconds, repairs)
+        repair_warnings.extend(look_warnings)
         document.save(part)
         missing = missing_from_docx(repaired_lines, docx_text(part, body_only=bool(bands)))
         checked_lines = repaired_lines
@@ -4466,36 +4517,35 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
                 "The header and footer could not be lifted safely on this report, so the Word file "
                 "keeps them in the page body and its page count may differ from the PDF."
             ]
-            run_pdf2docx(plain_pdf, part, font_plan)
-            if not os.path.exists(part) or os.path.getsize(part) == 0:
-                raise ConvertError("the converter produced no Word file")
-            # The decoration is not a repair and cannot lose text, so it runs
-            # on the fallback too.
-            document = Document(part)
-            repairs = time.monotonic()
-            shaded, panel_tables = shade_run_of_paragraphs(document, panels)
-            squares = restore_swatches(document, swatches, swatch_face)
-            align_paragraphs(document, aligned)
-            fit_pictures(document, pictures)
-            repairs = time.monotonic() - repairs
-            if affordable(started, budget_seconds, repairs):
-                if line_breaks == "pdf":
-                    force_line_breaks(document, aligned, shaded)
-            elif CROWDED_OUT not in repair_warnings:
-                repair_warnings.append(CROWDED_OUT)
-            repair_text(document, pairs, shaded)
-            restore_break_hyphens(document, broken, shaded)
-            if affordable(started, budget_seconds, repairs):
-                seams = split_pitch_changes(document, plain_anchors, shaded)
-                align_vertical_rhythm(document, plain_anchors, page_height, panel_tables, rules,
-                                      seams, drawn_boxes)
-            name_runs(document, font_plan)
-            fill_bare_runs(document)
+            document, squares, more = redo_plainly(plain_pdf, part, look, plain_anchors,
+                                                   started, budget_seconds, place=True)
+            repair_warnings.extend(w for w in more if w not in repair_warnings)
             document.save(part)
             written = 0
             bands = []
             checked_lines = plain_lines
             missing = missing_from_docx(plain_lines, docx_text(part, body_only=False))
+
+        if missing and (budget_seconds is None
+                        or time.monotonic() - started + first_pass <= budget_seconds):
+            # The rung below the fallback. The two repairs are off already and
+            # text is still short, so what is left to suspect is the passes
+            # that rebuild a run of paragraphs into a panel, crop a picture,
+            # break a line where the PDF broke it or move a block, a table or
+            # the text inside a cell. Give all of them up too: this file will
+            # look less like the PDF than the one it replaces, and it is the
+            # closest thing to what the converter itself produced, which is
+            # the best place to stand when a finding has gone missing.
+            fell_back = True
+            document, squares, more = redo_plainly(plain_pdf, part, look, plain_anchors,
+                                                   started, budget_seconds, place=False)
+            repair_warnings.extend(w for w in more if w not in repair_warnings)
+            document.save(part)
+            written = 0
+            bands = []
+            checked_lines = plain_lines
+            missing = missing_from_docx(plain_lines, docx_text(part, body_only=False))
+            repair_warnings.append(PLAIN_LAYOUT)
 
         warnings.extend(repair_warnings)
         if missing:

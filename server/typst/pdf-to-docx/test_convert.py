@@ -1135,6 +1135,20 @@ def run_font_control_char_checks(font_tools, font_dir, workdir):
         well_formed = False
         print("     %s" % err)
     passed &= check(well_formed, "fonts: the fontTable.xml it wrote parses as XML")
+
+    # A name table is as long as the font wants it to be, and the family
+    # reaches `w:name` in every run of the document.
+    long_name = os.path.join(workdir, "long-name-font.ttf")
+    font = TTFont(source)
+    for record in font["name"].names:
+        if record.nameID in (1, 16):
+            record.string = "L" * 4000
+    font.save(long_name)
+    font.close()
+    entry = font_tools.read_font(long_name)
+    passed &= check(entry is not None and len(entry["family"]) == font_tools.MAX_FAMILY_CHARS,
+                    "fonts: a 4,000 character family is cut to the cap",
+                    entry and len(entry["family"]))
     return passed
 
 
@@ -1302,6 +1316,49 @@ def run_documents():
         passed &= check(body.count("host111") == 1 and body.count("host073") == 1,
                         "table: Host-111 and Host-073 each appear once",
                         (body.count("host111"), body.count("host073")))
+
+        # 1b. The rung below the fallback. A pass that rearranges what the
+        #     converter wrote is vandalised so it loses a line of a table, and
+        #     the only thing that gets the line back is turning every
+        #     restructuring and placement pass off. This document has no band
+        #     and no table of contents, so the two repairs are already off and
+        #     that rung is the one left.
+        keep_cells = convert.align_table_cells
+        calls, damaged = [], set()
+
+        def vandalise(table, top, left, lines, anchors=(), depth=convert.RHYTHM_NESTING):
+            calls.append(table)
+            root = id(table.getroottree().getroot())
+            if root not in damaged:
+                # The last long line of the table, because every row of this
+                # document reads almost the same and a shorter one is a
+                # substring of a row that is still there, which the check
+                # counts as present.
+                victim = None
+                for paragraph in table.iter(convert.qn("w:p")):
+                    nodes = list(paragraph.iter(convert.qn("w:t")))
+                    if len(convert.compare_squash("".join(n.text or "" for n in nodes))) >= 20:
+                        victim = nodes
+                if victim:
+                    for node in victim:
+                        node.text = ""
+                    damaged.add(root)
+            return keep_cells(table, top, left, lines, anchors, depth)
+
+        convert.align_table_cells = vandalise
+        try:
+            ladder = convert.convert(os.path.join(workdir, "table.pdf"),
+                                     os.path.join(workdir, "ladder.docx"))
+        finally:
+            convert.align_table_cells = keep_cells
+        passed &= check(bool(calls) and bool(damaged),
+                        "ladder: the vandalised table pass really ran", (len(calls), len(damaged)))
+        passed &= check(ladder["textCheck"]["missing"] == 0 and ladder["textCheck"]["fellBack"],
+                        "ladder: the line came back once the layout passes went off",
+                        ladder["textCheck"])
+        passed &= check(convert.PLAIN_LAYOUT in ladder["warnings"],
+                        "ladder: and the file says it carries the converter's own layout",
+                        ladder["warnings"])
 
         # 2. A repeated first body line under a real running header.
         result, path = run_case(cases.FIRST_BODY_LINE, workdir, "firstline")

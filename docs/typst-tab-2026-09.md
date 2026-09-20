@@ -1121,6 +1121,14 @@ covers one fewer thing that might have wanted it.
 - **The similarity score is a guide rail, not the acceptance test.** Mean
   absolute difference on a 200 px render will not notice a wrong colour in a
   small cell. The contact sheet is what decides, and a human has to look at it.
+- **Right-to-left text loses the spaces between its words.** pdf2docx runs an
+  Arabic or Hebrew line together, and the text check cannot see it: that check
+  squashes whitespace away on both sides precisely so a re-flow is allowed to
+  move it, so a line with every space gone still compares equal to the line the
+  PDF printed. A report set in a right-to-left script is not usable through this
+  route today. It is written down here rather than fixed because fixing it means
+  reading the PDF's word boundaries back into the run, which is a round of its
+  own, and because nothing in the acceptance case exercises it.
 
 ### What the review found, and what the converter guarantees now
 

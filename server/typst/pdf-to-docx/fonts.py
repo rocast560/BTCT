@@ -150,6 +150,8 @@ NOT_A_NAME = re.compile(r"[^0-9a-z]+")
 _XML_NONCHARACTERS = chr(0xFFFE) + chr(0xFFFF)
 _XML_SURROGATE_RANGE = chr(0xD800) + "-" + chr(0xDFFF)
 XML_FORBIDDEN = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f%s%s]" % (_XML_NONCHARACTERS, _XML_SURROGATE_RANGE))
+# The most of a font's own family name that is ever written into a document.
+MAX_FAMILY_CHARS = 63
 # Licences this recognises well enough to convert a font's outlines under.
 # Conversion is a modification, so it is not done on a licence nobody here
 # has read: an unrecognised one is refused and named, which is the same
@@ -282,6 +284,12 @@ def read_font(path):
     # hostile font's family is a string this script writes into an XML
     # attribute later, and nothing upstream of here checks it.
     family = strip_xml_unsafe(names.get(NAME_FAMILY) or names.get(NAME_TYPO_FAMILY) or "").strip()
+    # A name table is as long as the font wants it to be, and a family reaches
+    # `w:name` in every run this file writes. Word's own limit for a font name
+    # is 31 characters and no real face is anywhere near that; cutting at 63
+    # leaves a name nobody sensible will notice and keeps a 4 KB one out of
+    # every paragraph of the document.
+    family = family[:MAX_FAMILY_CHARS]
     if not family:
         # Stripping took the whole name, so this font is as unreadable as one
         # whose name table never had a family to begin with.
