@@ -192,12 +192,29 @@ RHYTHM_NESTING = 4
 # this pass does not understand (a floating table, a frame), and there the
 # first block keeps its place and only the rhythm below it is corrected.
 RHYTHM_ABSOLUTE_LIMIT_PT = 12.0
-# How far a table row's text has to be from the PDF's baseline before its box
-# is rewritten. A table's top is wherever the blocks above it left it, so it
-# carries whatever their own errors came to, and a correction smaller than
-# this is inside that and not worth trusting. The one this is for, the heading
-# that opens a section, is 1.25 pt out on every page that has one.
-ROW_TEXT_WORTH_PT = 1.0
+# Two cell edges are the same edge when they are this close. The converter
+# writes a cell's width to a twentieth of a point, so the left edges of a
+# merged cell and its continuation agree to well inside this.
+CELL_EDGE_PT = 0.5
+# Two pieces of text a cell draws on one line share a baseline exactly, so
+# this only has to cover a generator that rounds each piece on its own. A
+# cell's real lines are a whole line pitch apart, which on the smallest text
+# a report sets is 8 pt, so there is no second candidate anywhere near it.
+SAME_LINE_PT = 1.0
+# How far a cell's corrected content may reach past the bottom Word clips an
+# exact row at before the whole table is given back. A row's height and the
+# boxes inside it are both rounded to a twentieth of a point, and a cell the
+# converter already filled to the brim stays full, so the tolerance has to
+# cover that rounding and nothing more.
+CELL_CLIP_PT = 1.0
+# The names Word has had for a cell's left and right inner margins. The
+# converter writes the newer pair.
+CELL_MARGIN_NAMES = {
+    "top": ("w:top",),
+    "bottom": ("w:bottom",),
+    "left": ("w:start", "w:left"),
+    "right": ("w:end", "w:right"),
+}
 # English Metric Units, which is what a drawing in a Word file is measured in.
 EMU_PER_PT = 12700
 
@@ -366,11 +383,19 @@ def page_rows(page):
                 joiner = " " if x0 - column["x1"] > 0.8 and not column["text"].endswith(" ") else ""
                 column["text"] += joiner + span["text"]
                 column["x1"] = max(column["x1"], x1)
+                column["y0"] = min(column["y0"], span["bbox"][1])
+                column["y1"] = max(column["y1"], span["bbox"][3])
                 continue
             columns.append(
                 {
                     "x0": x0,
                     "x1": x1,
+                    # The column's own box, which is not the row's: a row that
+                    # holds an eight point label beside a sixteen point
+                    # heading is as tall as the heading, and a box measured
+                    # from that would never shrink to fit the label.
+                    "y0": span["bbox"][1],
+                    "y1": span["bbox"][3],
                     "text": span["text"],
                     "font": font_family(span["font"]),
                     # The face itself, kept beside the guess at its family so
@@ -2295,8 +2320,15 @@ def align_paragraphs(document, runs):
 
 
 def twips_of(value):
+    """One of Word's twentieths of a point, as points.
+
+    `float`, not `int`: the schema says these attributes are integers and the
+    converter writes several of them with a decimal point ("0.0" for a table
+    indent, "12.0" for a border width). Word reads them, so this has to as
+    well, and an `int` here threw the value away.
+    """
     try:
-        return int(value) / 20.0
+        return float(value) / 20.0
     except (TypeError, ValueError):
         return None
 
@@ -2339,27 +2371,213 @@ def set_spacing(element, before=None, after=None, line=None):
         spacing.set(qn("w:lineRule"), "exact")
 
 
+def cell_border(cell, side):
+    """How wide one of a cell's own borders is, in points, 0 when it has none."""
+    properties = cell.find(qn("w:tcPr"))
+    borders = properties.find(qn("w:tcBorders")) if properties is not None else None
+    node = borders.find(qn("w:" + side)) if borders is not None else None
+    if node is None or (node.get(qn("w:val")) or "none") in ("none", "nil"):
+        return 0.0
+    # Eighths of a point, and the converter writes this one as "12.0", which
+    # the schema does not allow and Word reads anyway. Parsing it as an
+    # integer threw the width away, and every page whose first block was a
+    # bordered heading table then placed everything under it 1.5 pt too low.
+    try:
+        return float(node.get(qn("w:sz"))) / 8.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def last_row_border(row):
     """The bottom border Word draws under a table's last row, in points.
 
     It is drawn below the row rather than inside it, so the table stands that
     much taller than the heights its rows declare.
     """
-    widest = 0.0
-    for cell in row.findall(qn("w:tc")):
-        properties = cell.find(qn("w:tcPr"))
-        borders = properties.find(qn("w:tcBorders")) if properties is not None else None
-        bottom = borders.find(qn("w:bottom")) if borders is not None else None
-        if bottom is None or (bottom.get(qn("w:val")) or "none") in ("none", "nil"):
+    return max((cell_border(cell, "bottom") for cell in row.findall(qn("w:tc"))), default=0.0)
+
+
+def cell_margin(cell, side):
+    """One of a cell's inner margins, in points.
+
+    `w:start` and `w:end` are what the converter writes for the left and the
+    right of a cell; `w:left` and `w:right` are the older names for the same
+    two, and both are read. A margin the cell does not state is Word's own
+    default for the Normal Table style, which is none at the top.
+    """
+    properties = cell.find(qn("w:tcPr"))
+    node = properties.find(qn("w:tcMar")) if properties is not None else None
+    if node is None:
+        return 0.0
+    for name in CELL_MARGIN_NAMES[side]:
+        found = node.find(qn(name))
+        if found is not None:
+            value = twips_of(found.get(qn("w:w")))
+            if value is not None:
+                return value
+    return 0.0
+
+
+def cell_content_top(cell, row_top):
+    """Where the first line box inside a cell starts, measured on the page.
+
+    Word insets a cell's content by the cell's own top border as well as by
+    its top margin. Measured over 151 cells of the reference report's Word
+    render: with the border term 148 of them land within 0.2 pt of where this
+    says and the median residual is 0.02 pt; without it the median is 0.74,
+    which is the rule the report draws across the top of a card.
+    """
+    return row_top + cell_border(cell, "top") + cell_margin(cell, "top")
+
+
+def cell_content_left(box):
+    """Where a nested table inside a cell starts, measured on the page."""
+    return box["x0"] + cell_margin(box["cell"], "left")
+
+
+def table_indent(element):
+    """How far a table is pushed in from whatever contains it, in points."""
+    properties = element.find(qn("w:tblPr"))
+    node = properties.find(qn("w:tblInd")) if properties is not None else None
+    return (twips_of(node.get(qn("w:w"))) or 0.0) if node is not None else 0.0
+
+
+def row_height(row):
+    """A row's declared height in points, or None when Word is free to size it.
+
+    A row Word sizes from its contents is not a length this pass can add up,
+    and it is also a row that can grow, which is how a page count changes.
+    """
+    properties = row.find(qn("w:trPr"))
+    height = properties.find(qn("w:trHeight")) if properties is not None else None
+    if height is None or (height.get(qn("w:hRule")) or "atLeast") != "exact":
+        return None
+    return twips_of(height.get(qn("w:val")))
+
+
+def table_grid(element, top, left):
+    """Every cell of a table as a rectangle on the page, or None.
+
+    The grid is the PDF's own: the converter reads a table's rules off the
+    page and writes them back as row heights and cell widths, so anchoring
+    them at the table's top left corner puts each cell where the PDF drew it.
+    A cell's width is read from `w:tcW` rather than from `w:tblGrid`, because
+    the grid a fixed-layout table declares does not always add up and the
+    cell widths always do; a cell spanning several grid columns carries the
+    whole span in its own width, so `w:gridSpan` needs no arithmetic here.
+    """
+    rows = []
+    y = top
+    start = left + table_indent(element)
+    for row in element.findall(qn("w:tr")):
+        span = row_height(row)
+        if span is None:
+            return None
+        x = start
+        cells = []
+        for cell in row.findall(qn("w:tc")):
+            properties = cell.find(qn("w:tcPr"))
+            node = properties.find(qn("w:tcW")) if properties is not None else None
+            width = twips_of(node.get(qn("w:w"))) if node is not None else None
+            if width is None:
+                return None
+            merge = properties.find(qn("w:vMerge")) if properties is not None else None
+            cells.append({
+                "cell": cell,
+                "x0": x,
+                "x1": x + width,
+                "merge": (merge.get(qn("w:val")) or "continue") if merge is not None else None,
+            })
+            x += width
+        rows.append({"y0": y, "y1": y + span, "cells": cells})
+        y += span
+    return rows
+
+
+def merged_bottom(rows, index, box):
+    """How far down a cell reaches, following a vertical merge."""
+    bottom = rows[index]["y1"]
+    if box["merge"] != "restart":
+        return bottom
+    for later in rows[index + 1:]:
+        joined = next((c for c in later["cells"]
+                       if abs(c["x0"] - box["x0"]) < CELL_EDGE_PT and c["merge"] == "continue"), None)
+        if joined is None:
+            break
+        bottom = later["y1"]
+    return bottom
+
+
+def row_bands(rows, lines):
+    """Each row's share of the page's text lines, by where the line's centre is.
+
+    One pass over the lines rather than one per cell, so a table of a
+    thousand rows costs what a table of ten does per row.
+    """
+    ordered = sorted(lines, key=lambda line: line["y0"] + line["y1"])
+    bands = []
+    cursor = 0
+    for row in rows:
+        while cursor < len(ordered) and (ordered[cursor]["y0"] + ordered[cursor]["y1"]) / 2.0 < row["y0"]:
+            cursor += 1
+        start = cursor
+        while cursor < len(ordered) and (ordered[cursor]["y0"] + ordered[cursor]["y1"]) / 2.0 <= row["y1"]:
+            cursor += 1
+        bands.append(ordered[start:cursor])
+    return bands
+
+
+def lines_in_cell(bands, first, last, box):
+    """The text lines of these row bands whose centre falls inside this cell."""
+    out = []
+    for band in bands[first:last + 1]:
+        for line in band:
+            if box["x0"] <= (line["x0"] + line["x1"]) / 2.0 <= box["x1"]:
+                out.append(line)
+    return out
+
+
+def merged_lines(lines):
+    """The text of one cell, with everything on a baseline read as one line.
+
+    A page's rows are split into columns so that two cells of the same table
+    row can be told apart, and inside one cell those pieces are a single line
+    again: a list marker and the text beside it are two columns of one row,
+    and reading them as two lines puts the paragraph half a line height too
+    high, which is what happened to every numbered remediation step.
+    """
+    out = []
+    for line in sorted(lines, key=lambda item: (round(item["base"], 2), item["x0"])):
+        last = out[-1] if out else None
+        if last is not None and abs(last["base"] - line["base"]) <= SAME_LINE_PT:
+            last["key"] += line["key"]
+            last["x1"] = max(last["x1"], line["x1"])
+            last["y0"] = min(last["y0"], line["y0"])
+            last["y1"] = max(last["y1"], line["y1"])
             continue
-        # `float`, not `int`: the converter writes this attribute as "12.0",
-        # which the schema does not allow and Word reads anyway. Parsing it as
-        # an integer threw the width away, and every page whose first block
-        # was a bordered heading table then placed everything under it 1.5 pt
-        # too low.
-        with contextlib.suppress(TypeError, ValueError):
-            widest = max(widest, float(bottom.get(qn("w:sz"))) / 8.0)
-    return widest
+        out.append(dict(line))
+    return out
+
+
+def text_columns(rows):
+    """Every text line of a page as an item of its own.
+
+    A row of a table reads across its columns, and each of those columns is
+    in a different cell, so the column rather than the row is the piece that
+    can be paired with one.
+    """
+    out = []
+    for row in rows:
+        for column in row["columns"]:
+            out.append({
+                "x0": column["x0"],
+                "x1": column["x1"],
+                "y0": column["y0"],
+                "y1": column["y1"],
+                "base": column["base"],
+                "key": compare_squash(column["text"]),
+            })
+    return out
 
 
 def table_metrics(element):
@@ -2374,60 +2592,48 @@ def table_metrics(element):
         return None
     total = 0.0
     for row in rows:
-        properties = row.find(qn("w:trPr"))
-        height = properties.find(qn("w:trHeight")) if properties is not None else None
-        if height is None or (height.get(qn("w:hRule")) or "atLeast") != "exact":
-            return None
-        value = twips_of(height.get(qn("w:val")))
+        value = row_height(row)
         if value is None:
             return None
         total += value
-    insides = []
-    for cell in rows[0].findall(qn("w:tc")):
-        margin = 0.0
-        properties = cell.find(qn("w:tcPr"))
-        cell_margin = properties.find(qn("w:tcMar")) if properties is not None else None
-        top = cell_margin.find(qn("w:top")) if cell_margin is not None else None
-        if top is not None:
-            margin = twips_of(top.get(qn("w:w"))) or 0.0
-        offset = first_baseline(cell, RHYTHM_NESTING)
-        if offset is not None:
-            insides.append(margin + offset)
+    insides = [offset for offset in (first_baseline(cell, RHYTHM_NESTING)
+                                     for cell in rows[0].findall(qn("w:tc"))) if offset is not None]
     # The row's own first line of text, which is the row the PDF matched, so
     # the topmost of the cells rather than the first one: a card's leftmost
     # cell often opens with a spacer thinner than its neighbour's text.
     return {"height": total + last_row_border(rows[-1]), "inside": min(insides) if insides else None}
 
 
-def first_baseline(holder, depth):
-    """How far below `holder`'s top its first line of text is drawn.
+def first_baseline(cell, depth):
+    """How far below its row's top a cell's first line of text is drawn.
 
-    The same walk as a page, inside a table cell: an empty paragraph is run-up
-    space, the first one with text gives the baseline, and a nested table is
-    read the same way. None when anything on the way cannot be measured, which
-    is how a card the converter built out of boxes declines to be an anchor.
+    The same walk as a page, inside a table cell, and with the two rules a
+    cell has of its own: Word insets the content by the cell's top border and
+    its top margin, and it does not drop the first paragraph's spacing before
+    the way it does at the top of a page. None when anything on the way cannot
+    be measured, which is how a card the converter built out of boxes declines
+    to be an anchor.
     """
     if depth <= 0:
         return None
-    cursor = 0.0
+    cursor = cell_content_top(cell, 0.0)
     pending = 0.0
-    for order, block in enumerate(holder):
+    for block in cell:
         if block.tag == qn("w:p"):
             metrics = paragraph_metrics(block)
             if metrics is None:
                 return None
-            lead = 0.0 if order == 0 else metrics["before"]
             if compare_squash(paragraph_text(block)):
-                return cursor + pending + lead + EXACT_BASELINE_RATIO * metrics["line"]
-            cursor += pending + lead + metrics["lines"] * metrics["line"]
+                return cursor + pending + metrics["before"] + EXACT_BASELINE_RATIO * metrics["line"]
+            cursor += pending + metrics["before"] + metrics["lines"] * metrics["line"]
             pending = metrics["after"]
         elif block.tag == qn("w:tbl"):
             rows = block.findall(qn("w:tr"))
             if not rows:
                 return None
             inner = None
-            for cell in rows[0].findall(qn("w:tc")):
-                offset = first_baseline(cell, depth - 1)
+            for nested in rows[0].findall(qn("w:tc")):
+                offset = first_baseline(nested, depth - 1)
                 if offset is not None:
                     inner = offset if inner is None else min(inner, offset)
             if inner is None:
@@ -2440,62 +2646,136 @@ def block_key(element):
     return compare_squash(paragraph_text(element))
 
 
-def align_table_text(table, top, rows, start, end):
-    """Put each row's first line on the baseline the PDF has for it.
+def align_table_cells(table, top, left, lines, depth=RHYTHM_NESTING):
+    """Put the text inside a table on the baselines the PDF has for it.
 
-    The table itself does not move. The converter takes a table's top and its
-    row heights off the PDF's own grid lines, so its rules land where the
-    PDF's rules are; what it does not get right is where the text sits inside
-    a row, and on the reference report the heading that opens a section came
-    out 1.25 pt below its own rule on every page that has one.
+    Returns `(moved, undo)`, and an empty undo means nothing was written.
 
-    The knob is the cell paragraph's exact line height, because Word draws its
-    baseline at 0.8 of it. Changing that moves the text within a row whose
-    height is fixed, so no rule moves and no page can grow. The floor is the
-    row's own ascent over 0.8, under which Word would cut the capitals off.
+    The table itself does not move and no row changes height, so no rule
+    moves and no page can grow. What moves is the text inside each cell, and
+    on the reference report that was 2.3 pt low in a data table's rows and
+    4.4 pt low by the middle of a finding card.
+
+    Rows and cells are paired with the PDF by geometry, not by reading order,
+    which is what defeated the earlier attempts: the PDF reads a row across
+    its columns and the converter writes it down one column and then the
+    next, so the two texts never join in the same order. A table's row
+    heights and cell widths are the PDF's own rules, because the converter
+    read them off the page, so anchoring the grid at the table's top left
+    corner puts every cell back where the PDF drew it, and a text line
+    belongs to the cell its centre falls in.
     """
+    rows = table_grid(table, top, left)
+    if rows is None:
+        return 0, []
+    bands = row_bands(rows, lines)
+    undo = []
     moved = 0
-    cursor = start
-    offset = 0.0
-    for row in table.findall(qn("w:tr")):
-        properties = row.find(qn("w:trPr"))
-        height = properties.find(qn("w:trHeight")) if properties is not None else None
-        if height is None:
-            return moved
-        span = twips_of(height.get(qn("w:val")))
-        if span is None:
-            return moved
-        cells = row.findall(qn("w:tc"))
-        key = compare_squash("".join(paragraph_text(cell) for cell in cells))
-        found = consume_rows(rows, cursor, key) if len(key) >= COMPARE_MIN_CHARS else None
-        if found is not None and found[1] <= end:
-            cursor = found[1]
-            mine = rows[found[0]]
-            want = mine["base"] - (top + offset)
-            ascent = max(0.0, mine["base"] - mine["y0"])
-            for cell in cells:
-                paragraph = cell.find(qn("w:p"))
-                metrics = paragraph_metrics(paragraph) if paragraph is not None else None
-                if metrics is None or metrics["lines"] > 1 or len(cell.findall(qn("w:p"))) > 1:
-                    continue
-                line = (want - metrics["before"]) / EXACT_BASELINE_RATIO
-                # Never below the box that holds this row's own ascent, or
-                # Word cuts the capitals off.
-                line = max(line, ascent / EXACT_BASELINE_RATIO)
-                if line <= 0 or line > span:
-                    continue
-                # The floor can ask for a box taller than the one the
-                # converter wrote, which would push the text further from the
-                # PDF than it already is. Write the correction only when it
-                # closes the gap.
-                was = abs(metrics["before"] + EXACT_BASELINE_RATIO * metrics["line"] - want)
-                now = abs(metrics["before"] + EXACT_BASELINE_RATIO * line - want)
-                if now >= was - ROW_TEXT_WORTH_PT:
-                    continue
-                set_spacing(paragraph, line=line)
-                moved += 1
-        offset += span
-    return moved
+    for index, row in enumerate(rows):
+        for box in row["cells"]:
+            if box["merge"] == "continue":
+                continue   # an empty continuation of the cell above it
+            bottom = merged_bottom(rows, index, box)
+            last = index
+            while last + 1 < len(rows) and rows[last + 1]["y1"] <= bottom:
+                last += 1
+            found, fits = place_cell(box, row["y0"], bottom,
+                                     lines_in_cell(bands, index, last, box), undo, depth)
+            if not fits:
+                # A correction that would push a cell's last line past the
+                # bottom edge Word clips an exact row at would lose text
+                # rather than move it, so the whole table goes back.
+                restore(undo)
+                return 0, []
+            moved += found
+    return moved, undo
+
+
+def place_cell(box, row_top, bottom, lines, undo, depth):
+    """Walk one cell's blocks, correcting the spacing between them.
+
+    The same walk as a page, with three differences. A cell does not drop its
+    first paragraph's spacing before. Its lines are read in the order the PDF
+    drew them, by baseline, rather than in the order the converter wrote
+    them. And a cell cannot grow: its row has an exact height, so anything
+    past the bottom is clipped rather than pushed onto the next page, which
+    is what `fits` reports.
+    """
+    ordered = merged_lines(lines)
+    cursor = was = cell_content_top(box["cell"], row_top)
+    pending = was_pending = 0.0
+    placed = moved = 0
+    above = None
+    for block in box["cell"]:
+        if block.tag == qn("w:p"):
+            metrics = paragraph_metrics(block)
+            if metrics is None:
+                return moved, True
+            key = block_key(block)
+            span = consume_rows(ordered, placed, key) if len(key) >= COMPARE_MIN_CHARS else None
+            gap, line, count = metrics["before"], metrics["line"], metrics["lines"]
+            if span is not None:
+                placed = span[1]
+                mine = ordered[span[0]:span[1]]
+                line, floor = wanted_line_height(mine, metrics["line"])
+                if has_own_shape(block):
+                    line, floor = metrics["line"], metrics["line"]
+                count = max(metrics["lines"], len(mine))
+                target = first_baseline_target(mine, line)
+                gap = target - EXACT_BASELINE_RATIO * line - cursor - pending
+                if gap < 0 and pending > 0 and above is not None:
+                    keep_spacing(undo, *above)
+                    set_spacing(above[0], after=0.0)
+                    gap += pending
+                    pending = 0.0
+                if gap < 0 and line > floor:
+                    room = count - EXACT_BASELINE_RATIO
+                    if room > 0:
+                        line = max(floor, line + gap / room)
+                        target = first_baseline_target(mine, line)
+                        gap = target - EXACT_BASELINE_RATIO * line - cursor - pending
+                gap = max(0.0, gap)
+                keep_spacing(undo, block, metrics)
+                set_spacing(block, before=gap, line=line)
+                if (abs(gap - metrics["before"]) >= RHYTHM_TOLERANCE_PT
+                        or abs(line - metrics["line"]) >= RHYTHM_TOLERANCE_PT):
+                    moved += 1
+            cursor += pending + gap + count * line
+            pending = metrics["after"]
+            was += was_pending + metrics["before"] + count * metrics["line"]
+            was_pending = metrics["after"]
+            above = (block, metrics)
+        elif block.tag == qn("w:tbl"):
+            inner = table_metrics(block)
+            if inner is None:
+                return moved, True
+            if above is not None:
+                # A nested table keeps the place the converter gave it, for
+                # the reason a top-level one does: its rules are the PDF's
+                # already. What moves is the gap above it, which takes up
+                # whatever the corrections above have added or removed.
+                step = max(0.0, was + was_pending - cursor)
+                keep_spacing(undo, *above)
+                set_spacing(above[0], after=step)
+                pending = step
+            if depth > 0:
+                found, deeper = align_table_cells(block, cursor + pending, cell_content_left(box),
+                                                  lines, depth - 1)
+                moved += found
+                undo.extend(deeper)
+            cursor += pending + inner["height"]
+            pending = 0.0
+            was += was_pending + inner["height"]
+            was_pending = 0.0
+            above = None
+    # Room for the rounding in the heights themselves before a table is given
+    # back: the converter writes them to a twentieth of a point and a cell
+    # that was already full stays full.
+    return moved, cursor + pending <= max(bottom, was + was_pending) + CELL_CLIP_PT
+
+
+def keep_spacing(undo, block, metrics):
+    undo.append((block, metrics["before"], metrics["after"], metrics["line"]))
 
 
 def consume_rows(rows, cursor, key):
@@ -2612,13 +2892,17 @@ class PageWalk:
         self.was_pending = was_after
 
 
-def place_page(section, blocks, rows, page_height, absolute):
+def place_page(section, blocks, rows, lines, page_height, absolute):
     """Walk one page's blocks, correcting the spacing between them.
 
     Returns `(undo, changed, fits, drift)`: what to restore, how many blocks
     were really moved, whether the page still ends above its bottom margin,
     and how far the first block had to move, which is what decides whether the
     model understood where this page starts.
+
+    `rows` is the page's text read as whole lines, which is what a top-level
+    block holds; `lines` is the same text read column by column, which is
+    what a table cell holds.
     """
     # Word reserves the top margin for the body and drops a paragraph's
     # spacing before at the top of a page, so the first block starts there
@@ -2733,8 +3017,10 @@ def place_page(section, blocks, rows, page_height, absolute):
                 if abs(gap - walk.pending) >= RHYTHM_TOLERANCE_PT:
                     walk.changed += 1
                 walk.pending = gap
-            if span is not None:
-                walk.changed += align_table_text(block, walk.cursor + walk.pending, rows, span[0], span[1])
+            found, table_undo = align_table_cells(block, walk.cursor + walk.pending,
+                                                  section.left_margin.pt, lines)
+            walk.changed += found
+            walk.undo.extend(table_undo)
             walk.flow(0.0, metrics["height"], 0.0, 0.0, metrics["height"], 0.0)
             walk.above = None
             continue
@@ -2774,10 +3060,11 @@ def align_vertical_rhythm(document, pages, page_height):
         if not rows:
             continue
         section = document.sections[index]
-        undo, changed, fits, drift = place_page(section, blocks, rows, page_height, True)
+        lines = text_columns(rows)
+        undo, changed, fits, drift = place_page(section, blocks, rows, lines, page_height, True)
         if not fits or abs(drift) > RHYTHM_ABSOLUTE_LIMIT_PT:
             restore(undo)
-            undo, changed, fits, _ = place_page(section, blocks, rows, page_height, False)
+            undo, changed, fits, _ = place_page(section, blocks, rows, lines, page_height, False)
             if not fits:
                 restore(undo)
                 changed = 0

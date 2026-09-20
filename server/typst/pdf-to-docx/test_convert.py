@@ -193,6 +193,177 @@ def rhythm_document(before, after, line, text="Second block here"):
     return document
 
 
+def exact_table(document, heights, widths, indent=0.0):
+    """A table whose rows and cells are the sizes a PDF grid would give them."""
+    table = document.add_table(rows=len(heights), cols=len(widths))
+    properties = table._tbl.find(convert.qn("w:tblPr"))
+    node = convert.OxmlElement("w:tblInd")
+    node.set(convert.qn("w:w"), str(indent * 20.0))     # the float the converter writes
+    node.set(convert.qn("w:type"), "dxa")
+    properties.append(node)
+    for span, row in zip(heights, table.rows):
+        node = convert.OxmlElement("w:trHeight")
+        node.set(convert.qn("w:val"), str(int(round(span * 20))))
+        node.set(convert.qn("w:hRule"), "exact")
+        row._tr.get_or_add_trPr().append(node)
+        for width, cell in zip(widths, row.cells):
+            node = convert.OxmlElement("w:tcW")
+            node.set(convert.qn("w:w"), str(int(round(width * 20))))
+            node.set(convert.qn("w:type"), "dxa")
+            cell._tc.get_or_add_tcPr().insert(0, node)
+    return table
+
+
+def fill_cell(cell, text, before, line, after=0.0):
+    paragraph = cell.paragraphs[0]
+    convert.set_spacing(paragraph._p, before=before, after=after, line=line)
+    paragraph.add_run(text)
+    return paragraph
+
+
+def pdf_line(text, base, x0, x1, ascent=9.0):
+    return {"key": convert.compare_squash(text), "base": base, "x0": x0, "x1": x1,
+            "y0": base - ascent, "y1": base + ascent / 4.0}
+
+
+def cell_top_border(cell, width):
+    borders = convert.OxmlElement("w:tcBorders")
+    top = convert.OxmlElement("w:top")
+    top.set(convert.qn("w:val"), "single")
+    top.set(convert.qn("w:sz"), str(width * 8.0))
+    borders.append(top)
+    cell._tc.get_or_add_tcPr().append(borders)
+
+
+def run_cell_checks():
+    """Text inside a table, paired with the PDF by geometry rather than order."""
+    passed = True
+
+    # The rule the whole pass rests on, measured on Word's own render of the
+    # reference report: a cell's content starts below its top border and its
+    # top margin, and the first paragraph's spacing before is not dropped.
+    document = Document()
+    table = exact_table(document, [20.0], [100.0, 200.0])
+    cell = table.rows[0].cells[0]
+    passed &= check(convert.cell_content_top(cell._tc, 50.0) == 50.0,
+                    "cells: a cell with no border and no margin starts at its row's top")
+    cell_top_border(cell, 0.75)
+    passed &= check(abs(convert.cell_content_top(cell._tc, 50.0) - 50.75) < 0.01,
+                    "cells: a cell's top border insets its content",
+                    convert.cell_content_top(cell._tc, 50.0))
+
+    # The grid, which is the PDF's own: exact row heights and cell widths,
+    # offset by the table's indent.
+    grid = convert.table_grid(table._tbl, 100.0, 54.0)
+    passed &= check(grid is not None and len(grid) == 1 and len(grid[0]["cells"]) == 2,
+                    "cells: the grid is one rectangle per cell", grid and len(grid[0]["cells"]))
+    passed &= check(abs(grid[0]["y1"] - 120.0) < 0.01 and abs(grid[0]["cells"][1]["x0"] - 154.0) < 0.01
+                    and abs(grid[0]["cells"][1]["x1"] - 354.0) < 0.01,
+                    "cells: rows and columns are measured from the table's corner",
+                    grid and (grid[0]["y1"], grid[0]["cells"][1]["x0"]))
+    indented = exact_table(Document(), [20.0], [100.0], indent=9.0)
+    passed &= check(abs(convert.table_grid(indented._tbl, 0.0, 54.0)[0]["cells"][0]["x0"] - 63.0) < 0.01,
+                    "cells: the table's indent moves the whole grid")
+    loose = exact_table(Document(), [20.0], [100.0])
+    loose.rows[0]._tr.find(convert.qn("w:trPr")).find(
+        convert.qn("w:trHeight")).set(convert.qn("w:hRule"), "atLeast")
+    passed &= check(convert.table_grid(loose._tbl, 0.0, 0.0) is None,
+                    "cells: a row Word is free to size has no grid")
+
+    # A list marker and the text beside it are two columns of one row and one
+    # line of one cell.
+    merged = convert.merged_lines([pdf_line("1.", 100.0, 60.0, 68.0),
+                                   pdf_line("{{STEP}}", 100.0, 74.0, 140.0),
+                                   pdf_line("and more", 113.0, 60.0, 150.0)])
+    passed &= check(len(merged) == 2 and merged[0]["key"] == convert.compare_squash("1.{{STEP}}"),
+                    "cells: two columns on one baseline read as one line", [m["key"] for m in merged])
+
+    # End to end. Two cells of one row, each holding text the PDF put on its
+    # own baseline, and the pair reads down one column and then the next in
+    # the file while the PDF reads across.
+    document = Document()
+    table = exact_table(document, [34.5], [108.0, 396.0])
+    left = fill_cell(table.rows[0].cells[0], "{{DATE}}", before=9.2, line=15.4)
+    right = fill_cell(table.rows[0].cells[1], "The description runs to two lines here", before=2.4, line=14.8)
+    right._p.find(convert.qn("w:r")).append(convert.OxmlElement("w:br"))
+    right.add_run("second line of it")
+    lines = [pdf_line("The description runs to two lines here", 263.4, 170.0, 500.0),
+             pdf_line("{{DATE}}", 270.8, 60.0, 120.0),
+             pdf_line("second line of it", 278.2, 170.0, 300.0)]
+    moved, undo = convert.align_table_cells(table._tbl, 251.55, 54.0, lines)
+    got_left = convert.paragraph_metrics(left._p)
+    got_right = convert.paragraph_metrics(right._p)
+    passed &= check(moved == 2 and len(undo) == 2, "cells: both cells of the row moved", (moved, len(undo)))
+    passed &= check(abs(251.55 + got_left["before"] + 0.8 * got_left["line"] - 270.8) < 0.05,
+                    "cells: the date column lands on the PDF's baseline",
+                    got_left and 251.55 + got_left["before"] + 0.8 * got_left["line"])
+    passed &= check(abs(251.55 + got_right["before"] + 0.8 * got_right["line"] - 263.4) < 0.05,
+                    "cells: and so does the description beside it",
+                    got_right and 251.55 + got_right["before"] + 0.8 * got_right["line"])
+    passed &= check(abs(got_right["line"] - 14.8) < 0.05,
+                    "cells: a cell of several lines is set at the PDF's own pitch", got_right["line"])
+    height = table.rows[0]._tr.find(convert.qn("w:trPr")).find(convert.qn("w:trHeight"))
+    passed &= check(height.get(convert.qn("w:val")) == "690",
+                    "cells: and the row keeps its height, so no rule moves",
+                    height.get(convert.qn("w:val")))
+    convert.restore(undo)
+    passed &= check(abs(convert.paragraph_metrics(left._p)["before"] - 9.2) < 0.05,
+                    "cells: the undo puts the spacing back")
+
+    # A line whose centre is in the next column belongs to that cell, whatever
+    # the file's reading order says.
+    document = Document()
+    table = exact_table(document, [20.0], [108.0, 396.0])
+    first = fill_cell(table.rows[0].cells[0], "Name", before=1.8, line=15.4)
+    fill_cell(table.rows[0].cells[1], "{{NAME}}", before=1.8, line=15.4)
+    moved, _ = convert.align_table_cells(
+        table._tbl, 100.0, 54.0,
+        [pdf_line("{{NAME}}", 112.0, 170.0, 260.0), pdf_line("Name", 112.0, 60.0, 90.0)])
+    passed &= check(moved == 2 and abs(100.0 + convert.paragraph_metrics(first._p)["before"]
+                                       + 0.8 * convert.paragraph_metrics(first._p)["line"] - 112.0) < 0.05,
+                    "cells: a cell takes the line whose centre is inside it", moved)
+
+    # The refusal: a correction that would push a cell's last line past the
+    # bottom Word clips an exact row at gives the whole table back.
+    document = Document()
+    table = exact_table(document, [20.0, 20.0], [200.0])
+    kept = fill_cell(table.rows[0].cells[0], "Row one", before=1.0, line=12.0)
+    fill_cell(table.rows[1].cells[0], "Row two", before=1.0, line=12.0)
+    moved, undo = convert.align_table_cells(
+        table._tbl, 100.0, 54.0,
+        [pdf_line("Row one", 120.0, 60.0, 120.0), pdf_line("Row two", 131.0, 60.0, 120.0)])
+    passed &= check(moved == 0 and undo == []
+                    and abs(convert.paragraph_metrics(kept._p)["before"] - 1.0) < 0.05,
+                    "cells: a table whose text would be clipped is given back", (moved, undo))
+
+    # A nested table inside a cell is placed inside that cell.
+    document = Document()
+    outer = exact_table(document, [40.0], [300.0])
+    holder = outer.rows[0].cells[0]
+    convert.set_spacing(holder.paragraphs[0]._p, before=0.0, after=0.0, line=1.0)
+    inner = exact_table(document, [20.0], [150.0, 150.0], indent=6.0)
+    holder._tc.append(inner._tbl)
+    one = fill_cell(inner.rows[0].cells[0], "Techniques", before=1.9, line=11.7)
+    two = fill_cell(inner.rows[0].cells[1], "Mitigations", before=1.9, line=11.7)
+    moved, _ = convert.align_table_cells(
+        outer._tbl, 100.0, 54.0,
+        [pdf_line("Techniques", 113.0, 70.0, 130.0), pdf_line("Mitigations", 113.0, 230.0, 300.0)])
+    passed &= check(moved == 2
+                    and abs(101.0 + convert.paragraph_metrics(one._p)["before"]
+                            + 0.8 * convert.paragraph_metrics(one._p)["line"] - 113.0) < 0.05
+                    and abs(convert.paragraph_metrics(two._p)["before"]
+                            - convert.paragraph_metrics(one._p)["before"]) < 0.05,
+                    "cells: a nested table's own cells are placed too", moved)
+    return passed
+
+
+def anchor_row(text, base, y0, y1, x0=54.0, x1=300.0):
+    """One page row in the shape `page_anchor_rows` hands the vertical pass."""
+    return {"key": convert.compare_squash(text), "base": base, "y0": y0, "y1": y1,
+            "x0": x0, "x1": x1, "text": text,
+            "columns": [{"x0": x0, "x1": x1, "y0": y0, "y1": y1, "base": base, "text": text}]}
+
+
 def run_rhythm_checks():
     """The vertical pass: its layout model, and what it refuses to do."""
     passed = True
@@ -221,10 +392,8 @@ def run_rhythm_checks():
                     "rhythm: an uneven block straddles its lines")
 
     # The correction, end to end on a document whose PDF says where to put it.
-    pdf_rows = [
-        [{"base": 100.0, "y0": 92.0, "y1": 103.0, "key": convert.compare_squash("First block here")},
-         {"base": 160.0, "y0": 152.0, "y1": 163.0, "key": convert.compare_squash("Second block here")}]
-    ]
+    pdf_rows = [[anchor_row("First block here", 100.0, 92.0, 103.0),
+                 anchor_row("Second block here", 160.0, 152.0, 163.0)]]
     document = rhythm_document(0.0, 0.0, 15.0)
     moved = convert.align_vertical_rhythm(document, pdf_rows, 792.0)
     after = convert.paragraph_metrics(document.paragraphs[1]._p)
@@ -235,10 +404,8 @@ def run_rhythm_checks():
                     "rhythm: the spacing is what the PDF's baseline asks for", after and after["before"])
 
     # A gap the PDF makes negative comes out of the block above first.
-    tight = [
-        [{"base": 100.0, "y0": 92.0, "y1": 103.0, "key": convert.compare_squash("First block here")},
-         {"base": 92.0, "y0": 84.0, "y1": 95.0, "key": convert.compare_squash("Second block here")}]
-    ]
+    tight = [[anchor_row("First block here", 100.0, 92.0, 103.0),
+              anchor_row("Second block here", 92.0, 84.0, 95.0)]]
     document = rhythm_document(0.0, 20.0, 15.0)
     convert.align_vertical_rhythm(document, tight, 792.0)
     above = convert.paragraph_metrics(document.paragraphs[0]._p)
@@ -249,10 +416,8 @@ def run_rhythm_checks():
                     "rhythm: a box too tall for its place is shortened", below and below["line"])
 
     # And a page that would end below its bottom margin keeps what it had.
-    far = [
-        [{"base": 100.0, "y0": 92.0, "y1": 103.0, "key": convert.compare_squash("First block here")},
-         {"base": 900.0, "y0": 892.0, "y1": 903.0, "key": convert.compare_squash("Second block here")}]
-    ]
+    far = [[anchor_row("First block here", 100.0, 92.0, 103.0),
+            anchor_row("Second block here", 900.0, 892.0, 903.0)]]
     document = rhythm_document(2.0, 0.0, 15.0)
     moved = convert.align_vertical_rhythm(document, far, 792.0)
     kept = convert.paragraph_metrics(document.paragraphs[1]._p)
@@ -284,42 +449,7 @@ def run_rhythm_checks():
     passed &= check(convert.table_metrics(table._tbl) is None,
                     "rhythm: a table Word is free to size is not modelled")
 
-    # A row's text is put on the PDF's baseline by resizing its box, which
-    # leaves the row height, and so every rule the table draws, alone.
-    document = Document()
-    table = document.add_table(rows=1, cols=1)
-    properties = table.rows[0]._tr.get_or_add_trPr()
-    node = convert.OxmlElement("w:trHeight")
-    node.set(convert.qn("w:val"), "802")   # 40.1 pt
-    node.set(convert.qn("w:hRule"), "exact")
-    properties.append(node)
-    inner = table.rows[0].cells[0].paragraphs[0]
-    convert.set_spacing(inner._p, before=0.0, after=0.0, line=25.2)
-    inner.add_run("2. INTRODUCTION")
-    # The PDF has that baseline 18.9 below the table's top, not 0.8 x 25.2.
-    pdf_rows = [{"base": 118.9, "y0": 100.0, "y1": 123.0,
-                 "key": convert.compare_squash("2. INTRODUCTION")}]
-    moved = convert.align_table_text(table._tbl, 100.0, pdf_rows, 0, 1)
-    after = convert.paragraph_metrics(inner._p)
-    passed &= check(moved == 1 and abs(after["line"] - 23.63) < 0.1,
-                    "rhythm: a row's text is put on the PDF's baseline", after and after["line"])
-    height = table.rows[0]._tr.find(convert.qn("w:trPr")).find(convert.qn("w:trHeight"))
-    passed &= check(height.get(convert.qn("w:val")) == "802",
-                    "rhythm: and the row keeps its height", height.get(convert.qn("w:val")))
-    # A box that would have to grow past the row, or shrink under the row's
-    # own ascent, is left as it was.
-    convert.set_spacing(inner._p, line=25.2)
-    tall = [dict(pdf_rows[0], base=101.0, y0=82.0)]
-    convert.align_table_text(table._tbl, 100.0, tall, 0, 1)
-    floored = convert.paragraph_metrics(inner._p)["line"]
-    passed &= check(floored >= 19.0 / convert.EXACT_BASELINE_RATIO - 0.1,
-                    "rhythm: never under the row's own ascent", floored)
-    # And a correction inside the model's own error is not worth writing.
-    convert.set_spacing(inner._p, line=25.2)
-    near = [dict(pdf_rows[0], base=100.0 + convert.EXACT_BASELINE_RATIO * 25.2 + 0.4)]
-    passed &= check(convert.align_table_text(table._tbl, 100.0, near, 0, 1) == 0
-                    and convert.paragraph_metrics(inner._p)["line"] == 25.2,
-                    "rhythm: a correction under a point is left alone")
+    passed &= run_cell_checks()
 
     # A word the typesetter broke keeps its hyphen where the line still ends.
     document = Document()
