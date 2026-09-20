@@ -659,6 +659,18 @@ def run_documents():
             passed &= check([why for _, why in refused] == ["the font file is damaged"],
                             "fonts: and it says the file is damaged", refused)
 
+        # And there is a bound on the bytes a Word file may carry.
+        big = {"Huge": [{"path": os.path.join(font_dir, whole[0]) if whole else __file__,
+                         "family": "Huge", "bold": False, "italic": False, "fsType": 0, "damaged": False}]}
+        keep = font_tools.MAX_FONT_BYTES
+        font_tools.MAX_FONT_BYTES = 1
+        try:
+            embedded, refused = font_tools.embed(None, {"Huge"}, big)
+        finally:
+            font_tools.MAX_FONT_BYTES = keep
+        passed &= check(embedded == [] and refused and "may take" in refused[0][1],
+                        "fonts: a face over the byte cap is refused", refused)
+
         # 12b. A budget too small for the fidelity passes skips them, says so,
         #      and still checks that the Word file kept the PDF's text.
         pdf_path = os.path.join(workdir, "budget.pdf")

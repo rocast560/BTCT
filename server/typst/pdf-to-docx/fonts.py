@@ -20,7 +20,8 @@ decompiles a table only when one is asked for, so a font truncated to a third
 of itself answers every question about its name and its licence and fails only
 when a reader asks it to draw something. So the tables a usable font needs are
 required by name and one real outline is decompiled; a file that cannot manage
-that is skipped as damaged.
+that is skipped as damaged. The bytes are bounded too, at 15 MB for one face
+and 40 MB for the file, because the export as a whole is capped at 100 MB.
 
 **Licences are read, not assumed.** The OS/2 table's `fsType` says what the
 foundry allows. 0 is installable, 8 is editable, 4 is preview and print, and
@@ -54,6 +55,12 @@ FS_BITMAP_ONLY = 0x0200
 # itself still looks readable until something reads it.
 REQUIRED_TABLES = ("cmap", "head", "hhea", "hmtx", "maxp", "name", "OS/2")
 OUTLINE_TABLES = ("glyf", "CFF ", "CFF2")
+# How much font a Word file may carry. The reference report's eight faces come
+# to 1.0 MB, a CJK face runs to 20 MB on its own, and the export as a whole is
+# capped at 100 MB, so a single face over 15 MB or a total over 40 MB is a
+# report asking for something the reader will not thank it for.
+MAX_FONT_BYTES = 15 * 1024 * 1024
+MAX_FONT_TOTAL_BYTES = 40 * 1024 * 1024
 STYLE_ELEMENTS = {
     (False, False): "w:embedRegular",
     (True, False): "w:embedBold",
@@ -200,6 +207,7 @@ def embed(docx_path, families, available):
     parts = {}
     table_rows = []
     rels = []
+    carried = 0
     embedded = []
     for family, entries in chosen:
         rows = []
@@ -207,11 +215,21 @@ def embed(docx_path, families, available):
             style = STYLE_ELEMENTS[(entry["bold"], entry["italic"])]
             if any(row.startswith("<" + style) for row in rows):
                 continue
+            size = os.path.getsize(entry["path"])
+            if size > MAX_FONT_BYTES:
+                skipped.append((family, "the font file is %d MB, over the %d MB a single face may take"
+                                % (round(size / (1024 * 1024)), MAX_FONT_BYTES // (1024 * 1024))))
+                continue
+            if carried + size > MAX_FONT_TOTAL_BYTES:
+                skipped.append((family, "the Word file already carries the %d MB of fonts it may"
+                                % (MAX_FONT_TOTAL_BYTES // (1024 * 1024))))
+                continue
             key = "{%s}" % str(uuid.uuid4()).upper()
             rid = "rIdFont%d" % (len(parts) + 1)
             name = "fonts/font%d.odttf" % (len(parts) + 1)
             with open(entry["path"], "rb") as handle:
                 parts["word/" + name] = obfuscate(handle.read(), key)
+            carried += size
             rels.append((rid, name))
             rows.append('<%s r:id="%s" w:fontKey="%s" w:subsetted="false"/>' % (style, rid, key))
         if rows:
