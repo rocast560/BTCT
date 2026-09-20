@@ -1658,6 +1658,90 @@ the converter writes as one paragraph where the PDF has a sub-heading and the
 body under it at two different line pitches. One line height cannot be both,
 and the block is placed to straddle them.
 
+### Fidelity, part three: the lookup, the row, and a budget
+
+A safety review of the two rounds above found the passes correct and
+unbudgeted, and four more things came out of looking at the overlay again.
+
+#### The fidelity passes now have a budget
+
+Breaking each paragraph where the PDF broke it and putting every block on its
+own baseline both grow with the document, and a correct conversion that runs
+past the server's child timeout dies with a generic message. What they will
+cost is now estimated from what the document has already cost: the repairs
+that must run whatever happens walk the same paragraphs, so their measured
+time is the size of the document in the only unit that matters, and the
+reservation is a multiple of it. Past that margin the two are skipped and the
+export says so. **The text check and the link check are never part of that
+decision.**
+
+Two shapes were profiled first, looking for something quadratic. There was
+nothing: a 25-page table of 1,249 rows spends 376 s of its 387 inside
+pdf2docx and 0.4 s in these passes, and a 23-page prose document spends 3.8 s
+of 5.7 there and 0.1 s here. The bound is a bound, not a fix for a hot spot.
+
+#### A font is read before it is carried
+
+fontTools decompiles a table only when something asks for one, so a font
+truncated to a third of itself answers every question the embedder puts to it
+and fails only when a glyph is drawn, on the reader's machine. The tables a
+usable font needs are now required by name and one real outline is decompiled
+before the file is accepted. The bytes are bounded as well, 15 MB for a face
+and 40 MB for the file, because the 100 MB output ceiling is only checked
+after the file is built.
+
+#### Eleven lines that were never broken at all
+
+Twelve of the reference report's lines were not where the PDF puts them, and
+the reason was not that they were too wide for Word. The pass that breaks a
+paragraph at the PDF's line ends looked for a paragraph whose **whole** text
+was the run's lines joined, and the converter writes a sub-heading and the
+paragraph under it as one block. The run then holds only the body, the lookup
+found nothing, and Word wrapped those lines wherever it liked.
+
+The run may now be the end of a paragraph rather than the whole of it. Not
+the middle: a table of contents entry contains its own title twice over once
+the leader is squashed away. And not any paragraph holding a row of dots,
+because the comparison deletes those and the text does not, so a character
+offset counted in one is not the same place in the other. That put a line
+break inside a leader, and the text check caught it.
+
+#### The heading that opens a section
+
+It came out 1.25 pt below the PDF's on every page that has one, and two
+earlier attempts had cured that by moving the table and its rule with it.
+Measuring the rule settled it: the rule is already right within 0.15 pt and
+only the text inside the row sits low. So the row keeps its height and the
+cell's line box is resized instead, since Word draws a baseline at 0.8 of it.
+Nothing moves but the text, so no rule moves and no page can grow.
+
+| | before | after |
+|---|---|---|
+| worst page | 0.7760 | **0.7774** |
+| median | 0.8998 | **0.9033** |
+| mean | 0.8881 | **0.8892** |
+| contents page | 0.8688 | **0.8705** |
+| lines Word wrapped again | 12 | **1** |
+
+The one line left is a word inside a diagram that was never a forced line.
+
+#### Three things tried and taken out
+
+- **Splitting a block that holds two line pitches** into a paragraph each. It
+  works: the block's own lines went from 2.3 pt out to 0.05. But the pass
+  keeps a table where the converter put it by remembering where the converter
+  would have put it, and splitting a block invalidates that reference, so the
+  tables under it moved 12 pt. Page 10 gained 0.022 and page 11 lost 0.25.
+- **A code panel as a one-cell table**, which is the only way a DOCX can put
+  padding between a grey box and the text in it. The cell carries the
+  shading, the accent bar and the margins, and the code goes inside unchanged.
+  Placing that table needs the left edge of whatever contains it in the PDF's
+  coordinates, and on a finding page the container is itself a table cell
+  whose x the converter does not record, so the code lost its indent. Eight
+  pages lost about 0.035 each.
+- **Matching a table row cell by cell** rather than as one string, to reach
+  the rows of a data table. No page gained and one lost 0.002.
+
 #### What a DOCX cannot express
 
 Some of the remaining difference is not a bug to be fixed.
@@ -1687,4 +1771,15 @@ Some of the remaining difference is not a bug to be fixed.
   is.
 - **One line height per paragraph.** Where the converter writes a sub-heading
   and the paragraph under it as a single block, the PDF has two different line
-  pitches inside it and Word can only be given one.
+  pitches inside it and Word can only be given one. Splitting the block cures
+  that and costs more elsewhere; see above.
+- **The text inside a data table's rows** sits about 2.3 pt below the PDF's
+  while the rules coincide. It is the same fault as the section heading and
+  the same cure would work, but the PDF reads a table row across its columns
+  and the converter writes it down one column and then the next, so the two
+  orders only agree for a single-column table and the rows cannot be paired
+  up with confidence.
+- **Justification.** On a page of justified prose the line ends now agree
+  exactly and the words inside a line do not: Word distributes the slack by
+  its own rule. That is most of what is left on the prose pages and there is
+  no knob for it.
