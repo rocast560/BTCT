@@ -376,7 +376,52 @@ command palette. There is one report per workspace.
   `#set text(font: "<family>")`. The 17 defaults (New Computer Modern,
   Libertinus Serif, DejaVu Sans Mono) are staged into `public/fonts/` at
   build time by `bun run fonts`, so the compiler never calls a CDN.
-- **Export** is a PDF or an SVG, produced by the same in-browser compiler.
+- **Export**: **PDF** and **SVG** come from the same in-browser compiler and
+  need nothing of the server. Two more buttons, **DOCX** and **PDF (server)**,
+  appear when the server has the `typst` and `pandoc` binaries; the Docker
+  image ships both, so on a normal deployment they are simply there. Both run
+  on the server, which stages the report and its screenshots in a temporary
+  directory and **bakes every crop and redaction into the images before either
+  format is produced**, using the same geometry the preview drew. The original
+  upload is never touched, and a format that cannot be re-encoded (gif, webp,
+  or an svg carrying a crop or a blur) is refused rather than written out
+  unredacted.
+  DOCX goes through pandoc's Typst reader, which follows headings, text,
+  tables, lists and figures. What it does not follow is layout: your `#show`
+  and `#set` rules, page geometry, custom fonts and anything drawn with Typst
+  code do not survive, figure slots become plain figures, and a slot whose
+  caption is computed rather than a plain string arrives as the word "Figure".
+  The export says so in an info banner naming the line, so you can fix the
+  caption or fix the Word file. Treat the DOCX as a draft to hand to somebody
+  who wants Word, and the PDF as the deliverable.
+- **Server export limits.** Every one of these answers with a 422 and a
+  sentence in the report tab's banner, and in every case the browser PDF
+  export is the way through, because it has the whole browser's memory rather
+  than a slice of a 1 GB box:
+  - **10 megapixels per image.** A 4K screenshot (8.3 MP) is fine; a 5K one is
+    not. Downscale it or export from the browser.
+  - **120 megapixels of screenshots per export**, counted over every staged
+    image whether or not anything redacts it, because the compiler holds each
+    decoded bitmap while it writes the PDF. Raise it with
+    `TYPST_EXPORT_MAX_TOTAL_MP` (accepted 10 to 2000) on a machine with more
+    memory; a 1 to 2 GB box should keep the default, and even the default is
+    not comfortable (see [docs/typst-tab-2026-09.md](docs/typst-tab-2026-09.md)).
+  - **200 MB of staged files** across the report's images and fonts.
+  - **SVG**: UTF-8 only, at most 2 MB, no entity declarations, no `<image>` or
+    `<feImage>` element and no `data:` URI anywhere in the file. An SVG has no
+    pixel size to check, so those are the rules that keep one from carrying a
+    bitmap bomb into the compiler.
+  - **No Typst packages.** A report that imports or even names an
+    `@preview/…` or `@local/…` spec is refused before the compiler starts, and
+    the package cache is pointed inside the staged directory as well.
+  - **One CPU core**, so an export cannot take both from the Yjs relay. The
+    cost is a ceiling on document size: the compiler lays out on the main
+    thread with one job and overflows its stack somewhere between 2000 and
+    3000 sections, which is reported as "this report is too large for the
+    server compiler".
+  - **120 seconds** per child process, **100 MB** per output file, and **two
+    exports at a time** (one running, one queued). A third caller gets a 429
+    and is asked to come back in a moment.
 - **`Mod+F`** opens the report's own search over the whole document, because
   CodeMirror's built-in only decorates what is currently scrolled into view.
 - A Report tab left open in your browser when the flag gets turned off does
@@ -712,6 +757,8 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `GET` | `/api/assets?workspaceId=…` | yes | Metadata inventory of a workspace's assets |
 | `GET` | `/api/assets/:id` | yes | The raw asset bytes (`Cache-Control: immutable`, since bytes never change for an id) |
 | `DELETE` | `/api/assets/:id` | uploader/admin | Delete the row **and** the file on disk |
+| `GET` | `/api/typst/capabilities` | yes | Which server exports are available: `{ pdf, docx }`, one per CLI found on `PATH`. 404 when `ENABLE_TYPST` is off (as does every route below) |
+| `POST` | `/api/typst/:workspaceId/export?format=pdf\|docx` | yes | Export that workspace's report, with its crops and redactions baked in. 200 returns the file bytes (`application/pdf` or the Word MIME type, `Cache-Control: no-store`) plus `X-Baked-Images` (how many images were re-encoded) and, when there is anything to say, `X-Export-Warnings` (percent-encoded JSON array of strings, at most 10 and 4000 characters). 400 bad workspace id or format, 401 no/blocked account, 404 no report for that workspace, 422 anything the report or its images did wrong (the message is the banner text), 429 two exports already queued, 501 the CLI went missing after the capabilities check |
 | `GET` | `/api/pages/:id/versions` | yes | Version timeline of a page, newest first: `{ versions, users, tracked, dirty, twinExists }`. Imports the page's legacy `pageSnapshots` rows on first read |
 | `POST` | `/api/pages/:id/versions` | yes | Record a version of the open page now (`{ name?, trigger: 'named' \| 'restore' }`); 409 when the page room is not open on the server |
 | `GET` | `/api/pages/:id/versions/:vid` | yes | One version with its twin `snapshot` and full `state` (both base64; the state is derived from the twin when the row has none) |
@@ -774,6 +821,10 @@ scheduled backups are written; `/backups` in Docker, bind-mounted from
 `ENABLE_TYPST` (`"1"` or `"true"` turns on the Typst report tab; off by
 default, exposed to clients as `features.typst` from `GET /api/settings`, and
 not settable from the UI so a small box can't be switched on by mistake),
+`TYPST_CLI` and `PANDOC_CLI` (absolute paths to the two export binaries;
+unset means "look on `PATH`", which is what the Docker image relies on),
+`TYPST_EXPORT_MAX_TOTAL_MP` (total screenshot megapixels one server export may
+stage; default 120, accepted 10 to 2000, anything else falls back to 120),
 `ADMIN_USERNAME`/`ADMIN_PASSWORD` (bootstrap admin, default `admin`/`changeme!`).
 Client build-time: `VITE_API_URL`, `VITE_WS_URL` (default same-origin).
 
@@ -846,6 +897,20 @@ server/
   data-export.mjs             Consistent reads: VACUUM INTO, per-room Yjs updates, asset inventory
   backup.mjs                  Backup engine: config, scheduled + manual runs, inventory, host token
   restore.mjs                 Restore CLI (run with the server stopped)
+  typst/                      Server-side report export, imported only when ENABLE_TYPST is on:
+    index.mjs                 The two routes: capabilities, and export?format=pdf|docx
+    export.mjs                Finds the CLIs, spawns them (argv array, minimal env, 120 s, SIGKILL), queue of 2
+    stage.mjs                 One export's temp directory: main.typ, vetted images under assets/, fonts under fonts/
+    vet-asset.mjs             Decides (purely) whether an asset record may touch the filesystem at all
+    image-size.mjs            Dimensions from a PNG/JPEG/GIF/WebP header, and the SVG refusal rules
+    pixel-budget.mjs          Total staged megapixels per export (TYPST_EXPORT_MAX_TOTAL_MP)
+    bake.mjs                  Crop + blur burned into the bytes, with src/lib's own math
+    bake.check.mjs            Standalone proof that a bake destroys the pixels (`bun server/typst/bake.check.mjs`)
+    docx-source.mjs           Rewrites the report into what pandoc's Typst reader can follow
+    docx-ast.mjs              Filters pandoc's JSON AST: only staged images survive, raw blocks never do
+    package-spec.mjs          Finds an @preview / @local package spec anywhere in the source
+    diagnostics.mjs           Typst diagnostics, path scrubbing, signal-death messages (pure)
+    serial.mjs, admission.mjs One at a time, at most two queued (pure)
 cmdlog-agent/                 Standalone Python 3 shell-capture agent (own README + tests)
   btct_agent/                 matcher, redactor, spool, shipper, daemon, installer, hooks/
 scripts/
@@ -854,7 +919,11 @@ scripts/
 
 > Adding a file under `server/` means adding a `COPY server/<file>.mjs` line to
 > the [Dockerfile](Dockerfile). Server files are copied individually, so a new
-> one is silently missing from the image otherwise.
+> one is silently missing from the image otherwise. `server/typst/` is the one
+> exception: the whole directory is copied, so a new module there is covered.
+> What is not covered is a new `src/lib` import from it. Those files are named
+> one by one on their own `COPY` line, because the runtime image has no `src/`
+> otherwise.
 
 ### Conventions & invariants (read before changing anything)
 
@@ -880,10 +949,16 @@ scripts/
    [assets.mjs](server/assets.mjs), which is only *storage* (it knows a blob's size
    and mime, never what it means), and [cmdlog.mjs](server/cmdlog.mjs), which ingests
    externally-produced command records into SQLite + the CRDT (it validates and
-   stores, and knows nothing about what a command means).
+   stores, and knows nothing about what a command means), and
+   [server/typst/](server/typst/), which stages a report and its images so the
+   two export CLIs can read them (it reads the report source and the asset
+   records and writes nothing back).
    [yjs-data.mjs](server/yjs-data.mjs) is the only door into the shared doc and is
-   down to what those need. Server-side CRDT writes must honour the Y.Text rule;
-   nothing there writes one today (all LWW JSON, like image assets).
+   down to what those need (`listWorkspaces`, `appendCommandLogs`, the two
+   `settingsPublic` mirrors, the asset-retention pair, and `readTypstSource` +
+   `listAssetRecords` for the exporter). Server-side CRDT writes must honour
+   the Y.Text rule; nothing there writes one today (all LWW JSON, like image
+   assets).
 8. **Binary content never goes in the CRDT.** Images and fonts are uploaded to
    the server and referenced from the shared doc by id; only small metadata
    records sync. Base64 blobs in the shared doc get broadcast to *and
@@ -1013,6 +1088,31 @@ scripts/
    which carries no `features` at all. That fetch is also the only thing that
    ever sets `features`, so `loadTheme` retries a failure four times (1.5 s,
    3 s, 6 s, 12 s) rather than leaving the tab on "Checking…" for the session.
+29. **Server export treats the report and every asset record as hostile
+   input.** Any account can write any workspace's report text and any
+   `typstAssets` record through the shared doc, and the relay validates no
+   schema, so an export request is an attacker-controlled program plus
+   attacker-controlled filenames arriving at a process that is also the team's
+   Yjs relay. The rules, all in [server/typst/](server/typst/): an asset record
+   reaches the filesystem only through `vetAssetRecord` (a uuid-shaped id, a
+   path whose parent resolves to `ASSETS_DIR` itself, a matching row in the
+   server's own `assets` inventory, and `kind` plus workspace taken from that
+   row, never from the record); every staged image is sized from its header
+   before anything decodes it, and a total-pixel budget bounds the export;
+   images are baked before either format is produced, from one staged
+   directory, with the crop and blur math imported from `src/lib` rather than
+   copied; pandoc's reader always runs with `--sandbox` and only the
+   AST-filtered JSON reaches the unsandboxed writer step; and every child gets
+   an argv array, a minimal environment and a timeout, with its error text
+   path-scrubbed. Do not add an unsandboxed reader, a shell string, or a path
+   built from CRDT text. One assumption is version-dependent: a staged SVG is
+   never sized, and is safe only because usvg resolves an href for exactly two
+   elements, `<image>` and `<feImage>` (both refused by name, along with any
+   `data:` URI), and because typst refuses http, file and out-of-root hrefs
+   inside an SVG. That is a property of the typst version pinned in the
+   [Dockerfile](Dockerfile), so bumping `TYPST_VERSION` means re-running those
+   checks; the measurements are in
+   [docs/typst-tab-2026-09.md](docs/typst-tab-2026-09.md).
 
 ### Recipes: how to extend
 
@@ -1155,6 +1255,25 @@ carries the compiler either way (`bun run fonts` and the wasm are baked in at
 build time); the flag only decides whether any client is allowed to ask for
 them. See [Report (Typst)](#report-typst) and
 [docs/typst-tab-2026-09.md](docs/typst-tab-2026-09.md).
+
+The image also ships the two **server export** binaries, `typst` 0.14.2 and
+`pandoc` 3.11, pinned by version and by sha256 in the
+[Dockerfile](Dockerfile)'s `report-bins` stage and installed to
+`/usr/local/bin`. They cost about 205 MiB of image and nothing at all at
+runtime until somebody clicks DOCX or PDF (server), so there is no separate
+switch: `ENABLE_TYPST` is the switch. If you run BTCT from source instead,
+install the two CLIs yourself and put them on the server process's `PATH`, or
+point `TYPST_CLI` / `PANDOC_CLI` at them; without them the tab simply does not
+show those two buttons and browser PDF export still works.
+
+**Deny the container outbound network if your deployment lets you.** Server
+export refuses Typst package specs before the compiler starts and confines the
+package cache to the export's own temporary directory, and pandoc's reader
+runs under `--sandbox`, so nothing here is supposed to reach the internet. A
+network policy is the layer that does not depend on any of that being right.
+The compose files do not set one, because the right way to express it differs
+per host (an `internal` network, `--network none` with a reverse proxy in
+front, an egress firewall rule).
 
 ---
 
