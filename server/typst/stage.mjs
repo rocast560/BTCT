@@ -262,8 +262,9 @@ export async function stageReport(workspaceId) {
   const { plan, warnings, skippedDuplicates, account } = await planReport(workspaceId, source, records);
 
   // Only now does anything land on disk. Nothing may sit between this line
-  // and the try: the catch is what removes the directory, and the caller's
-  // finally only runs once this returns.
+  // and the try: the finally below is what removes the directory on every
+  // failing path, and the caller's own finally only starts once this returns
+  // the root successfully.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'btct-typst-'));
   // Where the bake children write. Outside the compile root on purpose, and
   // created only if something is actually redacted.
