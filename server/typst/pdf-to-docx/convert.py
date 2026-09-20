@@ -920,6 +920,45 @@ def content_bounds(doc):
     return median(lefts), median(rights)
 
 
+def leader_spacing(page):
+    """How much wider than its own advance each leader glyph is set, by row.
+
+    Word repeats a leader glyph at the font's advance for it and nothing else,
+    which on the reference report puts its dots 3.1 pt apart where typst put
+    them at 4.8: the list reads as a rule rather than a leader. The difference
+    is measured here, per row, from the PDF's own glyph positions, and added
+    to the tab run as character spacing. A leader the typesetter set solid
+    measures zero and nothing is added.
+    """
+    out = {}
+    for block in page.get_text("rawdict")["blocks"]:
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines", []):
+            chars = [c for span in line.get("spans", []) for c in span.get("chars", [])]
+            pitches, advances = [], []
+            for index, char in enumerate(chars[:-1]):
+                if char["c"] != ".":
+                    continue
+                advances.append(chars[index + 1]["origin"][0] - char["origin"][0])
+                following = next((c for c in chars[index + 1:] if c["c"] == "."), None)
+                if following is not None:
+                    pitches.append(following["origin"][0] - char["origin"][0])
+            if len(pitches) >= LEADER_MIN_DOTS:
+                # Medians, because the run starts at the full stop of a section
+                # number and that one pitch is the width of the title.
+                out[round(line["bbox"][1], 1)] = max(0.0, median(sorted(pitches)) - median(sorted(advances)))
+    return out
+
+
+def spacing_for_row(extras, row):
+    """The leader spacing measured for this row, or zero."""
+    for top, extra in extras.items():
+        if abs(top - row["y0"]) <= BAND_Y_TOLERANCE_PT:
+            return extra
+    return 0.0
+
+
 def detect_toc(doc, bands):
     """Rows that read "title, dot leader, page number", in reading order."""
     spans = [(b["top"] - BAND_PAD_PT, b["bottom"] + BAND_PAD_PT) for b in bands]
@@ -930,6 +969,7 @@ def detect_toc(doc, bands):
             for r in page_rows(doc[index])
             if not any(r["y0"] >= top and r["y1"] <= bottom for top, bottom in spans)
         ]
+        extras = None
         previous = None
         for row in rows:
             match = TOC_LINE.match(row["text"].strip())
@@ -937,6 +977,8 @@ def detect_toc(doc, bands):
             if not segments:
                 previous = row
                 continue
+            if extras is None:
+                extras = leader_spacing(doc[index])
             entries.append(
                 {
                     "page_index": index,
@@ -952,6 +994,7 @@ def detect_toc(doc, bands):
                     "size": segments[0]["size"],
                     "bold": segments[0]["bold"],
                     "color": segments[0]["color"],
+                    "leader_extra": spacing_for_row(extras, row),
                 }
             )
             previous = row
@@ -1451,7 +1494,15 @@ def write_toc_entry(paragraph, entry, indent, right_stop, pitch, space_before):
             style_run(paragraph.add_run("\t" if segment["offset"] > COLUMN_GAP_PT else " "), segment)
         style_run(paragraph.add_run(segment["text"]), segment)
     last = entry["segments"][-1]
-    style_run(paragraph.add_run("\t"), last)
+    tab = paragraph.add_run("\t")
+    style_run(tab, last)
+    extra = entry.get("leader_extra") or 0.0
+    if extra > 0.05:
+        # Word draws the leader in the formatting of the run that holds the
+        # tab, character spacing included, so this is what sets the pitch.
+        node = OxmlElement("w:spacing")
+        node.set(qn("w:val"), str(int(round(extra * 20))))
+        tab._element.get_or_add_rPr().append(node)
     style_run(paragraph.add_run(entry["number"]), last)
 
 
@@ -2612,6 +2663,29 @@ def is_code(element, shaded):
     return bool(fonts) and all(MONOSPACE.search(name) for name in fonts)
 
 
+def adjacent_text(element):
+    """Pairs of text nodes with nothing between them a reader would see.
+
+    A tab or a line break already separates two pieces of text, and a table of
+    contents is written as "number, tab, title": adding a space there as well
+    pushed every title in the reference report's list 2.9 pt, one space, to
+    the right of where the PDF has it. Walking the `w:t` nodes alone cannot
+    see that, because the tab is not one of them.
+    """
+    pairs = []
+    previous = None
+    for node in element.iter():
+        if node.tag in (qn("w:tab"), qn("w:br"), qn("w:cr")):
+            previous = None
+            continue
+        if node.tag != qn("w:t"):
+            continue
+        if previous is not None:
+            pairs.append((previous, node))
+        previous = node
+    return pairs
+
+
 def repair_text(document, pairs, shaded=()):
     """Drop soft hyphens, and put back a space the converter ran together.
 
@@ -2640,7 +2714,7 @@ def repair_text(document, pairs, shaded=()):
                 node.set(qn("xml:space"), "preserve")
         if is_code(element, shaded):
             continue
-        for left, right in zip(nodes, nodes[1:]):
+        for left, right in adjacent_text(element):
             if not left.text or not right.text:
                 continue
             if left.text[-1].isspace() or right.text[0].isspace():

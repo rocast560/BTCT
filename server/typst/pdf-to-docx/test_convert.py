@@ -66,6 +66,14 @@ def build_pdf():
     return pymupdf.open("pdf", doc.tobytes())
 
 
+def solid_leader_pdf():
+    """One page whose dot leader is set with no space between the dots."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((LEFT, 150), "A title" + "." * 40 + "7", fontsize=11)
+    return pymupdf.open("pdf", doc.tobytes())
+
+
 def check(condition, label, detail=""):
     line = "%-5s %s%s" % ("ok" if condition else "FAIL", label, (" -- " + str(detail)) if detail else "")
     # A Windows console is cp1252 and some of these labels carry Cyrillic or
@@ -132,6 +140,15 @@ def run_built_in():
         passed &= check(abs(entries[1]["x0"] - (LEFT + 16)) < 2, "the sub-entry is indented", entries[1]["x0"])
         pitch = convert.toc_line_pitch(entries)
         passed &= check(pitch is not None and abs(pitch - 20) < 2, "the line pitch", pitch)
+        # The fixture writes " . " at 11 pt, so a dot advances about 3.1 pt
+        # and the next one starts about two spaces later: what Word has to add
+        # to its own leader is the pair of spaces between them.
+        extras = [e.get("leader_extra", 0.0) for e in entries]
+        passed &= check(all(5.0 < extra < 7.5 for extra in extras),
+                        "the leader's extra spacing was measured", [round(e, 2) for e in extras])
+        solid = convert.leader_spacing(pymupdf.open("pdf", solid_leader_pdf().tobytes())[0])
+        passed &= check(solid and all(value < 0.2 for value in solid.values()),
+                        "a solid leader asks for no extra spacing", solid)
 
     # Nothing outside a band may be taken for one.
     body_before = doc[2].get_text().count("Body text")
@@ -236,6 +253,29 @@ def run_rhythm_checks():
     kept = convert.paragraph_metrics(document.paragraphs[1]._p)
     passed &= check(moved == 0 and kept is not None and abs(kept["before"] - 2.0) < 0.05,
                     "rhythm: a correction past the bottom margin is refused", kept and kept["before"])
+
+    # A tab is already a gap, so the space repair may not add one across it.
+    document = Document()
+    paragraph = document.add_paragraph()
+    paragraph.add_run("2.1")
+    paragraph.add_run("\t")
+    paragraph.add_run("NON-DISCLOSURE STATEMENT")
+    nodes = list(paragraph._p.iter(convert.qn("w:t")))
+    passed &= check(convert.adjacent_text(paragraph._p) == [],
+                    "rhythm: a tab between two runs is not a run boundary",
+                    len(convert.adjacent_text(paragraph._p)))
+    convert.repair_text(document, {(convert.compare_squash("2.1")[-8:],
+                                    convert.compare_squash("NON-DISC")[:8])})
+    passed &= check(nodes[1].text == "NON-DISCLOSURE STATEMENT",
+                    "rhythm: the title after a tab keeps its place", nodes[1].text[:12])
+    joined = document.add_paragraph()
+    joined.add_run("1.")
+    joined.add_run("{{STEP}}")
+    pieces = list(joined._p.iter(convert.qn("w:t")))
+    convert.repair_text(document, {(convert.compare_squash("1.")[-8:],
+                                    convert.compare_squash("{{STEP}}")[:8])})
+    passed &= check(pieces[1].text.startswith(" "),
+                    "rhythm: a run boundary with no tab still gets its space", pieces[1].text)
 
     # A page count the converter did not write one section per is left alone.
     document = rhythm_document(2.0, 0.0, 15.0)
