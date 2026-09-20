@@ -15,7 +15,13 @@ is the quickest way to see why a real report behaves the way it does.
 """
 
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
+import time
+import zipfile
+from xml.etree import ElementTree
 
 import pymupdf
 
@@ -58,7 +64,10 @@ def build_pdf():
 
 
 def check(condition, label, detail=""):
-    print("%-5s %s%s" % ("ok" if condition else "FAIL", label, (" -- " + str(detail)) if detail else ""))
+    line = "%-5s %s%s" % ("ok" if condition else "FAIL", label, (" -- " + str(detail)) if detail else "")
+    # A Windows console is cp1252 and some of these labels carry Cyrillic or
+    # CJK, which would end the run with an encoding error rather than a result.
+    print(line.encode("ascii", "backslashreplace").decode("ascii"))
     return bool(condition)
 
 
@@ -70,8 +79,10 @@ def run_built_in():
     passed &= check(abs(left - LEFT) < 2, "content left edge", left)
     passed &= check(abs(right - RIGHT) < 6, "content right edge", right)
 
-    header = convert.detect_band(doc, "top")
-    footer = convert.detect_band(doc, "bottom")
+    header, header_reason = convert.detect_band(doc, "top")
+    footer, footer_reason = convert.detect_band(doc, "bottom")
+    passed &= check(header_reason is None and footer_reason is None, "neither edge was declined",
+                    (header_reason, footer_reason))
     passed &= check(header is not None, "a running header was found")
     passed &= check(footer is not None, "a running footer was found")
     if not header or not footer:
@@ -123,7 +134,194 @@ def run_built_in():
     passed &= check(convert.font_family("ArialMT") == "Arial", "font family, no separator")
     passed &= check(convert.TOC_LINE.match("A title . . . . . . . 12") is not None, "a spaced dot leader")
     passed &= check(convert.TOC_LINE.match("Not a leader ... 12") is None, "an ellipsis is not a leader")
+    passed &= check(convert.squash("Глава 1") == "глава1",
+                    "squash keeps Cyrillic", convert.squash("Глава 1"))
+    passed &= check(convert.squash("第一章") == "第一章", "squash keeps CJK")
     doc.close()
+    passed &= run_comparison_checks()
+    return passed
+
+
+def run_comparison_checks():
+    """The text check, on text rather than on documents.
+
+    These are the shapes it has to be blind to (a re-flow) and the one shape
+    it has to see (a line that is gone).
+    """
+    passed = True
+    line = lambda text: {"text": text, "pieces": [text]}  # noqa: E731
+
+    joined = "The quick brown fox\njumped over the lazy dog"
+    passed &= check(
+        convert.missing_from_docx([line("The quick brown"), line("fox jumped over")], joined) == [],
+        "a line joined to its neighbour is not missing",
+    )
+    passed &= check(
+        convert.missing_from_docx([line("em-"), line("ployed a custom system")], "employed a custom system") == [],
+        "a word broken across two lines is not missing",
+    )
+    passed &= check(
+        convert.missing_from_docx([line("Title . . . . . . . . 12")], "Title\t12") == [],
+        "a dot leader drawn from a tab stop is not missing",
+    )
+    passed &= check(
+        convert.missing_from_docx([line("1. {{RECOMMENDATION}}")], "1.{{RECOMMENDATION}}") == [],
+        "a space the converter did not write is not missing",
+    )
+    gone = convert.missing_from_docx(
+        [line("Host-111 is vulnerable"), line("Host-112 is vulnerable")],
+        "Host-112 is vulnerable",
+    )
+    passed &= check([g for g in gone] == ["Host-111 is vulnerable"], "a dropped paragraph is caught", gone)
+    passed &= check(
+        convert.missing_from_docx([{"text": "TECHNIQUES MITIGATIONS", "pieces": ["TECHNIQUES", "MITIGATIONS"]}],
+                                  "TECHNIQUES\n{{T}}\nMITIGATIONS\n{{M}}") == [],
+        "two columns written one after the other are not missing",
+    )
+    passed &= check(
+        convert.missing_from_docx([{"text": "LOW", "pieces": ["LOW"]}], "nothing here") == [],
+        "a piece too short to be evidence is not reported",
+    )
+    return passed
+
+
+# ── the document cases ────────────────────────────────────────────────────
+# These compile a Typst source and run the whole of convert() on it, which
+# needs the typst CLI on PATH. They are the ones that pin behaviour rather
+# than a function: every one of them is a document that lost content.
+
+
+def compile_case(source, pdf_path):
+    with open(pdf_path + ".typ", "w", encoding="utf-8") as handle:
+        handle.write(source)
+    fonts = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "dist", "fonts")
+    args = ["typst", "compile", "--ignore-system-fonts"]
+    if os.path.isdir(fonts):
+        args += ["--font-path", fonts]
+    args += [pdf_path + ".typ", pdf_path]
+    subprocess.run(args, check=True, capture_output=True)
+
+
+def run_case(source, workdir, name):
+    """Compile, convert, and hand back what `result.json` says."""
+    pdf_path = os.path.join(workdir, name + ".pdf")
+    docx_path = os.path.join(workdir, name + ".docx")
+    compile_case(source, pdf_path)
+    result = convert.convert(pdf_path, docx_path)
+    return result, docx_path
+
+
+def squashed_docx(path, body_only):
+    return convert.compare_squash(convert.docx_text(path, body_only=body_only))
+
+
+def run_documents():
+    import cases
+
+    if shutil.which("typst") is None:
+        print("SKIP  the document cases need the typst CLI on PATH")
+        return True
+    passed = True
+    workdir = tempfile.mkdtemp(prefix="btct-convert-test-")
+    try:
+        # 1. A long table whose rows differ only by numbers.
+        result, path = run_case(cases.TABLE, workdir, "table")
+        passed &= check(result["textCheck"]["missing"] == 0, "table: no line of the report was lost",
+                        result["textCheck"])
+        passed &= check(not result["headerFooter"]["header"] and not result["headerFooter"]["footer"],
+                        "table: no table row was mistaken for a band", result["headerFooter"])
+        body = squashed_docx(path, body_only=False)
+        passed &= check(body.count("host111") == 1 and body.count("host073") == 1,
+                        "table: Host-111 and Host-073 each appear once",
+                        (body.count("host111"), body.count("host073")))
+
+        # 2. A repeated first body line under a real running header.
+        result, path = run_case(cases.FIRST_BODY_LINE, workdir, "firstline")
+        passed &= check(result["textCheck"]["missing"] == 0, "first line: nothing was lost", result["textCheck"])
+        passed &= check(result["headerFooter"]["header"] and result["headerFooter"]["footer"],
+                        "first line: the real header and footer were lifted", result["headerFooter"])
+        opener = convert.compare_squash("Lorem ipsum dolor sit amet, consectetur adipiscing elit")
+        passed &= check(opener in squashed_docx(path, body_only=True),
+                        "first line: the body line is still in the body")
+        with zipfile.ZipFile(path) as archive:
+            bands = "".join(
+                archive.read(n).decode("utf-8", "replace")
+                for n in archive.namelist()
+                if n.startswith("word/header") or n.startswith("word/footer")
+            )
+        passed &= check("Lorem ipsum dolor" not in bands, "first line: it was not pasted into a header")
+        passed &= check("Acme Security Assessment" in bands, "first line: the real header was")
+
+        # 3. Odd and even headers.
+        result, _ = run_case(cases.ODD_EVEN, workdir, "oddeven")
+        passed &= check(result["textCheck"]["missing"] == 0, "odd/even: nothing was lost", result["textCheck"])
+        passed &= check(not result["headerFooter"]["header"], "odd/even: the header was declined")
+        passed &= check(any("alternates" in w for w in result["warnings"]),
+                        "odd/even: the warning says why", result["warnings"])
+
+        # 4. The shape the repairs exist for: both must run, and say nothing.
+        result, _ = run_case(cases.REPORT, workdir, "report")
+        passed &= check(result["textCheck"]["missing"] == 0, "report: nothing was lost", result["textCheck"])
+        passed &= check(not result["textCheck"]["fellBack"], "report: no fallback was needed")
+        passed &= check(result["headerFooter"]["header"] and result["headerFooter"]["footer"],
+                        "report: header and footer were lifted", result["headerFooter"])
+        # The rebuild only engages when the converter keeps the entries as
+        # separate paragraphs. On a page this sparse it merges the whole list
+        # into one, and then the repair declines and says so, which is the
+        # right answer: the list is ugly and complete. The reference report is
+        # dense enough that its 27 entries are rebuilt.
+        expected = ("rebuilt", "could not be found in the converted file")
+        noise = [w for w in result["warnings"] if not any(e in w for e in expected)]
+        passed &= check(noise == [], "report: no warning beyond the table of contents", noise)
+
+        # 5. A table of contents in three scripts.
+        result, path = run_case(cases.MIXED_SCRIPT_TOC, workdir, "scripts")
+        passed &= check(result["textCheck"]["missing"] == 0, "scripts: nothing was lost", result["textCheck"])
+        passed &= check(not result["textCheck"]["fellBack"], "scripts: no fallback was needed")
+        body = squashed_docx(path, body_only=False)
+        for title in ("Глава первая",
+                      "Κεφάλαιο δύο"):
+            passed &= check(convert.compare_squash(title) in body, "scripts: %r survived" % title)
+
+        # 6. Links.
+        result, path = run_case(cases.LINKS, workdir, "links")
+        targets = []
+        with zipfile.ZipFile(path) as archive:
+            for name in archive.namelist():
+                if name.endswith(".rels"):
+                    for rel in ElementTree.fromstring(archive.read(name)):
+                        if rel.get("TargetMode") == "External":
+                            targets.append(rel.get("Target"))
+        passed &= check(sorted(targets) == ["https://example.com/ok", "mailto:team@example.com"],
+                        "links: only http(s) and mailto survive", targets)
+        passed &= check(any("unsupported addresses" in w for w in result["warnings"]),
+                        "links: the removal is reported", result["warnings"])
+        passed &= check(convert.unsafe_docx_targets(path) == [], "links: the output check agrees")
+
+        # 7. Too many shapes for the converter.
+        pdf_path = os.path.join(workdir, "shapes.pdf")
+        compile_case(cases.SHAPES, pdf_path)
+        started = time.perf_counter()
+        try:
+            convert.convert(pdf_path, os.path.join(workdir, "shapes.docx"))
+            passed &= check(False, "shapes: the document was refused")
+        except convert.ConvertError as err:
+            spent = time.perf_counter() - started
+            passed &= check("too complex" in str(err), "shapes: the document was refused", err)
+            passed &= check(spent < 1.0, "shapes: refused in under a second", "%.3f s" % spent)
+
+        # 8. A paragraph the converter dropped, simulated by taking one out of
+        #    the PDF's side of the comparison's counterpart.
+        result, path = run_case(cases.REPORT, workdir, "report2")
+        text = convert.docx_text(path, body_only=True)
+        cut = text.replace("Scope of the engagement", "", 1)
+        doc = pymupdf.open(os.path.join(workdir, "report2.pdf"))
+        lines = convert.body_lines(doc, [])
+        doc.close()
+        passed &= check(convert.missing_from_docx(lines, cut) != [],
+                        "a heading removed from the Word file is caught")
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
     return passed
 
 
@@ -133,9 +331,9 @@ def describe(path):
     print("content bounds: %.1f .. %.1f" % convert.content_bounds(doc))
     bands = []
     for edge in ("top", "bottom"):
-        band = convert.detect_band(doc, edge)
+        band, reason = convert.detect_band(doc, edge)
         if band is None:
-            print("%s: no repeating band" % edge)
+            print("%s: no repeating band%s" % (edge, (" (declined: %s)" % reason) if reason else ""))
             continue
         bands.append(band)
         print(
@@ -165,4 +363,6 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         describe(sys.argv[1])
         sys.exit(0)
-    sys.exit(0 if run_built_in() else 1)
+    ok = run_built_in()
+    ok = run_documents() and ok
+    sys.exit(0 if ok else 1)

@@ -30,10 +30,15 @@ import contextlib
 import copy
 import json
 import logging
+import math
 import os
 import re
 import sys
+import unicodedata
+import zipfile
+from collections import Counter
 from statistics import median
+from xml.etree import ElementTree
 
 import pymupdf
 from docx import Document
@@ -64,6 +69,22 @@ BAND_GLUE_PT = 30.0
 # page-opening heading whose only change is its number. Without this the
 # heading would be stripped out of the document.
 BAND_LINE_GLUE = 1.6
+# A running band is separated from the body by a margin, and body text is not.
+# The candidate must clear the nearest body row by at least this fraction of
+# the body's own line pitch. Measured on five documents (the ratio is the
+# candidate's gap to the nearest body row over the median body line pitch):
+#
+#   a real running header, 23-page report      1.03     keep
+#   a real footer, same report                14.13     keep
+#   a real page-number footer, letter/1in     25.67     keep
+#   a repeated FIRST BODY LINE under a header  0.13     drop
+#   a repeated table header and data row       0.31     drop
+#   alternating headers plus body lines        0.13     drop
+#
+# 0.5 sits in the empty middle: twice the worst false positive, half the
+# tightest true one. Without it the repeated first body line of every page is
+# deleted from the document and pasted into the Word header.
+BAND_SEPARATION_RATIO = 0.5
 # Room left around a band rectangle when it is removed, so a glyph that
 # overhangs its reported box does not survive as a sliver.
 BAND_PAD_PT = 1.0
@@ -87,6 +108,30 @@ TOC_RUN_MIN = 3
 # Ceiling on the blank space carried over before an entry, so one bad reading
 # cannot push the list onto another page.
 TOC_MAX_SPACE_BEFORE_PT = 24.0
+
+# ── what the converter will not take on ───────────────────────────────────
+# Three bounds, all of them measured rather than guessed. The reference
+# report's worst page holds 62 drawings in a 294 kB instruction stream, so
+# every one of these has at least a seven times margin over a real report,
+# while three A4 pages of 120,000 one-point rectangles (2.1 MB, 2.5 s out of
+# typst) are refused in 0.08 s instead of costing the converter 35.9 s and
+# 651 MB of RSS. Each refusal reads like the other server export limits and
+# sends the operator to the PDF, which has none of these problems.
+MAX_PAGES = 300
+MAX_PAGE_CONTENT_BYTES = 3_000_000
+MAX_PAGE_DRAWINGS = 10_000
+# Address space for this process on Linux. PyMuPDF and OpenCV map far more
+# than they touch, so this is well above the RSS it is meant to bound; it is
+# a backstop that turns a runaway conversion into a MemoryError and a 422
+# rather than a cgroup kill of the process that is also the Yjs relay.
+ADDRESS_SPACE_LIMIT_BYTES = 3 * 1024 * 1024 * 1024
+
+# Schemes a Word file may hand to the reader's shell. Everything else is
+# removed from the PDF before the converter sees it: `FILE://host/share/x`
+# resolves as UNC and leaks credentials, and `javascript:` and `ms-msdt:` are
+# the same class of problem.
+SAFE_LINK_SCHEMES = ("http", "https", "mailto")
+LINK_SCHEME = re.compile(r"^\s*([A-Za-z][A-Za-z0-9+.\-]*)\s*:")
 
 # Invisible characters a typesetter puts around a page number.
 INVISIBLE = "⁠​‌‍﻿"
@@ -131,6 +176,12 @@ def font_family(pdf_font_name):
             break
         name = shorter
     return name.strip(" -_") or None
+
+
+def truncate(text, limit):
+    """`text` cut to `limit` characters, the last one an ellipsis when it was."""
+    out = " ".join(str(text).split())
+    return out if len(out) <= limit else out[: limit - 1] + "…"
 
 
 def rgb_of(color_int):
@@ -222,12 +273,114 @@ def in_zone(page, edge, y0, y1):
     return y0 >= height * (1.0 - BAND_ZONE_FRACTION)
 
 
+def band_quorum(populated):
+    """How many pages a group must appear on before it can be a band.
+
+    The old rule was `max(2, round(n x 0.6))`, which on a four-page document
+    is two pages: enough for two rows of a long table that happen to land at
+    the same height to be read as a running band and deleted. So the floor is
+    three, and a document too short for a fraction to mean anything has to
+    carry the band on every page it could, bar one: a cover or a divider may
+    have something else up there, and nothing else may.
+    """
+    if populated <= 3:
+        return max(2, populated - 1)
+    return max(3, math.ceil(populated * BAND_REPEAT_FRACTION))
+
+
+def row_id(index, row):
+    return (index, round(row["y0"], 1), round(row["x0"], 1))
+
+
+def alternating_at_edge(groups, edge, quorum):
+    """Two different texts taking turns at the outermost position, or None.
+
+    An odd-and-even running header is two groups that never share a page. Word
+    can express that (`w:evenAndOddHeaders` plus a second header part) and this
+    script does not, so the honest answer is to leave that edge in the body
+    rather than concatenate both texts into one header, which is what happened
+    before: every page carried "Acme Security Assessment Contoso Consulting
+    Group".
+    """
+    if len(groups) < 2:
+        return None
+    key = (lambda rows: min(r["y0"] for _, r in rows)) if edge == "top" else (lambda rows: -max(r["y1"] for _, r in rows))
+    extreme = min(key(rows) for rows in groups)
+    outermost = [rows for rows in groups if abs(key(rows) - extreme) <= BAND_Y_TOLERANCE_PT * 2]
+    if len(outermost) < 2:
+        return None
+    pages = [{index for index, _ in rows} for rows in outermost]
+    for i, first in enumerate(pages):
+        for second in pages[i + 1 :]:
+            if not (first & second) and len(first | second) >= quorum:
+                return ("the running %s alternates between two texts, which Word cannot repeat "
+                        "from one definition" % ("header" if edge == "top" else "footer"))
+    return None
+
+
+def separation(doc, cluster, edge):
+    """How far the cluster sits from the body, as a multiple of the body's pitch.
+
+    Returns (gap, pitch) medians over the pages that carry the cluster, or
+    (None, None) when no page has anything outside the cluster to measure
+    against.
+    """
+    members = {row_id(index, row) for rows in cluster for index, row in rows}
+    gaps, pitches = [], []
+    for index in sorted({index for rows in cluster for index, _ in rows}):
+        rows = page_rows(doc[index])
+        mine = [r for r in rows if row_id(index, r) in members]
+        rest = [r for r in rows if row_id(index, r) not in members]
+        if not mine or not rest:
+            continue
+        if edge == "top":
+            gaps.append(min(r["y0"] for r in rest) - max(r["y1"] for r in mine))
+        else:
+            gaps.append(min(r["y0"] for r in mine) - max(r["y1"] for r in rest))
+        tops = sorted(r["y0"] for r in rest)
+        steps = [b - a for a, b in zip(tops, tops[1:]) if 0 < b - a < 100]
+        if steps:
+            pitches.append(median(steps))
+    if not gaps:
+        return None, None
+    return median(gaps), (median(pitches) if pitches else None)
+
+
+def is_outermost(doc, cluster, edge):
+    """Nothing else may be printed outside the band on a page that carries it."""
+    members = {row_id(index, row) for rows in cluster for index, row in rows}
+    for index in sorted({index for rows in cluster for index, _ in rows}):
+        rows = page_rows(doc[index])
+        mine = [r for r in rows if row_id(index, r) in members]
+        rest = [r for r in rows if row_id(index, r) not in members]
+        if not mine:
+            continue
+        if edge == "top" and any(r["y0"] < min(m["y0"] for m in mine) - 1.0 for r in rest):
+            return False
+        if edge == "bottom" and any(r["y1"] > max(m["y1"] for m in mine) + 1.0 for r in rest):
+            return False
+    return True
+
+
 def detect_band(doc, edge):
-    """The repeating header or footer of this document, or None.
+    """The repeating header or footer of this document.
+
+    Returns `(band, reason)`: a band and None, or None and a sentence saying
+    why this edge was left in the body, or None and None when there was simply
+    nothing repeating there.
 
     Rows in the edge zone are grouped by their normalized text and their
-    rounded top edge. A group is a band when it appears on at least
-    BAND_REPEAT_FRACTION of the pages that have anything in that zone.
+    rounded top edge, and a group has to survive four tests before it can be
+    lifted out of the document. Each one exists because it caught real content
+    being deleted:
+
+    1. Quorum (`band_quorum`), so two rows of a long table cannot be a band.
+    2. Stable digits (`describe_columns`), so a column whose number changes
+       from page to page and is not the page number is body content.
+    3. Separation (`BAND_SEPARATION_RATIO`), so a repeated first body line
+       sitting one line under the header stays in the body.
+    4. Outermost, so a band candidate with something printed beyond it is not
+       a band at all.
     """
     per_page = {}
     populated = []
@@ -238,7 +391,7 @@ def detect_band(doc, edge):
         if rows:
             populated.append(index)
     if len(populated) < 2:
-        return None
+        return None, None
 
     groups = {}
     for index in populated:
@@ -250,11 +403,45 @@ def detect_band(doc, edge):
             seen.add(key)
             groups.setdefault(key, []).append((index, row))
 
-    need = max(2, int(round(len(populated) * BAND_REPEAT_FRACTION)))
-    repeating = edge_cluster([rows for rows in groups.values() if len(rows) >= need], edge)
-    if not repeating:
-        return None
+    quorum = band_quorum(len(populated))
+    alternation = alternating_at_edge(list(groups.values()), edge, quorum)
+    if alternation:
+        return None, alternation
 
+    keep = []
+    for rows in groups.values():
+        if len(rows) < quorum:
+            continue
+        if len(populated) <= 3:
+            # With so few pages the quorum allows one exception, and it has to
+            # be a cover-like first page rather than any page that happens to
+            # lack the row.
+            absent = [i for i in populated if i not in {index for index, _ in rows}]
+            if absent and absent != [populated[0]]:
+                continue
+        if describe_columns(rows) is None:  # test 2, reported by the describer
+            continue
+        keep.append(rows)
+
+    cluster = edge_cluster(keep, edge)
+    # Test 3. The cluster is grown from the page edge inwards, so when it does
+    # not clear the body the innermost group is the one that does not belong:
+    # drop it and measure again, which is how a genuine header survives having
+    # a repeated first body line stuck to it.
+    while cluster:
+        gap, pitch = separation(doc, cluster, edge)
+        if gap is None:
+            break
+        if gap > 0 and (pitch is None or gap >= BAND_SEPARATION_RATIO * pitch):
+            break
+        cluster = cluster[:-1]
+    if not cluster:
+        return None, None
+    if not is_outermost(doc, cluster, edge):  # test 4
+        return None, ("something else is printed outside the repeating %s on some pages"
+                      % ("header" if edge == "top" else "footer"))
+
+    repeating = cluster
     pages = sorted({index for rows in repeating for index, _ in rows})
     text_top = min(row["y0"] for rows in repeating for _, row in rows)
     text_bottom = max(row["y1"] for rows in repeating for _, row in rows)
@@ -286,7 +473,7 @@ def detect_band(doc, edge):
         "columns": columns,
         "rule_under": rule_under,
         "strip_behind": strip_behind,
-    }
+    }, None
 
 
 def edge_cluster(groups, edge):
@@ -332,12 +519,19 @@ def repeating_drawings(doc, pages, edge):
 
 
 def describe_columns(rows):
-    """Turn one repeating row into columns Word can lay out.
+    """Turn one repeating row into columns Word can lay out, or None.
 
     Every occurrence has the same shape once digits are blanked out, so the
     digit runs line up slot by slot across pages. A slot whose value rises by
     one per page is the page number, and the difference between the printed
     number and the page index is kept so Word can start counting there.
+
+    None means this is not a band. It comes back when a column holds a number
+    that changes from page to page and is not the page number: `Host-073 |
+    10.0.0.73 | Open port finding number 73` normalizes to the same text as
+    every other row of that table, and deleting it as a running footer removes
+    a real finding from the report. Digit blanking is what makes a page number
+    stop mattering, so anything else it blanks has to be accounted for.
     """
     counts = {len(row["columns"]) for _, row in rows}
     if len(counts) != 1:
@@ -357,16 +551,20 @@ def describe_columns(rows):
             )
             for index, row in rows
         ]
-        return [describe_one_column(merged)]
+        one = describe_one_column(merged)
+        return None if one is None else [one]
     width = counts.pop()
-    return [describe_one_column([(index, row["columns"][i]) for index, row in rows]) for i in range(width)]
+    described = [describe_one_column([(index, row["columns"][i]) for index, row in rows]) for i in range(width)]
+    return None if any(column is None for column in described) else described
 
 
 def describe_one_column(cells):
-    """One column of a band: its look, and its page-number slot if it has one."""
+    """One column of a band, or None when its numbers say it is not one."""
     first = cells[0][1]
     numbers = [list(DIGITS.finditer(cell["text"])) for _, cell in cells]
-    slots = min((len(n) for n in numbers), default=0)
+    if len({len(n) for n in numbers}) != 1:
+        return None  # a different count of numbers per page is not one band row
+    slots = len(numbers[0])
     page_slot = None
     page_offset = None
     for slot in range(slots):
@@ -374,6 +572,11 @@ def describe_one_column(cells):
         if len(offsets) == 1 and len(cells) > 1:
             page_slot, page_offset = slot, offsets.pop()
             break
+    for slot in range(slots):
+        if slot == page_slot:
+            continue
+        if len({m[slot].group() for m in numbers}) != 1:
+            return None  # a number that changes and is not the page number
 
     parts = []
     if page_slot is None:
@@ -393,6 +596,116 @@ def describe_one_column(cells):
         "color": first["color"],
         "page_offset": page_offset,
     }
+
+
+def uniform_page_size(doc):
+    """The page size every page shares, or None when they differ.
+
+    The band geometry is one set of numbers for the whole document (a footer
+    distance measured from the first page's height, a text area from the
+    median of every page's own edges), which is wrong the moment a report
+    turns a page sideways for a wide table. Rather than carry per-section
+    geometry for a case no report here has, a mixed document keeps its bands
+    in the body and is told so.
+    """
+    sizes = {(round(doc[i].rect.width, 1), round(doc[i].rect.height, 1)) for i in range(doc.page_count)}
+    return sizes.pop() if len(sizes) == 1 else None
+
+
+def drop_unsafe_pdf_links(doc):
+    """Remove link annotations whose address Word would hand to the shell.
+
+    pdf2docx copies a PDF link annotation into the Word file as an external
+    relationship, and Word follows it. `FILE://host/share/x` resolves as UNC
+    and leaks the reader's credentials to whoever owns that host; `smb://`,
+    `javascript:` and `ms-msdt:` are the same class of problem. A report is
+    attacker-influenced text, so the set of schemes that reach a client's
+    machine is decided here and not by what the report asked for.
+
+    Internal jumps (a table-of-contents link to another page) are not URI
+    annotations and are left alone. A Launch action goes whatever it names:
+    typst turns `#link("\\\\\\\\host\\\\share\\\\x")` into one of those rather
+    than a URI, and a report has no business asking a reader's machine to open
+    a file.
+    """
+    removed = 0
+    for index in range(doc.page_count):
+        page = doc[index]
+        doomed = []
+        for link in page.get_links():
+            kind = link.get("kind")
+            if kind == pymupdf.LINK_LAUNCH:
+                doomed.append(link)
+                continue
+            if kind != pymupdf.LINK_URI:
+                continue
+            match = LINK_SCHEME.match(str(link.get("uri") or ""))
+            if (match.group(1).lower() if match else "") not in SAFE_LINK_SCHEMES:
+                doomed.append(link)
+        for link in doomed:
+            page.delete_link(link)
+            removed += 1
+    return removed
+
+
+def unsafe_docx_targets(path):
+    """External relationship targets in the Word file that should not be there.
+
+    The belt to the braces above: the annotations were removed from the PDF
+    before the converter saw it, so this should always come back empty. If it
+    ever does not, something put an address into a client-facing file that
+    this script did not vet, and the conversion fails rather than shipping it.
+    """
+    bad = []
+    with zipfile.ZipFile(path) as archive:
+        for name in archive.namelist():
+            if not name.endswith(".rels"):
+                continue
+            for rel in ElementTree.fromstring(archive.read(name)):
+                if rel.get("TargetMode") != "External":
+                    continue
+                target = rel.get("Target") or ""
+                match = LINK_SCHEME.match(target)
+                if (match.group(1).lower() if match else "") not in SAFE_LINK_SCHEMES:
+                    bad.append(target)
+    return bad
+
+
+def refuse_oversized(doc):
+    """Stop a report the converter would spend minutes and gigabytes on.
+
+    pdf2docx walks every vector drawing on a page and builds Python objects
+    for the ones it keeps, so cost follows the drawing count rather than the
+    file size, and neither the output cap nor the image pixel budget sees it.
+    Measured on this machine, three A4 pages of 120,000 one-point rectangles:
+    typst wrote them in 2.5 s into 2.1 MB, and the converter took 35.9 s and
+    651 MB; at 150 pages it ran past the two-minute timeout. Counting them
+    first costs a few milliseconds (see MAX_PAGE_DRAWINGS).
+    """
+    if doc.page_count > MAX_PAGES:
+        raise ConvertError(
+            "this report is %d pages, more than the %d the Word converter will take. Export the PDF instead."
+            % (doc.page_count, MAX_PAGES)
+        )
+    for index in range(doc.page_count):
+        page = doc[index]
+        # The page's own instruction stream first, because reading its length
+        # costs nothing: 0.08 s for the whole 120,000-shape document against
+        # 2.0 s to count its drawings, and 0.002 s on the reference report.
+        if len(page.read_contents()) > MAX_PAGE_CONTENT_BYTES:
+            raise ConvertError(
+                "page %d of this report is too complex for the Word converter. Export the PDF instead."
+                % (index + 1)
+            )
+        # Then the count itself. get_cdrawings returns plain values rather
+        # than Point and Rect objects, which is what makes it cheap enough to
+        # run on every page: 0.028 s across the 23-page reference report.
+        count = len(page.get_cdrawings())
+        if count > MAX_PAGE_DRAWINGS:
+            raise ConvertError(
+                "page %d of this report draws %d shapes, more than the %d the Word converter will take. "
+                "Export the PDF instead." % (index + 1, count, MAX_PAGE_DRAWINGS)
+            )
 
 
 def strip_bands(doc, bands):
@@ -891,7 +1204,13 @@ def section_index_of(body, block):
 
 
 def squash(text):
-    return re.sub(r"[^0-9a-z]+", "", text.lower())
+    """A title reduced to the characters that identify it, in any script.
+
+    `[^0-9a-z]` reduced every Cyrillic, Greek and CJK title to the empty
+    string, which matched nothing, and an entry that matched nothing used to
+    be deleted along with the rest of its stretch.
+    """
+    return re.sub(r"[\W_]+", "", text.casefold(), flags=re.UNICODE)
 
 
 def write_toc_entry(paragraph, entry, indent, right_stop, pitch, space_before):
@@ -960,6 +1279,16 @@ def rebuild_toc(document, entries, content_left, content_right):
                 break
         else:
             missed += 1
+    if missed:
+        # All or nothing. Replacing a stretch deletes every paragraph in it,
+        # including the ones an unmatched entry came from, so a rebuild that
+        # cannot account for every entry would quietly drop the ones it could
+        # not place. The list the converter wrote is ugly and complete, which
+        # is the better of the two.
+        return 0, [
+            "The table of contents was left as the converter wrote it: %d of %d entries could not be "
+            "matched to it." % (missed, len(entries))
+        ]
 
     written = 0
     for index, run in enumerate(runs):
@@ -1016,14 +1345,140 @@ def rebuild_toc(document, entries, content_left, content_right):
         if block.tag == qn("w:tbl") and not block.findall(qn("w:tr")):
             block.getparent().remove(block)
 
-    warnings = []
-    if missed:
-        warnings.append(
-            "%d table-of-contents %s not rebuilt; %s left as the converter wrote %s."
-            % (missed, "entry was" if missed == 1 else "entries were", "it was" if missed == 1 else "they were",
-               "it" if missed == 1 else "them")
-        )
-    return written, warnings
+    return written, []
+
+
+# ── the safety net: did the Word file keep the PDF's text? ────────────────
+#
+# Every repair above deletes something from the document and writes something
+# back, and a heuristic that deletes the wrong thing is the one failure nobody
+# would notice: the Word file still looks like a report. So the two texts are
+# compared afterwards, and a conversion that lost any of the PDF's words is
+# thrown away and done again with the repairs off.
+
+# Characters a typesetter leaves in the text layer that no reader sees.
+INVISIBLE_FOR_COMPARE = dict.fromkeys(
+    ord(c) for c in "­​‌‍⁠﻿‎‏"
+)
+# Three dots or more is a leader, not words. The PDF writes them as characters
+# and Word draws them from a tab stop, so neither side may count them.
+DOT_RUN = re.compile(r"(?:\.[ \t ]*){3,}")
+# Whitespace, hyphens and dashes: everything a re-flow may add, drop or move.
+SQUASH_DROP = re.compile(r"[\s\-‐‑‒–—−]+", re.UNICODE)
+HAS_ALNUM = re.compile(r"\w", re.UNICODE)
+# A piece of text shorter than this proves nothing: "1." and "LOW" occur all
+# over a report, so finding one somewhere does not mean this one survived, and
+# not finding it would be noise.
+COMPARE_MIN_CHARS = 4
+
+
+W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+W_T = W_NS + "t"
+BREAKS = (W_NS + "tab", W_NS + "br", W_NS + "p")
+
+
+def compare_squash(text):
+    """One block of text, flattened into the form both sides are compared in.
+
+    Everything that a re-flow is allowed to change goes: whitespace of any
+    kind, hyphens and dashes, dot leaders, and the invisible characters a
+    typesetter leaves behind. What is left is the letters and digits in order,
+    which is what has to survive the conversion.
+
+    Whitespace has to go rather than be collapsed, because the two sides
+    disagree about it constantly and none of it is content: the PDF prints
+    "1. {{RECOMMENDATION}}" as two pieces on one line and the converter writes
+    one run reading "1.{{RECOMMENDATION}}"; a word broken across two PDF lines
+    comes back with the hyphen kept, dropped or turned into a space.
+    """
+    out = unicodedata.normalize("NFKC", text).translate(INVISIBLE_FOR_COMPARE)
+    out = DOT_RUN.sub("", out)
+    return SQUASH_DROP.sub("", out).casefold()
+
+
+def body_lines(doc, bands):
+    """The PDF's text for the comparison: one entry per line, with its pieces.
+
+    A band's text is expected once per page in the PDF and once per section in
+    the Word file, and those two counts have nothing to do with each other, so
+    the comparison drops it on both sides instead of trying to reconcile them.
+    Pages that do not carry the band keep every line.
+
+    Each line also carries its columns, because they are the pieces that are
+    really contiguous on the page. A row of a two-column table reads
+    "TECHNIQUES MITIGATIONS" across the page and the converter writes the
+    cells down one column and then the other, which is a re-ordering rather
+    than a loss, and only the columns survive it.
+    """
+    spans = {}
+    for band in bands:
+        for index in band["pages"]:
+            spans.setdefault(index, []).append((band["top"] - BAND_PAD_PT, band["bottom"] + BAND_PAD_PT))
+    lines = []
+    for index in range(doc.page_count):
+        page_spans = spans.get(index, [])
+        for row in page_rows(doc[index]):
+            if any(row["y0"] >= top and row["y1"] <= bottom for top, bottom in page_spans):
+                continue
+            lines.append({"text": row["text"], "pieces": [c["text"] for c in row["columns"]]})
+    return lines
+
+
+def docx_text(path, body_only):
+    """Every word in the Word file, as one string.
+
+    `body_only` leaves out `header*.xml` and `footer*.xml`, which is what the
+    comparison wants when the bands were lifted into them. Everything else is
+    read straight off the XML rather than through python-docx, so table cells,
+    text boxes and anything else carrying a `w:t` is counted without having to
+    know where it sits.
+    """
+    parts = []
+    with zipfile.ZipFile(path) as archive:
+        for name in archive.namelist():
+            if not name.startswith("word/") or not name.endswith(".xml"):
+                continue
+            leaf = name[len("word/"):]
+            if body_only and (leaf.startswith("header") or leaf.startswith("footer")):
+                continue
+            if not (leaf == "document.xml" or leaf.startswith(("header", "footer", "footnotes", "endnotes"))):
+                continue
+            tree = ElementTree.fromstring(archive.read(name))
+            for node in tree.iter():
+                if node.tag == W_T and node.text:
+                    parts.append(node.text)
+                elif node.tag in BREAKS:
+                    parts.append("\n")
+    return "".join(parts)
+
+
+def missing_from_docx(pdf_lines, docx_body_text):
+    """PDF lines the Word file does not contain, in order. Empty is the pass.
+
+    A piece of a line is present when its squashed characters appear, in order
+    and unbroken, somewhere in the Word file's squashed text. Deleting a line
+    is exactly what breaks that: its letters stop being next to each other.
+    A piece shorter than COMPARE_MIN_CHARS is not evidence either way, because
+    "1." and "LOW" appear all over a report, so it is not looked for.
+
+    Three readings were tried, and the numbers are from the reference report,
+    which loses nothing and therefore has to come back clean. Counting words
+    reported 62 lines missing, every one a short token such as "1." whose count
+    differs because the converter merged two table cells. Matching runs of
+    words reported 38, every one a place where the converter's run boundaries
+    fall inside text the PDF had spaced differently. Squashed characters per
+    line reported 8, all of them two-column table rows the converter writes
+    one column at a time. Squashed characters per column report 0, and still
+    catch every deletion the tests below make.
+    """
+    haystack = compare_squash(docx_body_text)
+    missing = []
+    for line in pdf_lines:
+        pieces = [compare_squash(piece) for piece in line["pieces"]] or [compare_squash(line["text"])]
+        looked_for = [p for p in pieces if len(p) >= COMPARE_MIN_CHARS]
+        if any(p not in haystack for p in looked_for):
+            missing.append(line["text"])
+    return missing
 
 
 # ── the run ───────────────────────────────────────────────────────────────
@@ -1049,48 +1504,129 @@ def run_pdf2docx(source, target):
 
 
 def convert(pdf_path, docx_path):
+    """Read the PDF, decide the repairs, convert, and check nothing was lost.
+
+    The two repairs delete part of the document and write something back, and
+    a heuristic that deletes the wrong thing would leave a Word file that
+    still looks like a report. So the result is compared against the PDF's own
+    text, and a conversion that lost any of it is thrown away and done again
+    with both repairs off. That second file keeps the bands in the body and
+    may run to more pages than the PDF, which is said plainly rather than
+    silently traded for a page count.
+    """
     warnings = []
     doc = pymupdf.open(pdf_path)
     try:
         if doc.page_count == 0:
             raise ConvertError("the PDF has no pages")
+        refuse_oversized(doc)
         pages = doc.page_count
         page_height = doc[0].rect.height
         content_left, content_right = content_bounds(doc)
-        bands = [b for b in (detect_band(doc, "top"), detect_band(doc, "bottom")) if b]
+        removed_links = drop_unsafe_pdf_links(doc)
+        if removed_links:
+            warnings.append(
+                "%d link(s) with unsupported addresses were removed from the Word file." % removed_links
+            )
+        bands = []
+        for edge, name in (("top", "header"), ("bottom", "footer")):
+            band, reason = detect_band(doc, edge)
+            if band:
+                bands.append(band)
+            elif reason:
+                warnings.append(
+                    "The running %s could not be lifted out safely (%s), so it stays in the page body "
+                    "and the page count may differ from the PDF." % (name, reason)
+                )
+            else:
+                warnings.append(
+                    "No repeating %s was found, so the Word file has none and its page count may "
+                    "differ from the PDF." % name
+                )
+        if bands and uniform_page_size(doc) is None:
+            bands = []
+            warnings.append(
+                "This report mixes page sizes, so the running header and footer stay in the page body "
+                "and the page count may differ from the PDF."
+            )
         entries = detect_toc(doc, bands)
         band_pages = sorted({index for band in bands for index in band["pages"]})
-        if not bands:
-            warnings.append("No repeating header or footer was found, so the Word file has none.")
-        else:
+        if bands:
             bare = [i for i in range(1, pages) if i not in band_pages]
             if bare:
                 warnings.append(
                     "%d page(s) after the first carry no running header or footer in the PDF; "
                     "Word repeats one on every page but the first." % len(bare)
                 )
+        repaired_lines = body_lines(doc, bands)
+        plain_lines = body_lines(doc, [])
+        # Two inputs: the PDF as it stands, for the fallback, and a copy with
+        # the bands erased, for the repaired pass.
+        plain_pdf = docx_path + ".plain.pdf"
+        doc.save(plain_pdf, garbage=3, deflate=True)
+        stripped_pdf = plain_pdf
+        if bands:
             strip_bands(doc, bands)
-        stripped = docx_path + ".pdf"
-        doc.save(stripped, garbage=3, deflate=True)
+            stripped_pdf = docx_path + ".stripped.pdf"
+            doc.save(stripped_pdf, garbage=3, deflate=True)
     finally:
         doc.close()
 
     part = docx_path + ".part"
+    written = 0
+    fell_back = False
     try:
-        run_pdf2docx(stripped, part)
-    finally:
-        with contextlib.suppress(OSError):
-            os.remove(stripped)
-    if not os.path.exists(part) or os.path.getsize(part) == 0:
-        raise ConvertError("the converter produced no Word file")
+        run_pdf2docx(stripped_pdf, part)
+        if not os.path.exists(part) or os.path.getsize(part) == 0:
+            raise ConvertError("the converter produced no Word file")
+        repair_warnings = []
+        document = Document(part)
+        written, toc_warnings = rebuild_toc(document, entries, content_left, content_right)
+        repair_warnings.extend(toc_warnings)
+        if bands:
+            repair_warnings.extend(apply_bands(document, bands, page_height, content_left, content_right, pages))
+        document.save(part)
+        missing = missing_from_docx(repaired_lines, docx_text(part, body_only=bool(bands)))
+        checked_lines = repaired_lines
 
-    document = Document(part)
-    written, toc_warnings = rebuild_toc(document, entries, content_left, content_right)
-    warnings.extend(toc_warnings)
-    if bands:
-        warnings.extend(apply_bands(document, bands, page_height, content_left, content_right, pages))
-    document.save(part)
-    os.replace(part, docx_path)
+        if missing and (bands or written):
+            # Something the repairs touched is gone. Convert again with both
+            # of them off and keep that file instead, whatever it costs in
+            # page count: a Word file that reads wrong is recoverable, one
+            # that is missing a finding is not.
+            fell_back = True
+            repair_warnings = [
+                "The header and footer could not be lifted safely on this report, so the Word file "
+                "keeps them in the page body and its page count may differ from the PDF."
+            ]
+            run_pdf2docx(plain_pdf, part)
+            if not os.path.exists(part) or os.path.getsize(part) == 0:
+                raise ConvertError("the converter produced no Word file")
+            written = 0
+            bands = []
+            checked_lines = plain_lines
+            missing = missing_from_docx(plain_lines, docx_text(part, body_only=False))
+
+        warnings.extend(repair_warnings)
+        if missing:
+            # Still short after the fallback: this is the converter itself
+            # dropping text, and nothing here can put it back. Name it.
+            sample = "; ".join(truncate(line, 60) for line in missing[:2])
+            warnings.append(
+                "%d line(s) of the PDF could not be found in the Word file, starting with \"%s\". "
+                "Compare the two before sending." % (len(missing), sample)
+            )
+        unsafe = unsafe_docx_targets(part)
+        if unsafe:
+            raise ConvertError(
+                "the Word file came out with a link this server does not allow (%s)"
+                % truncate(unsafe[0], 60)
+            )
+        os.replace(part, docx_path)
+    finally:
+        for temporary in (plain_pdf, stripped_pdf):
+            with contextlib.suppress(OSError):
+                os.remove(temporary)
 
     if written:
         warnings.append("%d table-of-contents entries were rebuilt." % written)
@@ -1100,9 +1636,10 @@ def convert(pdf_path, docx_path):
         "headerFooter": {
             "header": any(b["edge"] == "top" for b in bands),
             "footer": any(b["edge"] == "bottom" for b in bands),
-            "pagesWithBands": len(band_pages),
+            "pagesWithBands": len({index for band in bands for index in band["pages"]}),
         },
         "tocEntries": written,
+        "textCheck": {"pdfLines": len(checked_lines), "missing": len(missing), "fellBack": fell_back},
         "warnings": warnings,
     }
 
@@ -1113,7 +1650,37 @@ def write_result(path, payload):
             json.dump(payload, handle, ensure_ascii=True)
 
 
+def cap_address_space():
+    """Bound this process on Linux, where `resource` exists.
+
+    The relay process is the cgroup's other tenant, so a conversion that runs
+    away should be the one that dies, with a message, rather than leaving the
+    kernel to choose. The limit is on address space rather than RSS because
+    that is what `resource` offers, and PyMuPDF and OpenCV map far more than
+    they touch: measured on the 120,000-shape document, 651 MB of RSS against
+    a little over 2 GB mapped, which is why the number is 3 GB and not 768 MB.
+    Below about 2.5 GB the import of OpenCV itself fails, so a tighter limit
+    would refuse every export rather than only the runaway one. Windows has no
+    `resource` module and relies on the page, shape and size bounds instead.
+    """
+    try:
+        import resource
+    except ImportError:
+        return False
+    soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+    want = ADDRESS_SPACE_LIMIT_BYTES
+    if hard != resource.RLIM_INFINITY:
+        want = min(want, hard)
+    if soft != resource.RLIM_INFINITY and soft <= want:
+        return False
+    with contextlib.suppress(ValueError, OSError):
+        resource.setrlimit(resource.RLIMIT_AS, (want, hard))
+        return True
+    return False
+
+
 def main(argv):
+    cap_address_space()
     if len(argv) != 4:
         print("usage: convert.py <in.pdf> <out.docx> <result.json>", file=sys.stderr)
         return 2
