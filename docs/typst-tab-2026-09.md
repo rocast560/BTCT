@@ -2186,7 +2186,196 @@ and is skipped with the same warning when the margin is thin.
   land exactly and the bodies 2.3 pt low. Same limitation as at the top level.
 - **A table whose rows are not the PDF's** keeps the place the converter gave
   it, so its rules stay up to 1.3 pt low. The risk matrix on page 5 is one:
-  its rows come out 0.7 pt short each, so no single offset fits them.
+  its rows come out 0.7 pt short each, so no single offset fits them. (Part
+  seven measured that table again: its rules land within 0.07 pt of the PDF's,
+  centre to centre. The 0.7 pt is the cumulative rounding in its row heights,
+  which is under the fit's own half-point tolerance, and it does not reach the
+  page.)
 - **The block after a table** is still about 0.8 pt low, because Word puts it
   below the border under the table's last row and the PDF centres that rule
-  on the row's own edge. Nothing in a DOCX can say otherwise.
+  on the row's own edge. Nothing in a DOCX can say otherwise. (Part seven
+  measured all 25 such blocks: median +0.12 pt, mean +0.27, and the two over a
+  point are both on page 3, which starts 0.65 pt low in its own heading table
+  and carries that down the page. The systematic part of this went with the
+  spacing-collapse fix.)
+
+### Fidelity, part seven: one paragraph, two leadings
+
+Four commits. `test_convert.py` 218 to **255 checks, 0 FAIL**. Vitest unchanged
+at 56 files / 592 tests. Same metric, same defaults (`--line-breaks=pdf`), same
+machine, same Word.
+
+**Mean 0.9103 to 0.9145. Median 0.9101 to 0.9175. Worst page unchanged at
+0.8063.** Lines more than a point off their PDF baseline: **30 to 11**. Four
+pages up, none down, 23 pages, 390 of 390 lines, no fallback, 27
+table-of-contents entries, fonts embedded.
+
+The round was meant to be about figures. Page 12's diagram was 7.4 pt out and
+page 10's chart 4.0, and the obvious suspect was how a picture is anchored. It
+was neither. Reading the line-by-line drift rather than the union of a page's
+ink put both numbers on a paragraph instead, and the diagram was within 1.1 pt
+the whole time.
+
+#### One line height cannot be two
+
+pdf2docx writes a sub-heading and the paragraph under it as one paragraph with
+a line break between them. A Word paragraph has one exact line height for every
+line in it, and the report sets those two at different leadings: 19.7 pt under
+the heading, 14.8 between two body lines. Whichever number that one height
+takes, the lines set at the other leading walk away from the page they came
+from, and the pass makes it symmetric on purpose: a block's first baseline is
+placed so the residuals straddle zero, so the heading is pulled up as far as
+the last line is pushed down.
+
+There is a second cost, and it is the one I did not expect. A block's line
+height may not go below its tallest row's own ascent over 0.8, or Word clips
+the capitals. A sub-heading's ascent is 13.1 pt, so its floor is 16.4 pt, so
+body lines the report set at 14.8 could not have their own leading even in
+principle while they shared a paragraph with it.
+
+Five blocks of the reference report, on four pages:
+
+| page | rows | the PDF's leadings | residual, before |
+|---|---|---|---|
+| 7 | 9 | 22.76 and 15.68, alternating | -3.07 to +3.74 |
+| 10 | 6 | 15.68 then 14.83 | -3.10 to +3.95 |
+| 11 | 3 | 15.68 then 14.83 | -0.73 to +1.58 |
+| 11 | 5 | 15.68 then 14.83 | -2.31 to +3.16 |
+| 12 | 4 | 19.68 then 14.83 | -2.44 to +7.29 |
+
+The cut is at the leading change. The smallest gap between two of a block's
+baselines is the leading it was set at; anything wider is the space a report
+puts between two blocks, and that is where the paragraph becomes two. A line
+break becomes a paragraph break, so not one character is added or lost and the
+text check reads both the same way: it turns a `w:br` and a `w:p` into the same
+newline and then squashes whitespace out.
+
+Part three built this and took it out, because splitting a block moved the
+tables under it by 12.3 pt. The reason was worth finding. The pass keeps a
+table where the converter put it by walking the converter's own heights
+alongside its corrected ones, and a structural change broke that second walk.
+The cure is arithmetic rather than bookkeeping: the first piece keeps the
+spacing before, the last keeps the spacing after, the seams get none, and every
+piece keeps the line height, so the pieces come to exactly the number of points
+the one paragraph came to. The second walk then reaches the same place, and a
+page cannot grow even if nothing is placed afterwards. A piece the layout pass
+does not go on to place is joined back up rather than left with nothing above
+it.
+
+#### Word keeps the larger of two spacings
+
+Cutting page 12's paragraph fixed its lines and cost the page 0.024, which is
+what sent me looking. The model said the heading's baseline would land at 86.10
+and Word drew it at 83.30; three patched renders of the same file disagreed
+about where the error was, which meant the model was wrong rather than the
+spacing.
+
+It was one line of the model. The spacing after one paragraph and the spacing
+before the next do not add up. Word keeps the larger and discards the other.
+Twelve cases, one per page, both values stated and neither inherited:
+
+| after | before | Word's gap | sum | larger |
+|---|---|---|---|---|
+| 10.0 | 10.0 | 10.00 | 20.0 | 10.0 |
+| 12.0 | 4.0 | 11.92 | 16.0 | 12.0 |
+| 4.0 | 12.0 | 11.92 | 16.0 | 12.0 |
+| 9.0 | 6.0 | 8.92 | 15.0 | 9.0 |
+| 5.0 | 20.0 | 19.88 | 25.0 | 20.0 |
+
+Every one landed on the larger within 0.12 pt. Part four wrote the opposite
+down and was not so much wrong as unlucky: in each of its cases one of the two
+was zero, and there the two rules agree. On this report the converter writes a
+non-zero spacing after in one place, the empty run-up paragraph that opens a
+page, and there lowering the next block's spacing before did nothing at all
+until the one above gave its own back.
+
+#### A table is the rectangle the PDF drew for it
+
+With the model corrected, page 12's text landed and its diagram did not: it
+went to 3.8 pt above the PDF, because it had been sitting where two errors
+cancelled. The existing correction could not help. It fits a table's row
+boundaries against the rules the PDF drew across the same span, and the diagram
+is one row with no rules inside it; it also only ever moves a table up.
+
+The diagram does have a rectangle: 79.20 to 532.80 wide, 324.00 tall. So does
+the table the converter built for it, to the twentieth of a point. A table
+whose left edge, right edge and height are all one of the page's rectangles is
+that rectangle, and the PDF says where its top goes. Three sides agreeing is
+enough to move it in either direction, which the fit against rules is not
+allowed to do: a box states its own top, while a rule only says that something
+lines up there and the wrong rule lines up just as well. Two rectangles that
+both fit and disagree about the offset are no evidence, so there the table
+keeps its place.
+
+#### Per page
+
+| page | before | after | | page | before | after |
+|---|---|---|---|---|---|---|
+| 1 | 0.9942 | 0.9942 | | 13 | 0.9751 | 0.9751 |
+| 2 | 0.8704 | 0.8704 | | 14 | 0.8848 | 0.8848 |
+| 3 | 0.8782 | 0.8782 | | 15 | 0.9377 | 0.9377 |
+| 4 | 0.9232 | 0.9232 | | 16 | 0.9095 | 0.9095 |
+| 5 | 0.8408 | 0.8408 | | 17 | 0.9439 | 0.9439 |
+| 6 | 0.9175 | 0.9175 | | 18 | 0.9089 | 0.9089 |
+| 7 | 0.9521 | **0.9641** | | 19 | 0.9438 | 0.9438 |
+| 8 | 0.9671 | 0.9671 | | 20 | 0.9101 | 0.9101 |
+| 9 | 0.8553 | 0.8553 | | 21 | 0.9437 | 0.9437 |
+| 10 | 0.9029 | **0.9238** | | 22 | 0.8063 | 0.8063 |
+| 11 | 0.8365 | **0.8913** | | 23 | 0.9068 | 0.9068 |
+| 12 | 0.9283 | **0.9363** | | | | |
+
+Four up, nineteen identical to four decimal places, none down. Page 11 is the
+biggest single move any page has made in seven rounds of this.
+
+#### The two older targets, measured again
+
+Both of the things part six wrote down as remaining turned out to be smaller
+than they read.
+
+**Page 5's risk matrix.** Its rows are declared 19.7 and 19.8 pt against the
+PDF's 19.76, which is 0.16 pt of drift over six rows and well inside the fit's
+own half-point tolerance, so the fit accepts staying still rather than declining
+to move. Measured on the render, its rules land 0.07 pt from the PDF's, centre
+to centre. Nothing to fix.
+
+**The block after a table.** All 25 of them: median +0.12 pt, mean +0.27, and
+the two over a point are both on page 3, whose own first block is a heading
+table that starts 0.65 pt low and carries that down the page. The systematic
+0.8 pt went with the spacing-collapse fix, which is where it came from.
+
+#### The fallback got a rung below itself
+
+A safety review of part six pointed out that the fallback had outgrown its own
+comment. It turns the header, footer and table-of-contents repairs off and
+converts again, on the stated ground that the decoration cannot lose text; by
+part six the decoration rebuilt a run of code into a table, cropped pictures,
+broke lines and moved blocks, tables and the text inside cells, and part seven
+added cutting a paragraph in two. So there is now a third rung that converts
+once more and decorates at a level that rearranges nothing: shading where a
+panel would have been built, no crop, no break, no cut, nothing placed. It says
+so in a warning, and it is budgeted like the rung above it. A test vandalises
+the table pass on the 120-row table document, which has neither a band nor a
+table of contents, so that rung is the only one left to save the line.
+
+#### What is still out
+
+- **A cell holding two line pitches.** The cut works on a top-level paragraph,
+  where a block's PDF rows are known from the same pairing the layout pass
+  uses. Inside a table cell the rows are only known once the grid has been
+  anchored, which happens in the middle of the walk, so the same fix there
+  needs the cut to run from inside the walk and to be undoable per page. A
+  finding card's bodies are still 2.3 pt low in the middle for this reason.
+- **Two lines the PDF sets closer than Word's boxes allow.** An exact line box
+  puts 0.8 of its height above the baseline and 0.2 below, so two blocks need
+  at least 0.2 of the first plus 0.8 of the second between their baselines.
+  Page 4 asks for 17.0 pt where the two boxes need 19.6, and shortening them is
+  bounded by the ascent floor. Six blocks on two pages, up to 2.0 pt. A DOCX
+  cannot express it: there is no way to say "this box is 19.6 pt tall but sits
+  2.6 higher than that implies".
+- **Justification and glyph positions**, as in every round since part one. Page
+  22 is still the worst page at 0.8063 and almost all of it is that.
+- **A badge two tables deep** on a finding card, 1.6 pt low, for the reason
+  part six gave: its row is already shorter than the line box inside it.
+- **The heading table that opens a page** is 0.65 pt low, so pages 3 and 4
+  carry that down. It is the same family as the cell-border inset part six
+  measured and not the same number, so a term in that model is still missing.

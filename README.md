@@ -462,9 +462,13 @@ command palette. There is one report per workspace.
     thrown away and the report is converted again with both repairs off, and
     the banner says: "The header and footer could not be lifted safely on this
     report, so the Word file keeps them in the page body and its page count
-    may differ from the PDF." If text is still missing after that, the file is
-    kept and the banner names how many lines and the first of them, so you can
-    check before sending.
+    may differ from the PDF." If text is still missing, there is one more rung:
+    the report is converted again and nothing is rearranged at all, so no code
+    panel is rebuilt as a table, no picture is cropped, no line is broken and
+    no block is moved onto the PDF's baselines. That file looks least like the
+    PDF and says so in the banner. If text is still missing after that, the
+    file is kept and the banner names how many lines and the first of them, so
+    you can check before sending.
   - **The Word file matches the PDF line for line.** Each paragraph is broken
     where the PDF broke it, with a manual line break, so the pages read the
     same. A word the typesetter broke across two lines keeps its hyphen. The
