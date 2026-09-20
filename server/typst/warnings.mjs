@@ -15,14 +15,14 @@ const MAX_WARNING_CHARS = 4000;
 /**
  * The `X-Export-Warnings` value, or '' when there is nothing to send.
  *
- * Every entry is shortened first. A pandoc `[WARNING]` line has no length
- * bound, and before that an entry longer than the whole-header cap dropped
- * the header entirely: the export succeeded, and the operator was told
- * nothing at all, including about the other nine warnings.
+ * Every entry is shortened first. Nothing that reaches this list has a
+ * length bound of its own, and before that an entry longer than the
+ * whole-header cap dropped the header entirely: the export succeeded, and the
+ * operator was told nothing at all, including about the other nine warnings.
  */
 export function encodeWarnings(warnings) {
-  // One duplicate name, or one image pandoc could not fetch, produces the
-  // same sentence per occurrence. The reader needs it once.
+  // One duplicate asset name produces the same sentence per occurrence.
+  // The reader needs it once.
   let list = [...new Set(warnings ?? [])]
     .slice(0, MAX_WARNINGS)
     .map((w) => truncate(String(w), MAX_ONE_WARNING_CHARS));

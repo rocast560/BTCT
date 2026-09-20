@@ -747,7 +747,7 @@ export function TypstView({ workspaceId }: { workspaceId: ID }) {
             <button
               onClick={() => void serverExport('docx')}
               disabled={serverExporting !== null}
-              title="Word file made on the server with pandoc. Headings, text, tables and figures carry over; custom Typst layout does not. Redactions are baked in first."
+              title="Word file made on the server from the finished PDF, so it keeps the layout. Redactions are baked in first. Fonts are not embedded: install the report's fonts to see them in Word."
               className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-[hsl(var(--accent))] disabled:opacity-40"
             >
               <FileDown size={13} /> {serverExporting === 'docx' ? 'Converting…' : 'DOCX'}

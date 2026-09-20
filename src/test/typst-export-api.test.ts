@@ -2,7 +2,7 @@
 // the capability probe, the export call's blob/warnings decoding, and the
 // pure warning rewrite used for display.
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { displayWarning, exportOnServer, fetchExportCapabilities, serverExportNotice } from '@/lib/typst-export-api';
+import { exportOnServer, fetchExportCapabilities, serverExportNotice } from '@/lib/typst-export-api';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -29,13 +29,13 @@ describe('typst export api', () => {
   });
 
   it('decodes a well-formed warnings header into an array', async () => {
-    const encoded = encodeURIComponent(JSON.stringify(['Figure slot 2 (line 14): the caption is computed, so the Word file shows "Figure" instead.']));
+    const encoded = encodeURIComponent(JSON.stringify(['No repeating header or footer was found, so the Word file has none.']));
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]), {
       status: 200,
       headers: { 'X-Baked-Images': '0', 'X-Export-Warnings': encoded },
     })));
     const out = await exportOnServer('w1', 'docx');
-    expect(out.warnings).toEqual(['Figure slot 2 (line 14): the caption is computed, so the Word file shows "Figure" instead.']);
+    expect(out.warnings).toEqual(['No repeating header or footer was found, so the Word file has none.']);
   });
 
   it('never throws on a malformed warnings header (bad percent-escape)', async () => {
@@ -69,18 +69,6 @@ describe('typst export api', () => {
     await expect(exportOnServer('w1', 'pdf')).rejects.toThrow('Could not reach the server.');
   });
 
-  describe('displayWarning', () => {
-    it('rewrites the figure-slot form to lead with the line number', () => {
-      expect(displayWarning('Figure slot 2 (line 14): the caption is computed, so the Word file shows "Figure" instead.'))
-        .toBe('Line 14: the caption is computed, so the Word file shows "Figure" instead.');
-    });
-
-    it('leaves other text unchanged', () => {
-      expect(displayWarning('One image could not be re-encoded and was skipped.'))
-        .toBe('One image could not be re-encoded and was skipped.');
-    });
-  });
-
   describe('serverExportNotice', () => {
     // X-Baked-Images is the only thing that tells an operator the redactions
     // actually went into the file they just downloaded, and it was returned
@@ -94,11 +82,13 @@ describe('typst export api', () => {
     });
 
     it('leads with the redaction count and then the notes', () => {
-      expect(serverExportNotice(1, ['Figure slot 2 (line 14): the caption is computed, so the Word file shows "Figure" instead.']))
+      // Warnings reach the banner in the server's own wording: the converter
+      // writes them for an operator and nothing here rewords them.
+      expect(serverExportNotice(1, ['27 table-of-contents entries were rebuilt.']))
         .toBe([
           '1 image(s) had their redactions baked in.',
           'Exported, with 1 note(s):',
-          'Line 14: the caption is computed, so the Word file shows "Figure" instead.',
+          '27 table-of-contents entries were rebuilt.',
         ].join('\n'));
     });
 

@@ -53,17 +53,6 @@ function decodeWarningsHeader(header: string | null): string[] {
   }
 }
 
-// The dialog that places a screenshot into a figure slot identifies it by
-// caption and source line, not by this ordinal, so the ordinal is dropped
-// for display and the line takes the lead instead.
-const FIGURE_SLOT_WARNING = /^Figure slot \d+ \(line (\d+)\): (.*)$/;
-
-/** Reword a server warning for the banner. Unrecognised text passes through. */
-export function displayWarning(warning: string): string {
-  const m = FIGURE_SLOT_WARNING.exec(warning);
-  return m ? `Line ${m[1]}: ${m[2]}` : warning;
-}
-
 /**
  * The banner after a server export, or null when there is nothing to say.
  *
@@ -78,7 +67,7 @@ export function serverExportNotice(baked: number, warnings: string[]): string | 
   return [
     ...(redacted === null ? [] : [redacted]),
     `Exported, with ${warnings.length} note(s):`,
-    ...warnings.map(displayWarning),
+    ...warnings,
   ].join('\n');
 }
 

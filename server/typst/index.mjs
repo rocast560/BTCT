@@ -20,7 +20,10 @@ export async function handleTypst(req, res, { user, sendJson, setCors = () => {}
   if (!user) { sendJson(res, 401, { error: 'unauthorised' }); return true; }
 
   if (req.method === 'GET' && url.pathname === '/api/typst/capabilities') {
-    sendJson(res, 200, capabilities());
+    // Asynchronous because the Word converter's answer is "can this Python
+    // import pdf2docx", which is a child process. The result is cached, so
+    // this is a promise that has usually already settled.
+    sendJson(res, 200, await capabilities());
     return true;
   }
 
