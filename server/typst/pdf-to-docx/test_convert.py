@@ -270,6 +270,40 @@ def run_cell_checks():
     passed &= check(convert.table_grid(loose._tbl, 0.0, 0.0) is None,
                     "cells: a row Word is free to size has no grid")
 
+    # A cell whose whole text is too short to pair on is paired by being the
+    # only thing in the cell. The number of a numbered heading squashes to "2",
+    # which occurs all over a report.
+    one = exact_table(Document(), [40.1], [24.8, 480.0])
+    fill_cell(one.rows[0].cells[0], "2.", before=0.0, line=25.2)
+    fill_cell(one.rows[0].cells[1], "INTRODUCTION", before=0.0, line=23.65)
+    boxes = convert.table_grid(one._tbl, 69.4, 54.0)[0]["cells"]
+    single = [pdf_line("2.", 88.29, 54.0, 66.0, ascent=12.6)]
+    passed &= check(convert.sole_pairing(boxes[0]["cell"], single, 0) == (0, 1),
+                    "cells: one paragraph and one line in a cell are each other's",
+                    convert.sole_pairing(boxes[0]["cell"], single, 0))
+    passed &= check(convert.sole_pairing(boxes[0]["cell"], single, 1) is None,
+                    "cells: not when something in the cell is already placed")
+    passed &= check(convert.sole_pairing(boxes[0]["cell"], single + single, 0) is None,
+                    "cells: nor when two lines fell into the cell")
+    two_paragraphs = exact_table(Document(), [40.1], [100.0])
+    fill_cell(two_paragraphs.rows[0].cells[0], "first", before=0.0, line=12.0)
+    second = two_paragraphs.rows[0].cells[0].add_paragraph()
+    convert.set_spacing(second._p, before=0.0, after=0.0, line=12.0)
+    second.add_run("second")
+    passed &= check(convert.sole_pairing(two_paragraphs.rows[0].cells[0]._tc, single, 0) is None,
+                    "cells: nor when the cell holds two paragraphs of text")
+
+    # And end to end: the number lands on the title's baseline, which is what
+    # the reader sees, rather than 1.25 pt under it.
+    lines = [pdf_line("2.", 88.29, 54.0, 66.0, ascent=12.6),
+             pdf_line("INTRODUCTION", 88.29, 87.35, 300.0, ascent=12.6)]
+    moved, undo = convert.align_table_cells(one._tbl, 69.4, 54.0, lines)
+    numbered = convert.paragraph_metrics(one.rows[0].cells[0].paragraphs[0]._p)
+    passed &= check(moved >= 1 and numbered is not None
+                    and abs(69.4 + numbered["before"] + 0.8 * numbered["line"] - 88.29) < 0.05,
+                    "cells: a heading's number lands on the title's own baseline",
+                    numbered and 69.4 + numbered["before"] + 0.8 * numbered["line"])
+
     # A list marker and the text beside it are two columns of one row and one
     # line of one cell.
     merged = convert.merged_lines([pdf_line("1.", 100.0, 60.0, 68.0),

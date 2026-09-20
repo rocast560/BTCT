@@ -3082,6 +3082,8 @@ def place_cell(box, row_top, bottom, lines, undo, anchors, depth):
                 return moved, True
             key = block_key(block)
             span = consume_rows(ordered, placed, key) if len(key) >= COMPARE_MIN_CHARS else None
+            if span is None and key:
+                span = sole_pairing(box["cell"], ordered, placed)
             gap, line, count = metrics["before"], metrics["line"], metrics["lines"]
             if span is not None:
                 placed = span[1]
@@ -3146,6 +3148,33 @@ def place_cell(box, row_top, bottom, lines, undo, anchors, depth):
     # writes them to a twentieth of a point and a cell that was already full
     # stays full.
     return moved, cursor <= max(bottom, was) + CELL_CLIP_PT
+
+
+def sole_pairing(cell, ordered, placed):
+    """`(start, end)` for a cell whose one line of text is beyond doubt.
+
+    A cell's lines are chosen by geometry rather than by reading, so a cell
+    holding exactly one paragraph with text in it, with exactly one line
+    dropped into it and nothing placed yet, has nothing to match: the two are
+    each other's.
+
+    It is the only way to place such a cell when its text is too short to pair
+    on. The number of a numbered heading is written in a cell of its own and
+    squashes to "2", which occurs all over a report and is evidence of
+    nothing, so the pairing declined and the number kept the line height the
+    converter gave it. On the reference report that is 25.2 pt against the
+    23.65 the title beside it has, and Word drew the two 1.25 pt apart where
+    the PDF has them on one baseline, on eight of its pages.
+    """
+    if placed or len(ordered) != 1:
+        return None
+    found = 0
+    for block in cell:
+        if block.tag == qn("w:tbl"):
+            return None
+        if block.tag == qn("w:p") and compare_squash(paragraph_text(block)):
+            found += 1
+    return (0, 1) if found == 1 else None
 
 
 def keep_spacing(undo, block, metrics):
