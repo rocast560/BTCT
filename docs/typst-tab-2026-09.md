@@ -2006,22 +2006,165 @@ Some of the remaining difference is not a bug to be fixed.
 - **Padding between a shaded paragraph and its grey.** Word fills a shaded
   paragraph between its indents and over its line boxes only, never over its
   spacing: measured on five cases, the grey box round a paragraph with 9 pt of
-  space before and after is the same box. So a code panel's top, bottom and
-  left padding can only be bought by moving the code itself, and the code
-  staying where the PDF put it is worth more. The accent bar down the panel's
-  edge is a border rather than shading, so that one can be placed exactly, and
-  is.
+  space before and after is the same box. A paragraph therefore cannot carry a
+  panel's padding, which is why a code panel is a table now (part six).
 - **One line height per paragraph.** Where the converter writes a sub-heading
   and the paragraph under it as a single block, the PDF has two different line
   pitches inside it and Word can only be given one. Splitting the block cures
   that and costs more elsewhere; see above.
-- **The text inside a data table's rows** sits about 2.3 pt below the PDF's
-  while the rules coincide. It is the same fault as the section heading and
-  the same cure would work, but the PDF reads a table row across its columns
-  and the converter writes it down one column and then the next, so the two
-  orders only agree for a single-column table and the rows cannot be paired
-  up with confidence.
 - **Justification.** On a page of justified prose the line ends now agree
   exactly and the words inside a line do not: Word distributes the slack by
   its own rule. That is most of what is left on the prose pages and there is
   no knob for it.
+
+### Fidelity, part six: inside a table
+
+Three commits. `test_convert.py` 141 to **206 checks, 0 FAIL**. Vitest
+unchanged at 56 files / 592 tests. Same metric, same defaults
+(`--line-breaks=pdf`), same machine, same Word.
+
+**Worst page 0.7753 to 0.8063. Median 0.9021 to 0.9101. Mean 0.8900 to
+0.9103.** Lines more than a point off their PDF baseline: **80 to 30**. Still
+23 pages, 390 of 390 lines, no fallback, 27 table-of-contents entries, fonts
+embedded.
+
+Everything the vertical pass does stopped at a table. It puts every top-level
+block on the baseline the PDF has for it, and then a table came along and it
+placed the box without looking inside. So the rows of a data table sat 2.3 pt
+low, and a finding card's text 4.4 pt low by the middle of the card.
+
+#### Why the rows could not be paired before, and what pairs them now
+
+The PDF reads a table row across its columns. The converter writes it down
+one column and then the next. Join both to a string and they never agree, so
+two earlier rounds tried matching a row's text and gave up, and the one case
+that did work was a heading table, which has a single line in a single cell.
+
+The pairing is geometry, not order. A table's row heights and cell widths are
+already the PDF's own rules, because pdf2docx reads them off the page, so
+anchoring that grid at the table's top left corner puts every cell back where
+the PDF drew it, and a text line belongs to the cell whose rectangle holds its
+centre. I checked that before writing the pass: 341 cells over 23 pages, 324
+of them collecting exactly the text the file has in them, and the 17 that did
+not were cells holding a nested table, where the order inside does not matter
+because the pass recurses into it.
+
+One thing had to be unlearned on the way. A page's rows are split into
+columns so that two cells of the same table row can be told apart, and inside
+one cell those pieces are a single line again. Reading a list marker and the
+text beside it as two lines put every numbered remediation step half a line
+height too high, which cost four pages about 0.02 each before I caught it.
+
+#### Word's cell layout rule, measured
+
+With `w:lineRule="exact"` Word draws a baseline at 0.8 of the line height.
+Inside a cell there are two more terms, and I had one of them wrong:
+
+> The first baseline inside a cell sits at the row's top, plus the cell's own
+> **top border**, plus the cell's top margin, plus the first paragraph's
+> spacing before (which is **not** dropped the way it is at the top of a
+> page), plus 0.8 times the exact line height.
+
+The border term is the one that is not obvious. Measured over 151 cells of
+the reference report's Word render: with it, 148 of them land within 0.2 pt
+of where the model says and the median residual is 0.02 pt; without it the
+median is 0.74, which is the rule the report draws across the top of a card.
+With the whole model in place, 242 of 244 paragraphs in the finished file sit
+within 0.3 pt of their predicted baseline.
+
+Nothing changes height. Rows keep their exact heights, so no rule moves and
+no page can grow, and a correction that would push a cell's last line past
+the bottom Word clips an exact row at gives that whole table back.
+
+#### The code panel is a table now
+
+Word fills a shaded paragraph between its indents and over its line boxes
+only, so the grey hugged the code where the PDF leaves 7 pt above it, 4.8
+below and 9 to the left. A table can say that. The cell carries the fill, the
+accent bar is a narrow cell of its own in the bar's colour, and the row is
+exactly as tall as the PDF's rectangle. The panel now lands within 0.5 pt of
+the PDF's rectangle on every side.
+
+An earlier round built this shape and reverted it, because placing the table
+needed the left edge of whatever contains it and inside a finding card that
+container is a table cell whose x the converter does not record. It does not
+need it. The panel is placed relative to the code it holds: the indent the
+converter gave the code is spent on the table's indent, the bar's cell and
+the text cell's left margin, and those three add up to the same number, so
+the code does not move at all.
+
+Three things about Word the shape had to be built around, each found by a
+render that came out wrong:
+
+- It **grows a row with an exact height by the cell's bottom margin**, which
+  added 4.7 pt of panel the PDF does not have. So the top and bottom margins
+  stay at nothing and the padding above and below the code is the spacing the
+  vertical pass writes. A cell's fill covers its spacing, which is the whole
+  reason a table works here and a paragraph does not.
+- It **insets a cell's content by half a left border**, which put the code
+  3.6 pt out when the bar was a border. Hence the bar as a cell.
+- **Two tables that touch are one table**, so a paragraph goes either side.
+
+#### And then the tables themselves could move
+
+With the text inside a table no longer depending on where the table sits, the
+table became safe to move, which it was not in the two rounds that tried it.
+It was worth moving: the converter reaches a table through the spacing of
+everything above it, so its rules came out 1.1 to 1.3 pt below the PDF's.
+
+The correction is not read off one rule, which is what the earlier attempts
+did and why they failed. It is the offset that lines up the most of the
+table's own row boundaries with the edges the PDF drew across the same span:
+the distance between the rules has to agree as well, and three boundaries
+have to land before the fit is believed.
+
+Two more things I measured rather than assumed. Only strokes count, never a
+filled block's own edges: Word paints a cell's fill below the cell's top
+border and the PDF paints it at the boundary, so matching a row boundary to a
+colour band's edge moved four pages the wrong way by 0.6 pt. And the
+correction is upwards only. Every error the converter's spacing makes points
+the same way, which is why two inks that agree at the top of a page are 8 to
+14 pt apart by the bottom, so a table is drawn below where the PDF has it and
+never above. Allowing downward moves cost pages 5 and 11 about 0.03 each and
+gave nothing back.
+
+#### Per-page similarity, part five end to part six end
+
+| page | before | after | | page | before | after |
+|---|---|---|---|---|---|---|
+| 1 | 0.9942 | 0.9942 | | 13 | 0.9751 | 0.9751 |
+| 2 | 0.8705 | 0.8704 | | 14 | 0.7890 | **0.8848** |
+| 3 | 0.7753 | **0.8782** | | 15 | 0.9256 | **0.9377** |
+| 4 | 0.9234 | 0.9232 | | 16 | 0.8813 | **0.9095** |
+| 5 | 0.8267 | **0.8408** | | 17 | 0.9281 | **0.9439** |
+| 6 | 0.9050 | **0.9175** | | 18 | 0.8811 | **0.9089** |
+| 7 | 0.9523 | 0.9521 | | 19 | 0.9280 | **0.9438** |
+| 8 | 0.9671 | 0.9671 | | 20 | 0.8828 | **0.9101** |
+| 9 | 0.8222 | **0.8553** | | 21 | 0.9279 | **0.9437** |
+| 10 | 0.9021 | **0.9029** | | 22 | 0.8009 | **0.8063** |
+| 11 | 0.8308 | **0.8365** | | 23 | 0.8527 | **0.9068** |
+| 12 | 0.9270 | **0.9283** | | | | |
+
+Nineteen pages up. The three that read as down, 2, 4 and 7, moved by 0.0001
+to 0.0002, which is the render rounding to the same page twice.
+
+#### Cost
+
+0.79 s on a 25-page report whose one table has 1,249 rows and 6,420 cells,
+against the 376 s pdf2docx spends on the same document. The pass is linear in
+rows: 0.067 ms a cell at 250 rows and 0.112 ms at 4,000, which is the sort by
+line position and not the walk. It still counts against the fidelity budget
+and is skipped with the same warning when the margin is thin.
+
+#### What is still out, inside a table
+
+- **A cell holding two line pitches.** A finding card writes "Vulnerability
+  Description" and the paragraph under it as one paragraph of six lines at two
+  alternating pitches, and one exact line height cannot be both. The headings
+  land exactly and the bodies 2.3 pt low. Same limitation as at the top level.
+- **A table whose rows are not the PDF's** keeps the place the converter gave
+  it, so its rules stay up to 1.3 pt low. The risk matrix on page 5 is one:
+  its rows come out 0.7 pt short each, so no single offset fits them.
+- **The block after a table** is still about 0.8 pt low, because Word puts it
+  below the border under the table's last row and the PDF centres that rule
+  on the row's own edge. Nothing in a DOCX can say otherwise.
