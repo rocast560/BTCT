@@ -26,6 +26,7 @@ Nothing here knows what a report is. A PDF with no running band and no table
 of contents goes through both steps untouched.
 """
 
+import bisect
 import contextlib
 import copy
 import json
@@ -137,6 +138,27 @@ PANEL_MIN_SIDE_PT = 3.0
 # measures spacing in twentieths of a point and will not take a line of none,
 # so this is the smallest box it will draw, and it draws nothing in it.
 SPACER_LINE_PT = 0.05
+# A drawing this thin and this wide is a rule rather than a filled shape. The
+# reference report's heaviest rule is 1.5 pt.
+RULE_MAX_THICKNESS_PT = 2.5
+# How far a table may be moved onto the rules the PDF drew for it. The
+# converter's own placement is out by up to 1.27 pt on the reference report,
+# so this is three times the worst of that, and the report's closest two
+# rules are 17.6 pt apart, so there is no second candidate inside it.
+TABLE_TOP_PT = 4.0
+# How far a rule's end may sit from the table's own edge and still be that
+# table's rule. A stroke's round cap reaches past the corner it is drawn to,
+# which on the reference report is 0.33 pt.
+TABLE_EDGE_PT = 3.0
+# How close a row boundary has to be to a PDF edge to count as landing on it.
+# The converter's rows land within 0.2 pt of the PDF's across a whole table,
+# so this is loose enough for that and far tighter than the 17.6 pt between
+# two of the report's rules.
+TABLE_FIT_PT = 0.5
+# How many of a table's boundaries have to land on the PDF's edges before the
+# fit is believed. Two is a coincidence between any two rules; three means
+# the distance between them agrees as well, which one stray rule cannot fake.
+TABLE_FIT_MIN = 3
 SWATCH_MAX_SIDE_PT = 14.0
 SWATCH_TEXT_GAP_PT = 10.0
 # How many characters either side of a run boundary identify it. Eight is
@@ -2845,6 +2867,60 @@ def block_key(element):
     return compare_squash(paragraph_text(element))
 
 
+def fitted_rows(edges, bounds, offset):
+    """How many of a table's row boundaries land on a PDF edge, moved by `offset`."""
+    hits = 0
+    for value in bounds:
+        wanted = value + offset
+        position = bisect.bisect_left(edges, wanted)
+        if any(abs(candidate - wanted) <= TABLE_FIT_PT
+               for candidate in edges[max(0, position - 1):position + 1]):
+            hits += 1
+    return hits
+
+
+def table_top_offset(edges, table, left, modelled):
+    """How far a table has to move for its rules to land on the PDF's.
+
+    The converter reaches a table through the spacing of everything above it,
+    so a table carries whatever error those blocks came to: on the reference
+    report they come out up to 1.3 pt below the rules the PDF drew for them.
+
+    The correction is not read off one rule. A page has other rules near a
+    table and the wrong one moves it further away, which is what an earlier
+    round measured and took out. It is the offset that lines up the most of
+    the table's own row boundaries with the edges the PDF drew across the
+    same span, and a boundary count is not something one stray rule can fake:
+    the offsets worth trying are the few a nearby edge suggests for the top
+    boundary, and a table keeps its place unless one of them fits more of its
+    rows than staying still does.
+    """
+    rows = table_grid(table, modelled, left)
+    if rows is None or len(rows) < TABLE_FIT_MIN or not rows[0]["cells"]:
+        return 0.0
+    start, end = rows[0]["cells"][0]["x0"], rows[0]["cells"][-1]["x1"]
+    near = sorted(edge["y"] for edge in edges
+                  if abs(edge["x0"] - start) <= TABLE_EDGE_PT and abs(edge["x1"] - end) <= TABLE_EDGE_PT)
+    if not near:
+        return 0.0
+    bounds = [rows[0]["y0"]] + [row["y1"] for row in rows]
+    best, score = 0.0, fitted_rows(near, bounds, 0.0)
+    for edge in near:
+        offset = edge - bounds[0]
+        # Upwards only. Every error the converter's spacing makes points the
+        # same way, which is why two inks that agree at the top of a page are
+        # 8 to 14 pt apart by the bottom of it, so a table is drawn below
+        # where the PDF has it and never above. An edge further down is
+        # another rule, or the fill Word paints under a cell's top border,
+        # and moving a table onto one of those took four pages backwards.
+        if not -TABLE_TOP_PT <= offset <= -RHYTHM_TOLERANCE_PT:
+            continue
+        count = fitted_rows(near, bounds, offset)
+        if count > score:
+            best, score = offset, count
+    return best if score >= TABLE_FIT_MIN else 0.0
+
+
 def known_panel(anchors, element):
     """`(top, was_height)` for a table the decoration pass built, else None.
 
@@ -3047,6 +3123,29 @@ def first_baseline_target(rows, line):
     return median(sorted(row["base"] - order * line for order, row in enumerate(rows)))
 
 
+def page_edges(doc):
+    """Every horizontal edge the PDF draws, page by page.
+
+    A rule counts once, at its centre, and a filled rectangle twice, at its
+    top and at its bottom: a table drawn with banded rows has no stroke
+    between two of them and the band's own edge is the rule. These are what a
+    table's row boundaries are fitted against, because the converter reaches
+    a table through the spacing of everything above it and that spacing
+    carries whatever error those blocks came to.
+    """
+    pages = []
+    for index in range(doc.page_count):
+        found = []
+        for drawing in doc[index].get_drawings():
+            rect = drawing["rect"]
+            if rect.width < PANEL_MIN_WIDTH_PT:
+                continue
+            if rect.height <= RULE_MAX_THICKNESS_PT:
+                found.append({"y": (rect.y0 + rect.y1) / 2.0, "x0": rect.x0, "x1": rect.x1})
+        pages.append(found)
+    return pages
+
+
 def page_anchor_rows(doc, bands):
     """Every page's text rows, band members dropped, each with its own key."""
     members = set()
@@ -3111,7 +3210,7 @@ class PageWalk:
         self.was_pending = was_after
 
 
-def place_page(section, blocks, rows, lines, page_height, absolute, anchors=()):
+def place_page(section, blocks, rows, lines, page_height, absolute, anchors=(), edges=()):
     """Walk one page's blocks, correcting the spacing between them.
 
     Returns `(undo, changed, fits, drift)`: what to restore, how many blocks
@@ -3228,8 +3327,11 @@ def place_page(section, blocks, rows, lines, page_height, absolute, anchors=()):
             # move is the gap above it, which takes up whatever the
             # corrections above have added or removed.
             known = known_panel(anchors, block)
+            wanted = walk.was + walk.was_pending if known is None else known[0]
+            if known is None:
+                wanted += table_top_offset(edges, block, section.left_margin.pt, wanted)
             if earlier is not None:
-                gap = max(0.0, (walk.was + walk.was_pending if known is None else known[0]) - walk.cursor)
+                gap = max(0.0, wanted - walk.cursor)
                 if walk.drift is None:
                     walk.drift = gap - walk.pending
                 walk.keep(previous, earlier)
@@ -3259,7 +3361,7 @@ def restore(undo):
         set_spacing(block, before=before, after=after, line=line)
 
 
-def align_vertical_rhythm(document, pages, page_height, anchors=()):
+def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=()):
     """Put every block's first line on the baseline the PDF gave it.
 
     One walk per section, because the converter writes one section per PDF
@@ -3282,10 +3384,11 @@ def align_vertical_rhythm(document, pages, page_height, anchors=()):
             continue
         section = document.sections[index]
         lines = text_columns(rows)
-        undo, changed, fits, drift = place_page(section, blocks, rows, lines, page_height, True, anchors)
+        edges = rules[index] if index < len(rules) else ()
+        undo, changed, fits, drift = place_page(section, blocks, rows, lines, page_height, True, anchors, edges)
         if not fits or abs(drift) > RHYTHM_ABSOLUTE_LIMIT_PT:
             restore(undo)
-            undo, changed, fits, _ = place_page(section, blocks, rows, lines, page_height, False, anchors)
+            undo, changed, fits, _ = place_page(section, blocks, rows, lines, page_height, False, anchors, edges)
             if not fits:
                 restore(undo)
                 changed = 0
@@ -3977,6 +4080,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         # that runs once the converter has produced a file.
         pictures = pdf_pictures(doc)
         anchors = page_anchor_rows(doc, bands)
+        rules = page_edges(doc)
         # The fallback keeps the bands in the body, so its pages carry rows
         # this one does not and the targets have to be read again without them.
         plain_anchors = anchors if not bands else page_anchor_rows(doc, [])
@@ -4035,7 +4139,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         # Last, because it reads the spacing and the line count of every block
         # the passes above have finished writing.
         if affordable(started, budget_seconds, repairs):
-            align_vertical_rhythm(document, anchors, page_height, panel_tables)
+            align_vertical_rhythm(document, anchors, page_height, panel_tables, rules)
         name_runs(document, font_plan)
         fill_bare_runs(document)
         document.save(part)
@@ -4085,7 +4189,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             repair_text(document, pairs, shaded)
             restore_break_hyphens(document, broken, shaded)
             if affordable(started, budget_seconds, repairs):
-                align_vertical_rhythm(document, plain_anchors, page_height, panel_tables)
+                align_vertical_rhythm(document, plain_anchors, page_height, panel_tables, rules)
             name_runs(document, font_plan)
             fill_bare_runs(document)
             document.save(part)

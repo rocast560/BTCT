@@ -399,6 +399,54 @@ def code_panel(top, height, x0=71.2, x1=548.0, text_x=80.2, bar=7.2, lines=()):
     }
 
 
+def run_table_place_checks():
+    """Moving a table onto the rules the PDF drew for its own rows."""
+    passed = True
+
+    # A rule is one edge at its centre; a filled block is not an edge at all,
+    # because Word paints a cell's fill below its top border and matching a
+    # row boundary to one took four pages backwards.
+    doc = pymupdf.open()
+    page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
+    page.draw_line((LEFT, 200.0), (RIGHT, 200.0), width=0.8)
+    page.draw_rect(pymupdf.Rect(LEFT, 300.0, RIGHT, 400.0), color=None, fill=(0.9, 0.9, 0.9))
+    page.draw_line((LEFT, 500.0), (LEFT + 20.0, 500.0), width=0.8)
+    edges = convert.page_edges(doc)[0]
+    doc.close()
+    passed &= check(len(edges) == 1 and abs(edges[0]["y"] - 200.0) < 0.2,
+                    "place: a rule is an edge, a filled block and a stub are not",
+                    [round(edge["y"], 2) for edge in edges])
+
+    heights = [19.7, 34.6, 34.5, 34.5]
+    table = exact_table(Document(), heights, [108.0, 396.0])
+    drawn = [231.8, 251.55, 286.06, 320.56, 355.07]
+    across = [{"y": y, "x0": 53.9, "x1": 558.1} for y in drawn]
+    offset = convert.table_top_offset(across, table._tbl, LEFT, 232.9)
+    passed &= check(abs(offset + 1.1) < 0.05,
+                    "place: the table moves onto the rules the PDF drew for it", offset)
+    passed &= check(convert.table_top_offset(across, table._tbl, LEFT, 231.8) == 0.0,
+                    "place: and stays where it is when they already agree")
+
+    # Downwards is never a correction: every error the converter's spacing
+    # makes points the same way, so a table is drawn below the PDF's rules
+    # and never above them.
+    below = [{"y": y + 2.2, "x0": 53.9, "x1": 558.1} for y in drawn]
+    passed &= check(convert.table_top_offset(below, table._tbl, LEFT, 232.9) == 0.0,
+                    "place: an edge below the table is not a correction")
+
+    # A table whose rows do not add up to the PDF's own cannot be moved: only
+    # its top would land, and one boundary is a coincidence.
+    stretched = [{"y": y, "x0": 53.9, "x1": 558.1} for y in (231.8, 253.0, 290.0, 330.0)]
+    passed &= check(convert.table_top_offset(stretched, table._tbl, LEFT, 232.9) == 0.0,
+                    "place: a grid that does not match the PDF's keeps its place")
+    # Nor one whose rules belong to something narrower, such as a table
+    # nested inside it.
+    inside = [{"y": y, "x0": 120.0, "x1": 400.0} for y in drawn]
+    passed &= check(convert.table_top_offset(inside, table._tbl, LEFT, 232.9) == 0.0,
+                    "place: a rule that does not span the table is not its rule")
+    return passed
+
+
 def run_panel_checks():
     """A code panel rebuilt as a table, so the grey gets the PDF's padding."""
     passed = True
@@ -570,6 +618,7 @@ def run_rhythm_checks():
                     "rhythm: a table Word is free to size is not modelled")
 
     passed &= run_cell_checks()
+    passed &= run_table_place_checks()
     passed &= run_panel_checks()
 
     # A word the typesetter broke keeps its hyphen where the line still ends.
