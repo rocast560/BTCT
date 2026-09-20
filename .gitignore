@@ -13,3 +13,9 @@ server/backups/
 
 # Fonts staged at build time by `bun run fonts` (scripts/fonts.ts).
 public/fonts/
+
+# The Word export's Python side: bytecode, and a virtualenv made by hand
+# when running from source instead of Docker (see the requirements file).
+__pycache__/
+*.pyc
+.venv-pdf2docx/
