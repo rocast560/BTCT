@@ -1541,20 +1541,122 @@ bitmap-only are not. A font that may not travel is named in a warning saying
 what a reader without it will see. The reference report embeds Poppins and
 DejaVu Sans Mono, eight faces, and grows from 1.61 MB to **2.62 MB**.
 
-#### What was not done, and why
+#### What was not done in that round, and why
 
-- **Table and box borders** are still heavier than the PDF's. The plan is
-  sound (take each cell's border width and colour from the PDF stroke that
-  coincides with its edge, and drop the duplicate of a shared edge) and it is
-  not done. It is a small, local difference on the finding cards.
-- **The table-of-contents leader** is still Word's dot leader at Word's pitch
-  rather than the PDF's spaced dots. Page 2 is the worst page in the document
-  at 0.6377, and most of that is the leaders plus a vertical drift down the
-  list.
+- **Table and box borders** were still heavier than the PDF's.
+- **The table-of-contents leader** was still Word's dot leader at Word's
+  pitch rather than the PDF's spaced dots. Page 2 was the worst page in the
+  document at 0.6377.
 - **Code panel padding** and **vertical rhythm** were not attempted. The
-  overlay shows the second one clearly: on text-heavy pages the two inks
-  agree at the top of the page and drift apart towards the bottom, which is
-  accumulated spacing error rather than any single mistake.
+  overlay showed the second one clearly: on text-heavy pages the two inks
+  agreed at the top of the page and drifted apart towards the bottom.
+
+All four are the subject of the round below.
+
+### Fidelity, part two: Word's own layout rule, applied per page
+
+The drift down a page is not one mistake. It is four small ones that all
+point the same way, and the only way to correct them is to know where Word
+will draw a line before it draws it. That turned out to be knowable.
+
+#### The one measurement the rest of the round rests on
+
+With `w:lineRule="exact"` and a line height of L, **Word puts the baseline
+exactly 0.8 x L below the top of the line box**, whatever the font and
+whatever the point size. Measured over 30 cases, six sizes from 8 to 18 pt by
+five line heights each from 1.0 to 2.0 em, one per page so nothing above
+could contribute: every one landed on 0.8 x L within 0.10 pt, which is the
+1/600 inch Word rounds to when it writes a PDF. The same probes showed that
+spacing before and after sum rather than collapse, that spacing before is
+dropped at the top of a page, and that a table stands as tall as its rows
+plus the border drawn under the last one and nothing else.
+
+Those four facts are the whole layout model. None of them is about this
+report, and with them every block's position can be worked out from the file
+alone, which is what lets the shipped converter correct a page without
+rendering anything.
+
+#### What pdf2docx gets systematically wrong
+
+Measured against the model on the reference report:
+
+1. The exact line height it writes is its own guess at the font's line box,
+   not the distance the PDF put between two lines. A paragraph typst set at a
+   17.0 pt pitch came out at 19.6, so every line after it sat 2.6 pt lower.
+2. Spacing before is measured from the previous row's ink, and Word measures
+   from the previous line box, which is taller.
+3. The same gap is written as spacing after above and spacing before below,
+   and both apply.
+4. A paragraph the converter left whole and Word wraps is one line in the
+   file and three on the page, so anything placed under it lands two lines
+   high.
+
+`align_vertical_rhythm` walks each page's blocks and makes the spacing
+between two of them whatever puts the second on the baseline the PDF has for
+it. A block whose height the file does not state ends the walk for that page;
+a page whose first block would move more than a line is not understood and
+keeps it; a page that would end below its bottom margin is put back as it
+was, so the page count cannot change.
+
+A table is left where the converter put it, and only the gap over it moves.
+That is a measured decision, not a concession: the converter reads a table's
+top off the PDF's own grid lines and sizes its rows from them, so its rules
+already land on the PDF's. Placing a card by the first baseline inside it put
+that baseline right and moved every rule under it 1 pt wrong, and the finding
+pages lost about 0.045 of structural similarity each. Placing it by the PDF's
+own top edge instead was tried too and was a net loss: better on two pages,
+worse on nine.
+
+#### The four that were left, and one that was hiding
+
+- **The contents page.** Word repeats a leader glyph at the font's advance for
+  it and nothing else, so its dots were 3.1 pt apart where typst set them at
+  4.8 and the list read as a rule. The difference is measured off the PDF's
+  own glyph positions and added to the run that carries the tab as character
+  spacing, which is the formatting Word draws the leader in. The titles were
+  also a space too far right, all of them: the pass that puts back a space the
+  converter ran together walks a paragraph's text nodes, a tab is not one of
+  them, and so "2.1" and the title beside it looked adjacent.
+- **The header rule** ran to the right margin, because Word draws a rule
+  under a paragraph between that paragraph's indents. It now takes the ends,
+  weight and colour of the stroke found under the running header. That was
+  the whole of the extra ink the page comparison had been measuring: 3.6 pt
+  on fifteen pages, now 0.0 on eleven of them.
+- **The code panel's accent bar** was drawn against the first character of
+  each line rather than down the panel's edge. A paragraph border takes a
+  stand-off, and the distance from the bar to the code is in the PDF.
+- **Borders**, in the end, needed one character. A table is its rows plus the
+  border under the last one, and the vertical pass was throwing that width
+  away because the converter writes the attribute as `w:sz="12.0"`, which the
+  schema does not allow and Word reads anyway. Every page whose first block
+  was a bordered heading table placed everything under it 1.5 pt low, which on
+  this report is most of them. Fixing the parse moved the mean more than
+  anything else in the round.
+- **Hyphens**, which nobody had asked for. A word broken across two lines
+  carries a soft hyphen, which is removed because Word would print it in the
+  middle of a line, and where the Word file still breaks the line in the same
+  place that left the page reading "em ployed". The pairs of words the PDF
+  broke are collected from its rows and a real hyphen goes back at those line
+  ends only.
+
+#### Numbers
+
+Structural similarity against the PDF, same metric, same defaults
+(`--line-breaks=pdf`):
+
+| | before | after |
+|---|---|---|
+| worst page | 0.6377 (contents) | **0.7760** (introduction) |
+| median | 0.8783 | **0.8998** |
+| mean | 0.8603 | **0.8881** |
+| contents page | 0.6377 | **0.8688** |
+| pages whose ink moved over 2 pt | 0 | **0** |
+| extra ink per page, typical | 3.6 pt | **0.0 pt** |
+
+Every page of the report improved except page 11, which lost 0.007 to a block
+the converter writes as one paragraph where the PDF has a sub-heading and the
+body under it at two different line pitches. One line height cannot be both,
+and the block is placed to straddle them.
 
 #### What a DOCX cannot express
 
@@ -1575,3 +1677,14 @@ Some of the remaining difference is not a bug to be fixed.
   for a whole section, so a band that differs per page can only be
   approximated, which is why the converter declines an alternating one rather
   than inventing something.
+- **Padding between a shaded paragraph and its grey.** Word fills a shaded
+  paragraph between its indents and over its line boxes only, never over its
+  spacing: measured on five cases, the grey box round a paragraph with 9 pt of
+  space before and after is the same box. So a code panel's top, bottom and
+  left padding can only be bought by moving the code itself, and the code
+  staying where the PDF put it is worth more. The accent bar down the panel's
+  edge is a border rather than shading, so that one can be placed exactly, and
+  is.
+- **One line height per paragraph.** Where the converter writes a sub-heading
+  and the paragraph under it as a single block, the PDF has two different line
+  pitches inside it and Word can only be given one.

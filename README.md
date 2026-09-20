@@ -466,9 +466,16 @@ command palette. There is one report per workspace.
     check before sending.
   - **The Word file matches the PDF line for line.** Each paragraph is broken
     where the PDF broke it, with a manual line break, so the pages read the
-    same. The cost is re-flow: after rewriting a paragraph, delete the manual
-    breaks in it (Find and Replace, `^l` with a space) to let Word wrap it
-    again.
+    same. A word the typesetter broke across two lines keeps its hyphen. The
+    cost is re-flow: after rewriting a paragraph, delete the manual breaks in
+    it (Find and Replace, `^l` with a space) to let Word wrap it again.
+  - **And block for block down the page.** Every paragraph's spacing is set so
+    its first line lands on the baseline the PDF has for it, which stops the
+    small per-block errors adding up: on the reference report the two renders
+    used to be 8 to 14 pt apart by the foot of a page and are now inside 2 pt
+    all the way down. A page the converter laid out in a way this cannot model
+    is left as it was, and a correction that would push a block onto the next
+    page is refused, so the page count never moves.
   - **The report's fonts are embedded**, whole rather than subsetted, when the
     font's own licence bits allow it, so the file reads the same on a machine
     that does not have them. A font whose foundry forbids embedding is named in
