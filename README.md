@@ -479,8 +479,11 @@ command palette. There is one report per workspace.
   - **The report's fonts are embedded**, whole rather than subsetted, when the
     font's own licence bits allow it, so the file reads the same on a machine
     that does not have them. A font whose foundry forbids embedding is named in
-    a warning instead. Embedding costs about 1 MB for four faces, which counts
-    against the 100 MB output ceiling.
+    a warning instead, as is one whose file is damaged, and the file carries at
+    most 15 MB in any one face and 40 MB in all. Embedding costs about 1 MB for
+    four faces, which counts against the 100 MB output ceiling. An embedded
+    font is copied into the Word file as you uploaded it, so whatever is inside
+    that font file travels with the deliverable: upload fonts you trust.
   - **Temporary disk.** An export stages into the OS temp directory (`/tmp` in
     the container, on its writable layer, not on the data volume) and uses up
     to about 300 MB while it runs: the 200 MB of staged files, one image being
