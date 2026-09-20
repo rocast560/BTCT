@@ -398,11 +398,12 @@ command palette. There is one report per workspace.
   Word header and footer with a live page-number field, and a table of
   contents is rewritten one clean line per entry with dot leaders. Measured on
   a 23-page report: 23 pages in Word, median page similarity 0.98 against the
-  PDF. Two things to know. **Fonts are not embedded**, so Word substitutes
-  unless the report's fonts are installed on the machine that opens it. And
-  Word re-flows with its own metrics, so a long line can wrap one word
-  differently. Treat the DOCX as the copy for somebody who wants Word, and the
-  PDF as the deliverable.
+  PDF. Two things to know. **The report's fonts travel inside the file** and
+  are named the way Word looks a font up, so a reader who has none of them
+  still sees the report, but a font Word will not carry is named in a warning
+  rather than silently substituted. And Word re-flows with its own metrics, so
+  a long line can wrap one word differently. Treat the DOCX as the copy for
+  somebody who wants Word, and the PDF as the deliverable.
 - **Server export limits.** Every one of these answers with a 422 and a
   sentence in the report tab's banner, and in every case the browser PDF
   export is the way through, because it has the whole browser's memory rather
@@ -480,10 +481,28 @@ command palette. There is one report per workspace.
     font's own licence bits allow it, so the file reads the same on a machine
     that does not have them. A font whose foundry forbids embedding is named in
     a warning instead, as is one whose file is damaged, and the file carries at
-    most 15 MB in any one face and 40 MB in all. Embedding costs about 1 MB for
-    four faces, which counts against the 100 MB output ceiling. An embedded
-    font is copied into the Word file as you uploaded it, so whatever is inside
-    that font file travels with the deliverable: upload fonts you trust.
+    most 15 MB in any one face and 40 MB in all. Embedding costs about 1.5 MB
+    for the reference report's ten faces, which counts against the 100 MB
+    output ceiling. An embedded font is copied into the Word file as you
+    uploaded it, so whatever is inside that font file travels with the
+    deliverable: upload fonts you trust.
+  - **And named the way Word looks a font up**, which is the legacy family in
+    the font file's own name table plus the bold and italic bits the file
+    states, not the PostScript name a PDF uses. A run asking for
+    `DejaVuSansMono` never reaches a font declared as `DejaVu Sans Mono`, and
+    Word substitutes without saying so: before this, the reference report's
+    code blocks rendered in Verdana with the real monospace face sitting
+    unused inside the same file. A weight Word does not keep per family, a
+    semibold say, is declared as the family of its own that its file says it
+    is, with the bold bit cleared, rather than as the family below it with a
+    fake weight painted over. Two things Word will not do: it carries TrueType
+    outlines only, so a font whose outlines are PostScript (most `.otf` files,
+    including Libertinus Serif and New Computer Modern) is refused with a
+    warning rather than written in and ignored; and it substitutes for
+    anything the file does not carry, so the warnings are worth reading.
+    `server/typst/pdf-to-docx/font_probe.py` is the check behind all of that:
+    it builds font families nothing can have installed, sets a report in them
+    and reads Word's own render back.
   - **Temporary disk.** An export stages into the OS temp directory (`/tmp` in
     the container, on its writable layer, not on the data volume) and uses up
     to about 300 MB while it runs: the 200 MB of staged files, one image being
@@ -989,8 +1008,10 @@ server/
     bake.mjs                  Crop + blur burned into the bytes, with src/lib's own math
     bake.check.mjs            Standalone proof that a bake destroys the pixels, uses the block floor and the downscale, and refuses across the worker boundary (`bun server/typst/bake.check.mjs`)
     pdf-to-docx/convert.py    The finished PDF turned into Word: strips the repeating bands, runs pdf2docx, puts the bands back as real Word headers and footers, rebuilds the table of contents
+    pdf-to-docx/fonts.py      The report's fonts read out of their own name tables, named the way Word resolves one, and carried inside the file
     pdf-to-docx/requirements.txt  pdf2docx and its dependency tree, pinned with hashes (the image installs it with --require-hashes)
-    pdf-to-docx/compare.ps1   Developer tool: compile, convert, render through Word, score page against page, draw contact sheets (with compare_pages.py)
+    pdf-to-docx/compare.ps1   Developer tool: compile, convert, render through Word, score page against page, draw contact sheets (with compare_pages.py). -Fonts stages the report's fonts, as the server does
+    pdf-to-docx/font_probe.py Developer tool: builds font families nothing can have installed, sets a report in them and reads Word's own render back, which is the only way to show Word using the embedded faces
     pdf-to-docx/test_convert.py  Developer tool: the band and table-of-contents readers, against a PDF it builds itself
     package-spec.mjs          Finds an @preview / @local package spec anywhere in the source
     diagnostics.mjs           Typst diagnostics, path scrubbing, signal-death, bake-failure and Word-conversion messages (pure)
@@ -1375,8 +1396,10 @@ cross-check against the digest GitHub's release API reports and the safety
 checks the bump invalidates, is written beside the `ARG`s in the
 [Dockerfile](Dockerfile). A `pdf2docx` bump has its own note there: the header,
 footer and table-of-contents repairs are written against what that version
-produces, so re-run `server/typst/pdf-to-docx/test_convert.py` and
-`compare.ps1` against a real report afterwards.
+produces, so re-run `server/typst/pdf-to-docx/test_convert.py`, `compare.ps1`
+and `font_probe.py` against a real report afterwards. The last one matters
+because the converter overrides how pdf2docx names a span's font, which is a
+private method of that library.
 
 **Server export needs writable temporary space**, about 300 MB of it while an
 export runs, in the OS temp directory rather than on the data volume: see

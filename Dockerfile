@@ -120,9 +120,12 @@ RUN set -eu; \
 #     echo pdf2docx==<X> > /req.in && \
 #     /v/bin/pip-compile --generate-hashes --no-header -o /dev/stdout /req.in'
 #
-# Then re-run server/typst/pdf-to-docx/test_convert.py and compare.ps1
-# against a real report: the band and table-of-contents repairs are written
-# against what pdf2docx produces, and a new version can change that.
+# Then re-run server/typst/pdf-to-docx/test_convert.py, compare.ps1 and
+# font_probe.py against a real report: the band and table-of-contents repairs
+# are written against what pdf2docx produces, and a new version can change
+# that. font_probe.py in particular, because convert.py overrides how pdf2docx
+# names a span's font (Fonts.get), which is a private method: if it moves, the
+# override stops applying and Word starts substituting again in silence.
 # ─────────────────────────────────────────────────────────────────────────
 FROM oven/bun:1.3-slim AS pdf2docx-venv
 ARG WITH_REPORT_BINS=1

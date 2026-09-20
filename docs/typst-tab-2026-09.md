@@ -1106,7 +1106,9 @@ covers one fewer thing that might have wanted it.
 - **Fonts are not embedded.** Word substitutes unless the report's fonts are
   installed on the machine that opens the file. Embedding is possible (the
   fonts are already staged for the compile) and is the obvious next step if
-  anybody asks.
+  anybody asks. (Done in a later round, and then done properly in part four,
+  where it turns out embedding a font and having Word use it are two
+  different things.)
 - **"Different first page" is the only page-level exception Word can express**
   through one header definition. When pdf2docx produces one section per page,
   as it did here, each page gets its own and that is exact. If it ever produces
@@ -1538,8 +1540,10 @@ font parts with a relationship and a key per face.
 Licences are read rather than assumed: the OS/2 `fsType` decides, and
 installable, editable and preview-and-print are embedded while restricted and
 bitmap-only are not. A font that may not travel is named in a warning saying
-what a reader without it will see. The reference report embeds Poppins and
-DejaVu Sans Mono, eight faces, and grows from 1.61 MB to **2.62 MB**.
+what a reader without it will see. The reference report embedded Poppins and
+DejaVu Sans Mono, eight faces, and grew from 1.61 MB to **2.62 MB**. (It
+carries ten faces now, three families: see part four, where it turns out that
+none of this made Word use any of them.)
 
 #### What was not done in that round, and why
 
@@ -1741,6 +1745,140 @@ The one line left is a word inside a diagram that was never a forced line.
   pages lost about 0.035 each.
 - **Matching a table row cell by cell** rather than as one string, to reach
   the rows of a data table. No page gained and one lost 0.002.
+
+### Fidelity, part four: the fonts that Word really uses
+
+I exported the owner's report through the running app, rendered the Word file
+back to PDF through Word, and ran `pdffonts` on the render. Word had used
+`Poppins-Regular`, `Poppins-Bold`, `Poppins-Italic`, `Poppins-BoldItalic`,
+`Poppins-SemiBold`, `Verdana`, `Cambria` and `TimesNewRomanPS-BoldMT`. Eight
+`odttf` parts were in the file, Word reported `EmbedTrueTypeFonts = True`, and
+DejaVu Sans Mono was not in the render at all: the code blocks were set in
+Verdana, a substitute, with the real face sitting unused in the same document.
+
+Afterwards the same render lists `Poppins-Regular`, `Poppins-Bold`,
+`Poppins-Italic`, `Poppins-BoldItalic`, `Poppins-SemiBold` and
+`___WRD_EMBED_SUB_46` twice, and nothing else. That last name is Word's own,
+which is the point: Word renames a font it loaded from a document rather than
+off the machine, and the face behind it, read out of Word's render by its
+PostScript name, is `DejaVuSansMono`. The code lines went from 10 to 40 per
+cent wider than the PDF's to inside 0.05 pt of them: `curl` 21.67 pt in the
+PDF, 16.72 in Verdana, 21.62 now.
+
+The cause is one sentence. **Word looks a font up by the legacy family name
+in the font file's own name table, name ID 1, plus the bold and italic bits
+the file states in name ID 2, and by nothing else.** The converter was writing
+the name the PDF uses, which is the PostScript name. Before:
+
+```xml
+<w:rFonts w:ascii="DejaVu Sans Mono" .../>     <!-- the run asks for this -->
+<w:font w:name="DejaVuSansMono">               <!-- the file declares that -->
+```
+
+Two names, one font, no match. After, both say `DejaVu Sans Mono`, and every
+name written into the document now comes out of the staged font file.
+
+Poppins SemiBold is the second half of it and was hiding behind an installed
+font. Word keeps four faces per family, so a weight outside those four is a
+family of its own: the file's name ID 1 is `Poppins SemiBold` and its name ID
+2 is `Regular`. The converter was writing `Poppins SemiBold` with `w:b` set,
+which asks Word for a face that does not exist and gets a fake weight painted
+over one that does, and the table declared no such family at all, so on a
+machine without it the heading would have fallen back to `Poppins` plus that
+fake weight. Now the family is declared, carried, and asked for with the bold
+bit cleared. That costs a little on my own screen, because the synthetic bold
+was 0.3 pt closer to typst's tracking than the real semibold is, and pages 3,
+5, 7, 8, 10, 11, 13 and 22 each lost 0.001 to 0.003 of similarity. The finding
+pages, which is where the code lives, gained: 15, 17, 19 and 21 by 0.0057 to
+0.0058 each, 16, 18 and 20 by about 0.0022, page 14 by 0.0008. Mean similarity
+0.8892 to 0.8900, 23 pages, 390 of 390 lines, 27 contents entries, code text
+byte-identical and 99 forced line breaks before and after.
+
+#### Three things I had to read rather than assume
+
+- **Name ID 2 is words, not a substring.** `"bold" in "semibold"` is true in
+  every language I know, and it is wrong here. The OpenType spec limits that
+  record to Regular, Bold, Italic and Bold Italic, with Book and Oblique in
+  the wild, so it is split on whitespace and punctuation and read as words.
+  DejaVu Sans Mono's regular face calls itself `Book`.
+- **PyMuPDF hands a font name back out of a 24 byte field.**
+  `DejaVuSansMono-BoldOblique` is 26 characters and arrives two short of
+  itself. So a PDF font name that begins exactly one staged face is taken to
+  be that face, and one that begins two stays unmatched. I found this because
+  the probe's `BtctProbeSansSemiBold-Regular` came back as
+  `BtctProbeSansSemiBold-Re`.
+- **pdf2docx names a span by containment over those cut-short names.** Its
+  `Fonts.get` tries an exact match, then whether either name contains the
+  other, so a semibold face whose name was cut short comes back as the family
+  below it and the run is labelled `Btct Probe Sans` with the bold bit on. It
+  is told what the face is instead. Only the name is replaced: the line height
+  it measured for the face it picked is left exactly as it was, so nothing on
+  the page moves, and on the owner's report the override changes nothing at
+  all because its names are short enough to match exactly.
+
+#### The stray fonts, and where they were
+
+Cambria was 682 spaces and Times New Roman Bold was four black squares.
+
+The squares are a chart legend's swatches. pdf2docx drops the drawing, so the
+converter puts them back as a filled-square character in the label's own run,
+and Poppins has no glyph for that character, so Word chose a font. It now
+picks a face the file carries that has the glyph, at the neighbour's size so
+the line it joins is no taller.
+
+The 682 spaces are tabs and paragraph marks. pdf2docx writes a tab as a run
+with no properties at all and gives no paragraph its own mark properties, so
+both fall to the document default, which on a file built from python-docx's
+template is 11 pt Cambria. Neither draws anything, but Word writes a paragraph
+mark out as a space when it makes a PDF, so the finished file was set in a
+font it did not carry and could not be shown to use only the fonts it did.
+Each now takes the font and size of the text beside it.
+
+The one of those that could have moved something is the mark of a paragraph
+with no text, because an empty paragraph's height is its mark's. I measured it
+before I wrote it: 22 of them on the reference report, every page scoring to
+four decimal places exactly as it had, same page count. `pdffonts` on the
+render now lists no font that did not come out of the file.
+
+#### The probe, and the one thing it found that I was not looking for
+
+None of the above could be proved on this machine, because it has Poppins
+installed: a file that named its fonts wrongly still looked right. So I made
+fonts instead. `font_probe.py` copies permissively licensed faces out of
+`public/fonts/` and rewrites their name tables to families nobody can have
+installed: `Btct Probe Sans` with all four of Word's faces, `Btct Probe Sans
+SemiBold` as a family of its own, `Btct Probe Mono`, and `Btct Probe Serif` as
+a control. It sets a one-page report in them, compiles with
+`--ignore-system-fonts`, converts, renders through Word and reads `pdffonts`.
+DejaVu Sans Mono is Bitstream Vera plus public-domain changes, whose licence
+allows modification and forbids `Bitstream` or `Vera` in the new name;
+Libertinus Serif, the control, is OFL 1.1, which allows modification and
+requires the name to change. Both keep their copyright and licence records.
+
+The first run came back `Cambria, Calibri, Calibri-Bold, Calibri-Italic,
+Calibri-BoldItalic, ___WRD_EMBED_SUB_46`. The monospace family, a `.ttf`, came
+out of the file. The other family, a `.otf`, did not: **Word carries TrueType
+outlines and nothing else.** `w:embedTrueTypeFonts` means what it says, and a
+font with PostScript outlines can be written into the package, declared in the
+table with a key and a relationship, and ignored. Six of the seventeen default
+report fonts are in that position, including Libertinus Serif and New Computer
+Modern, so a report set in one of them was shipping a megabyte of bytes Word
+would never read while the file claimed to carry the font. It is refused with
+a reason now.
+
+With the probe rebuilt on TrueType faces, both renders of the same file list
+`___WRD_EMBED_SUB_53` (the semibold family, with no `,Bold` suffix, so no
+painted-on weight), `___WRD_EMBED_SUB_48` and its `,Bold`, `,Italic` and
+`,BoldItalic`, `___WRD_EMBED_SUB_46`, and Cambria for the control's one line.
+Reading each back by its PostScript name gives the six probe faces. Every
+visible glyph but the control's is in a face that came out of the file, twice
+over, on a machine where not one of those families is installed.
+
+What the probe does not prove: that Word on macOS or on an older Windows build
+behaves the same way, that a reader who opens the file in LibreOffice or
+Google Docs sees any of it, or that the control substituting to Calibri here
+means it substitutes to Calibri anywhere. It proves that this Word, given this
+file, drew the report in fonts it could only have read out of the file.
 
 #### What a DOCX cannot express
 
