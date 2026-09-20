@@ -234,7 +234,11 @@ async function bakeInChild(bakeRoot, item, index) {
   try {
     const parsed = JSON.parse(await fs.promises.readFile(path.join(dir, 'result.json'), 'utf8'));
     resultOk = parsed?.ok === true;
-    resultMessage = typeof parsed?.message === 'string' ? parsed.message : '';
+    // The child names the file it was given, which is an absolute path under
+    // ASSETS_DIR, and this message goes into a response body. Stays null when
+    // there was no result file: that is what tells bakeFailureMessage to fall
+    // back to the child's stderr.
+    resultMessage = typeof parsed?.message === 'string' ? scrubPaths(parsed.message, ASSETS_DIR) : '';
   } catch { /* the child died before it could say anything */ }
 
   const out = path.join(dir, 'out.bin');

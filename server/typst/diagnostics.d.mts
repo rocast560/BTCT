@@ -14,3 +14,4 @@ export interface BakeResult extends ChildResult {
   outputExists?: boolean;
 }
 export function bakeFailureMessage(result: BakeResult | null, name: string): string;
+export function docxFailureMessage(result: BakeResult | null): string;

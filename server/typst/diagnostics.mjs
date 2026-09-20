@@ -124,6 +124,37 @@ export function bakeFailureMessage(result, name) {
   return `${label}: the redaction step produced no image, so the export was stopped.`;
 }
 
+/**
+ * What to tell the operator when the PDF could not be turned into Word.
+ *
+ * The same four shapes as a bake failure, because the child keeps the same
+ * discipline: our own timeout, a death by signal (a cgroup OOM kill is the
+ * one that matters on a 1 GB box), a non-zero exit that wrote a message into
+ * `result.json`, and a clean exit that produced nothing usable. The PDF
+ * itself is always still available, so every message says so.
+ *
+ * `resultMessage` distinguishes three states, as it does for a bake: a string
+ * is what the converter wrote, `''` is a result file that said nothing, and
+ * `null` is no result file at all, which is the only case where the child's
+ * stderr is the best clue left.
+ *
+ * Pure, so src/test covers the matrix through the .d.mts beside this file.
+ */
+export function docxFailureMessage(result) {
+  const r = result ?? {};
+  // `killed` and only `killed` means our own timeout fired.
+  if (r.killed) return 'Converting this report to Word took too long on this server. Export the PDF instead.';
+  const death = childFailureMessage({ code: r.code, killed: false, signal: r.signal ?? null, stderr: r.stderr ?? '' }, 'pdf2docx');
+  if (death) return death;
+  const said = typeof r.resultMessage === 'string' ? r.resultMessage.trim() : '';
+  if (said) return truncate(`The Word conversion failed. ${scrubPaths(said, '')}`, MAX_BAKE_MESSAGE_CHARS);
+  if (r.resultMessage === null || r.resultMessage === undefined) {
+    const stderr = scrubPaths(String(r.stderr ?? ''), '').trim();
+    if (stderr) return truncate(`The Word conversion failed. ${stderr}`, MAX_BAKE_MESSAGE_CHARS);
+  }
+  return 'The Word conversion produced no file, so the export was stopped. Export the PDF instead.';
+}
+
 export function parseDiagnostics(stderr, root) {
   const out = [];
   const rootAbs = path.resolve(root).replace(/^\\\\\?\\/, '');

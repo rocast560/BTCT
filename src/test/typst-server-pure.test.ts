@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { parseDiagnostics, scrubPaths, childFailureMessage, bakeFailureMessage } from '../../server/typst/diagnostics.mjs';
+import { parseDiagnostics, scrubPaths, childFailureMessage, bakeFailureMessage, docxFailureMessage } from '../../server/typst/diagnostics.mjs';
 import { createSerial } from '../../server/typst/serial.mjs';
 import { findPackageSpec } from '../../server/typst/package-spec.mjs';
 import { referencedAssetNames } from '../../server/typst/referenced-assets.mjs';
@@ -130,8 +130,8 @@ describe('childFailureMessage', () => {
   });
 
   it('names any other signal, with the tool that died', () => {
-    expect(childFailureMessage({ code: 1, killed: false, signal: 'SIGSEGV', stderr: '' }, 'pandoc'))
-      .toBe('The exporter stopped unexpectedly (pandoc, SIGSEGV).');
+    expect(childFailureMessage({ code: 1, killed: false, signal: 'SIGSEGV', stderr: '' }, 'typst'))
+      .toBe('The exporter stopped unexpectedly (typst, SIGSEGV).');
   });
 
   it('survives a result with missing fields', () => {
@@ -218,6 +218,24 @@ describe('referencedAssetNames', () => {
     expect(names('// #image("/assets/old.png")')).toEqual(['old.png']);
     expect(names('```\n#image("/assets/sample.png")\n```')).toEqual(['sample.png']);
   });
+
+  it('matches a relative reference, which resolves to the same file', () => {
+    // A report written in Typst Studio spells it `assets/cover.png`, and from
+    // a main.typ at the compile root that is the same file as
+    // `/assets/cover.png`. It rendered in the browser and then failed on the
+    // server with "file not found", because only the rooted spelling was
+    // staged.
+    expect(names('#image("assets/cover.png")')).toEqual(['cover.png']);
+    expect(names('#image-placeholder("Login", path: "assets/login.png")')).toEqual(['login.png']);
+    expect(names('#image("assets/a.png")\n#image("/assets/a.png")\n')).toEqual(['a.png']);
+  });
+
+  it('does not match a path that only ends in assets/', () => {
+    // `"theme/assets/x.png"` is a different directory, and staging its
+    // basename flat would put the wrong picture under a caption.
+    expect(names('#image("theme/assets/x.png")')).toEqual([]);
+    expect(names('#image("../assets/x.png")')).toEqual([]);
+  });
 });
 
 describe('bakeFailureMessage', () => {
@@ -289,6 +307,59 @@ describe('bakeFailureMessage', () => {
   });
 });
 
+describe('docxFailureMessage', () => {
+  // The Word file is made by a Python child that converts the finished PDF.
+  // Success is a result file saying ok AND a non-empty .docx; every other
+  // shape ends up here, and the PDF is always still an option, so each
+  // message says so.
+  const base = { code: 1, killed: false, signal: null, resultOk: false, resultMessage: null, outputExists: false, stderr: '' };
+
+  it('names our own timeout as a timeout', () => {
+    expect(docxFailureMessage({ ...base, code: 124, killed: true, signal: 'SIGKILL' }))
+      .toBe('Converting this report to Word took too long on this server. Export the PDF instead.');
+  });
+
+  it('reads a SIGKILL we did not send as the memory killer', () => {
+    // pdf2docx holds a page's blocks and an OpenCV buffer at once, so on a
+    // 1 GB box the cgroup killer lands on this child rather than the relay.
+    expect(docxFailureMessage({ ...base, signal: 'SIGKILL' }))
+      .toBe('The export ran out of memory on the server. Export the PDF from the browser instead.');
+  });
+
+  it('names any other signal death', () => {
+    expect(docxFailureMessage({ ...base, signal: 'SIGSEGV' })).toBe('The exporter stopped unexpectedly (pdf2docx, SIGSEGV).');
+  });
+
+  it('quotes what the converter wrote in its result file', () => {
+    expect(docxFailureMessage({ ...base, resultMessage: 'ValueError: the PDF has no pages' }))
+      .toBe('The Word conversion failed. ValueError: the PDF has no pages');
+  });
+
+  it('scrubs a staged path out of the result message and caps it', () => {
+    expect(docxFailureMessage({ ...base, resultMessage: 'OSError: /var/tmp/btct-typst-Ab12Cd/out.docx.part' }))
+      .toBe('The Word conversion failed. OSError: .');
+    const out = docxFailureMessage({ ...base, resultMessage: 'x'.repeat(500) });
+    expect(out).toHaveLength(300);
+    expect(out.endsWith('…')).toBe(true);
+  });
+
+  it('falls back to stderr only when no result file was written', () => {
+    expect(docxFailureMessage({ ...base, stderr: 'Killed' })).toBe('The Word conversion failed. Killed');
+    expect(docxFailureMessage({ ...base, resultMessage: '', stderr: 'Killed' }))
+      .toBe('The Word conversion produced no file, so the export was stopped. Export the PDF instead.');
+  });
+
+  it('says nothing came out when the child exited cleanly with no file', () => {
+    expect(docxFailureMessage({ ...base, code: 0, resultOk: true, resultMessage: '', outputExists: false }))
+      .toBe('The Word conversion produced no file, so the export was stopped. Export the PDF instead.');
+  });
+
+  it('survives a result with missing fields', () => {
+    expect(docxFailureMessage({})).toBe('The Word conversion produced no file, so the export was stopped. Export the PDF instead.');
+    expect(docxFailureMessage(null)).toBe('The Word conversion produced no file, so the export was stopped. Export the PDF instead.');
+  });
+});
+
 describe('encodeWarnings', () => {
   // The value of X-Export-Warnings. Report content reaches it, so it is
   // capped twice: each entry, and the whole encoded header, which has to
@@ -317,8 +388,9 @@ describe('encodeWarnings', () => {
   });
 
   it('truncates one over-long entry instead of dropping the header', () => {
-    // A pandoc [WARNING] line has no length bound. Dropping it took every
-    // other warning with it, and the operator was told nothing at all.
+    // Nothing that reaches the header has a length bound of its own.
+    // Dropping one over-long entry took every other warning with it, and the
+    // operator was told nothing at all.
     const out = decode(encodeWarnings([`shot.png: ${'x'.repeat(5000)}`, 'a second note']));
     expect(out).toHaveLength(2);
     expect(out[0]).toHaveLength(300);
