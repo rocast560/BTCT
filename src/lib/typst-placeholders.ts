@@ -233,7 +233,16 @@ function argName(arg: string): string | null {
   return m ? m[1]! : null;
 }
 
-/** Parse a Typst string literal, honouring backslash escapes. Null if not one. */
+/**
+ * Parse a Typst string literal, honouring backslash escapes. Null if not one.
+ *
+ * A start-and-end quote check on its own is not enough: `"Host " + host + "
+ * admin login"` also starts and ends with a quote, and reading it as one
+ * literal hands back `Host " + host + " admin login`, which is neither the
+ * source nor what Typst renders. So an UNESCAPED quote inside the body means
+ * this is an expression, not a literal, and the caller treats the caption as
+ * computed (the place dialog says so, and the DOCX export warns).
+ */
 export function parseStringLiteral(text: string): string | null {
   const t = text.trim();
   if (t.length < 2 || !t.startsWith('"') || !t.endsWith('"')) return null;
@@ -255,6 +264,8 @@ export function parseStringLiteral(text: string): string | null {
           out += next;
         }
       } else out += next;
+    } else if (body[i] === '"') {
+      return null; // a closing quote mid-body: this is an expression
     } else {
       out += body[i];
     }

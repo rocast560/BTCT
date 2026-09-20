@@ -27,6 +27,13 @@ describe('toPandocSource', () => {
     const src = '#image-placeholder(someVar, path: "/assets/y.png")';
     expect(toPandocSource(src)).toBe('#figure(image("assets/y.png"), caption: [Figure])');
   });
+  // The concatenation starts and ends with a quote, so an earlier parse
+  // accepted it and wrote `Host " + host + " admin login` into the Word file
+  // as if the author had typed it, while the PDF read correctly.
+  it('treats a sandwich-concatenated caption as computed, not as its own text', () => {
+    const src = '#image-placeholder("Host " + host + " admin login", path: "/assets/y.png")';
+    expect(toPandocSource(src)).toBe('#figure(image("assets/y.png"), caption: [Figure])');
+  });
 });
 
 describe('pandocSourceWarnings', () => {
@@ -34,6 +41,12 @@ describe('pandocSourceWarnings', () => {
     const src = '#image-placeholder("Login bypass", path: "/assets/login.png")\n#image-placeholder(someVar, path: "/assets/y.png")\n';
     expect(pandocSourceWarnings(src)).toEqual([
       'Figure slot 2 (line 2): the caption is computed, so the Word file shows "Figure" instead.',
+    ]);
+  });
+  it('reports a sandwich-concatenated caption, exactly once', () => {
+    const src = '#image-placeholder("Host " + host + " admin login", path: "/assets/y.png")\n';
+    expect(pandocSourceWarnings(src)).toEqual([
+      'Figure slot 1 (line 1): the caption is computed, so the Word file shows "Figure" instead.',
     ]);
   });
   it('returns no warnings when every caption is a literal', () => {

@@ -56,6 +56,19 @@ describe('string literals', () => {
     expect(parseStringLiteral('someVariable')).toBeNull();
     expect(parseStringLiteral('none')).toBeNull();
   });
+
+  // A concatenation starts and ends with a quote, so a start/end check alone
+  // accepts it and hands back the operators as if they were text. That text
+  // then becomes a literal caption in the Word file while the PDF, which
+  // Typst evaluates properly, reads correctly.
+  it('rejects a sandwich concatenation that merely starts and ends with a quote', () => {
+    expect(parseStringLiteral('"Host " + host + " admin login"')).toBeNull();
+    expect(parseStringLiteral('"a" + "b"')).toBeNull();
+  });
+
+  it('still accepts a literal whose quotes are escaped', () => {
+    expect(parseStringLiteral('"Host \\" + host + \\" admin login"')).toBe('Host " + host + " admin login');
+  });
 });
 
 describe('findScreenshotSlots', () => {
