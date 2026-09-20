@@ -447,6 +447,46 @@ def run_table_place_checks():
     return passed
 
 
+def run_table_box_checks():
+    """A table that is a rectangle the PDF drew belongs on that rectangle."""
+    passed = True
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
+    page.draw_rect(pymupdf.Rect(79.2, 151.45, 532.8, 475.45), color=(0, 0, 0), fill=(0.9, 0.9, 0.9))
+    page.draw_line((LEFT, 600.0), (RIGHT, 600.0), width=0.8)
+    page.draw_rect(pymupdf.Rect(LEFT, 650.0, LEFT + 30.0, 700.0), color=(0, 0, 0))
+    boxes = convert.page_boxes(doc)[0]
+    doc.close()
+    passed &= check(len(boxes) == 1 and abs(boxes[0]["height"] - 324.0) < 0.5,
+                    "box: a drawn rectangle is a box, a rule and a stub are not",
+                    [(round(b["x0"], 1), round(b["y0"], 2), round(b["height"], 2)) for b in boxes])
+
+    table = exact_table(Document(), [324.0], [453.6], indent=25.2)
+    passed &= check(abs(convert.table_box_offset(boxes, table._tbl, LEFT, 155.28) + 3.83) < 0.05,
+                    "box: the table moves down onto the rectangle it is",
+                    convert.table_box_offset(boxes, table._tbl, LEFT, 155.28))
+    passed &= check(abs(convert.table_box_offset(boxes, table._tbl, LEFT, 147.6) - 3.85) < 0.05,
+                    "box: and up onto it, which the fit against rules may not",
+                    convert.table_box_offset(boxes, table._tbl, LEFT, 147.6))
+    passed &= check(convert.table_box_offset(boxes, table._tbl, LEFT, 151.45) == 0.0,
+                    "box: a table already on its rectangle keeps its place")
+
+    taller = exact_table(Document(), [340.0], [453.6], indent=25.2)
+    passed &= check(convert.table_box_offset(boxes, taller._tbl, LEFT, 155.28) == 0.0,
+                    "box: a table of another height is not that rectangle")
+    narrow = exact_table(Document(), [324.0], [300.0], indent=25.2)
+    passed &= check(convert.table_box_offset(boxes, narrow._tbl, LEFT, 155.28) == 0.0,
+                    "box: nor is one of another width")
+    passed &= check(convert.table_box_offset(boxes, table._tbl, LEFT, 200.0) == 0.0,
+                    "box: nor one the rectangle is nowhere near")
+
+    two = boxes + [dict(boxes[0], y0=boxes[0]["y0"] + 3.0)]
+    passed &= check(convert.table_box_offset(two, table._tbl, LEFT, 155.28) == 0.0,
+                    "box: two rectangles that disagree are no evidence")
+    return passed
+
+
 def run_panel_checks():
     """A code panel rebuilt as a table, so the grey gets the PDF's padding."""
     passed = True
@@ -639,6 +679,7 @@ def run_rhythm_checks():
 
     passed &= run_cell_checks()
     passed &= run_table_place_checks()
+    passed &= run_table_box_checks()
     passed &= run_panel_checks()
 
     # A word the typesetter broke keeps its hyphen where the line still ends.

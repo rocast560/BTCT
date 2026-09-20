@@ -155,6 +155,16 @@ TABLE_EDGE_PT = 3.0
 # so this is loose enough for that and far tighter than the 17.6 pt between
 # two of the report's rules.
 TABLE_FIT_PT = 0.5
+# How closely a table's own height has to match a rectangle the PDF drew
+# before the two are taken to be the same box. Both numbers come from the same
+# strokes, so they agree to the twentieth of a point the converter rounds a
+# row height to; this is room for that and for a stroke's own width.
+TABLE_BOX_PT = 1.5
+# How far a table may be moved onto such a rectangle. A box the converter met
+# is placed through the spacing of everything above it, and on the reference
+# report that comes to under 4 pt; more than this and the two are not the same
+# object however well their sides agree.
+TABLE_BOX_MOVE_PT = 8.0
 # How many of a table's boundaries have to land on the PDF's edges before the
 # fit is believed. Two is a coincidence between any two rules; three means
 # the distance between them agrees as well, which one stray rule cannot fake.
@@ -2931,6 +2941,54 @@ def table_top_offset(edges, table, left, modelled):
     return best if score >= TABLE_FIT_MIN else 0.0
 
 
+def page_boxes(doc):
+    """Every rectangle the PDF draws that is a container rather than a rule.
+
+    A converter that meets a drawn box writes a table the size of the box, so
+    a table whose width and height are one of these rectangles IS that
+    rectangle, and the PDF knows where its top edge goes.
+    """
+    pages = []
+    for index in range(doc.page_count):
+        found = []
+        for drawing in doc[index].get_drawings():
+            rect = drawing["rect"]
+            if rect.width >= PANEL_MIN_WIDTH_PT and rect.height > RULE_MAX_THICKNESS_PT:
+                found.append({"x0": rect.x0, "x1": rect.x1, "y0": rect.y0, "height": rect.height})
+        pages.append(found)
+    return pages
+
+
+def table_box_offset(boxes, table, left, modelled):
+    """How far a table has to move to sit on the rectangle the PDF drew for it.
+
+    Three of the four sides have to agree before this is believed: the left
+    edge, the right edge and the height. A table that is a page's rectangle in
+    all three is that rectangle, and where the PDF puts its top is better
+    evidence than the spacing of every block above it added up, which is how
+    the reference report's network diagram came out 3.8 pt high.
+
+    It moves in either direction, unlike the fit against a page's rules, and
+    it can afford to: a box says where its own top is, while a rule only says
+    that something lines up there and the wrong one lines up too. Two
+    rectangles that fit and disagree about the offset are no evidence at all,
+    so the table keeps its place.
+    """
+    rows = table_grid(table, modelled, left)
+    if rows is None or not rows or not rows[0]["cells"]:
+        return 0.0
+    x0, x1 = rows[0]["cells"][0]["x0"], rows[0]["cells"][-1]["x1"]
+    height = rows[-1]["y1"] - rows[0]["y0"]
+    found = [box["y0"] - modelled for box in boxes
+             if abs(box["x0"] - x0) <= TABLE_EDGE_PT
+             and abs(box["x1"] - x1) <= TABLE_EDGE_PT
+             and abs(box["height"] - height) <= TABLE_BOX_PT]
+    found = [offset for offset in found if RHYTHM_TOLERANCE_PT <= abs(offset) <= TABLE_BOX_MOVE_PT]
+    if not found or max(found) - min(found) > TABLE_FIT_PT:
+        return 0.0
+    return found[0]
+
+
 def known_panel(anchors, element):
     """`(top, was_height)` for a table the decoration pass built, else None.
 
@@ -3219,7 +3277,7 @@ class PageWalk:
         self.was_pending = was_after
 
 
-def place_page(section, blocks, rows, lines, page_height, absolute, anchors=(), edges=()):
+def place_page(section, blocks, rows, lines, page_height, absolute, anchors=(), edges=(), boxes=()):
     """Walk one page's blocks, correcting the spacing between them.
 
     Returns `(undo, changed, fits, drift)`: what to restore, how many blocks
@@ -3339,7 +3397,11 @@ def place_page(section, blocks, rows, lines, page_height, absolute, anchors=(), 
             known = known_panel(anchors, block)
             wanted = walk.was + walk.was_pending if known is None else known[0]
             if known is None:
-                wanted += table_top_offset(edges, block, section.left_margin.pt, wanted)
+                # The rectangle the PDF drew for this table first, because it
+                # says where the top goes rather than only that something
+                # lines up there; the fit against the page's rules otherwise.
+                shift = table_box_offset(boxes, block, section.left_margin.pt, wanted)
+                wanted += shift or table_top_offset(edges, block, section.left_margin.pt, wanted)
             if earlier is not None:
                 gap = max(0.0, wanted - walk.cursor)
                 if walk.drift is None:
@@ -3371,7 +3433,7 @@ def restore(undo):
         set_spacing(block, before=before, after=after, line=line)
 
 
-def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=()):
+def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=(), boxes=()):
     """Put every block's first line on the baseline the PDF gave it.
 
     One walk per section, because the converter writes one section per PDF
@@ -3395,12 +3457,13 @@ def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=()):
         section = document.sections[index]
         lines = text_columns(rows)
         edges = rules[index] if index < len(rules) else ()
+        drawn = boxes[index] if index < len(boxes) else ()
         undo, changed, fits, drift = place_page(section, blocks, rows, lines, page_height,
-                                                True, anchors, edges)
+                                                True, anchors, edges, drawn)
         if not fits or abs(drift) > RHYTHM_ABSOLUTE_LIMIT_PT:
             restore(undo)
             undo, changed, fits, _ = place_page(section, blocks, rows, lines, page_height,
-                                                False, anchors, edges)
+                                                False, anchors, edges, drawn)
             if not fits:
                 restore(undo)
                 changed = 0
@@ -4093,6 +4156,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         pictures = pdf_pictures(doc)
         anchors = page_anchor_rows(doc, bands)
         rules = page_edges(doc)
+        drawn_boxes = page_boxes(doc)
         # The fallback keeps the bands in the body, so its pages carry rows
         # this one does not and the targets have to be read again without them.
         plain_anchors = anchors if not bands else page_anchor_rows(doc, [])
@@ -4151,7 +4215,8 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         # Last, because it reads the spacing and the line count of every block
         # the passes above have finished writing.
         if affordable(started, budget_seconds, repairs):
-            align_vertical_rhythm(document, anchors, page_height, panel_tables, rules)
+            align_vertical_rhythm(document, anchors, page_height, panel_tables, rules,
+                                  drawn_boxes)
         name_runs(document, font_plan)
         fill_bare_runs(document)
         document.save(part)
@@ -4201,7 +4266,8 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             repair_text(document, pairs, shaded)
             restore_break_hyphens(document, broken, shaded)
             if affordable(started, budget_seconds, repairs):
-                align_vertical_rhythm(document, plain_anchors, page_height, panel_tables, rules)
+                align_vertical_rhythm(document, plain_anchors, page_height, panel_tables, rules,
+                                      drawn_boxes)
             name_runs(document, font_plan)
             fill_bare_runs(document)
             document.save(part)
