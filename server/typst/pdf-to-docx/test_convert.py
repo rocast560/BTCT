@@ -597,6 +597,30 @@ def run_pitch_split_checks():
     passed &= check(not convert.splittable(element, (element,)),
                     "split: code has to come out as it went in")
 
+    # A section break lives in the properties of the paragraph it ends, and
+    # the properties are what a cut copies.
+    document, element = split_document(["Line 0 here", "Line 1 here", "Line 2 here"])
+    section = convert.OxmlElement("w:sectPr")
+    convert.insert_ordered(element.get_or_add_pPr(), section, convert.PPR_ORDER)
+    passed &= check(not convert.splittable(element, ()),
+                    "split: a paragraph that ends a section is not cut")
+    # And if one is cut anyway, the break lands on the last piece and nowhere
+    # else, then comes home when the cut is joined back up.
+    holders = convert.break_runs(element)
+    seams = convert.cut_paragraph(element, holders)
+    breaks = [len(p.findall(convert.qn("w:sectPr")))
+              for p in [element.find(convert.qn("w:pPr"))]
+              + [s[1].find(convert.qn("w:pPr")) for s in seams]]
+    passed &= check(breaks == [0, 0, 1], "split: the section break is on the last piece only", breaks)
+    for seam in reversed(seams):
+        convert.rejoin_paragraph(*seam)
+    passed &= check(len(element.find(convert.qn("w:pPr")).findall(convert.qn("w:sectPr"))) == 1,
+                    "split: and joining back up brings the break home",
+                    len(element.find(convert.qn("w:pPr")).findall(convert.qn("w:sectPr"))))
+    passed &= check(len(document.element.body.findall(convert.qn("w:p"))) == 1,
+                    "split: with one paragraph left",
+                    len(document.element.body.findall(convert.qn("w:p"))))
+
     # The cut itself: the same characters, one break fewer, the same height.
     document, element = split_document(["Line 0 here", "Line 1 here", "Line 2 here"])
     before_text = convert.paragraph_text(element)

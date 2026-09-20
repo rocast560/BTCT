@@ -3533,6 +3533,13 @@ def splittable(element, shaded):
     properties = element.find(qn("w:pPr"))
     if properties is not None and properties.find(qn("w:numPr")) is not None:
         return False
+    if properties is not None and properties.find(qn("w:sectPr")) is not None:
+        # A section break lives in the properties of the paragraph it ends, so
+        # cutting that paragraph is cutting a section boundary. `cut_paragraph`
+        # carries the break to the last piece and would be correct on its own;
+        # a paragraph that decides where a page's margins and its header start
+        # is still not worth a point of leading.
+        return False
     if next(element.iter(qn("w:drawing")), None) is not None:
         return False
     return not DOT_RUN.search(paragraph_text(element))
@@ -3570,7 +3577,13 @@ def cut_paragraph(element, holders):
         tail = OxmlElement("w:p")
         properties = head.find(qn("w:pPr"))
         if properties is not None:
-            tail.append(copy.deepcopy(properties))
+            copied = copy.deepcopy(properties)
+            # Never copied: a section break ends its section AT the paragraph
+            # holding it, so one on every piece is three section breaks where
+            # the document had one, and two of them in the wrong place.
+            for node in copied.findall(qn("w:sectPr")):
+                copied.remove(node)
+            tail.append(copied)
         for child in moving:
             tail.append(child)
         head.remove(holder)
@@ -3579,6 +3592,7 @@ def cut_paragraph(element, holders):
         head = tail
     if not seams:
         return []
+    carry_section(element, seams[-1][1])
     set_spacing(element, after=0.0)
     for _, tail, _ in seams[:-1]:
         set_spacing(tail, before=0.0, after=0.0)
@@ -3586,9 +3600,30 @@ def cut_paragraph(element, holders):
     return seams
 
 
+def carry_section(source, target):
+    """Move a section break from one paragraph's properties to another's.
+
+    The piece of a cut paragraph that keeps the original properties is the
+    first one, and a `w:sectPr` there would end the section at the wrong
+    paragraph: it ends its section AT the paragraph holding it, and where this
+    paragraph ended is the last piece. Joining the cut back up moves it the
+    other way, which is why this takes a direction rather than assuming one.
+    """
+    properties = source.find(qn("w:pPr"))
+    node = properties.find(qn("w:sectPr")) if properties is not None else None
+    if node is None:
+        return False
+    properties.remove(node)
+    insert_ordered(target.get_or_add_pPr(), node, PPR_ORDER)
+    return True
+
+
 def rejoin_paragraph(head, tail, holder):
     """Put one cut of a paragraph back, exactly as it was."""
     metrics = paragraph_metrics(tail)
+    # The cut moved a section break to the last piece, so joining back up has
+    # to bring it home, or the document loses the break altogether.
+    carry_section(tail, head)
     head.append(holder)
     for child in list(tail):
         if child.tag != qn("w:pPr"):
