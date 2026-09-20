@@ -2251,8 +2251,13 @@ def last_row_border(row):
         bottom = borders.find(qn("w:bottom")) if borders is not None else None
         if bottom is None or (bottom.get(qn("w:val")) or "none") in ("none", "nil"):
             continue
+        # `float`, not `int`: the converter writes this attribute as "12.0",
+        # which the schema does not allow and Word reads anyway. Parsing it as
+        # an integer threw the width away, and every page whose first block
+        # was a bordered heading table then placed everything under it 1.5 pt
+        # too low.
         with contextlib.suppress(TypeError, ValueError):
-            widest = max(widest, int(bottom.get(qn("w:sz"))) / 8.0)
+            widest = max(widest, float(bottom.get(qn("w:sz"))) / 8.0)
     return widest
 
 

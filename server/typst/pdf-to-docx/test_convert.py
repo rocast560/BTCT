@@ -254,6 +254,31 @@ def run_rhythm_checks():
     passed &= check(moved == 0 and kept is not None and abs(kept["before"] - 2.0) < 0.05,
                     "rhythm: a correction past the bottom margin is refused", kept and kept["before"])
 
+    # A table stands as tall as its rows plus the border under the last one,
+    # and the converter writes that width as "12.0", which is not an integer.
+    document = Document()
+    table = document.add_table(rows=2, cols=1)
+    for order, row in enumerate(table.rows):
+        properties = row._tr.get_or_add_trPr()
+        node = convert.OxmlElement("w:trHeight")
+        node.set(convert.qn("w:val"), "400")
+        node.set(convert.qn("w:hRule"), "exact")
+        properties.append(node)
+        if order:
+            borders = convert.OxmlElement("w:tcBorders")
+            bottom = convert.OxmlElement("w:bottom")
+            bottom.set(convert.qn("w:val"), "single")
+            bottom.set(convert.qn("w:sz"), "12.0")
+            borders.append(bottom)
+            row.cells[0]._tc.get_or_add_tcPr().append(borders)
+    metrics = convert.table_metrics(table._tbl)
+    passed &= check(metrics is not None and abs(metrics["height"] - 41.5) < 0.05,
+                    "rhythm: a table is its rows plus its last border", metrics and metrics["height"])
+    for row in table.rows:
+        row._tr.find(convert.qn("w:trPr")).find(convert.qn("w:trHeight")).set(convert.qn("w:hRule"), "atLeast")
+    passed &= check(convert.table_metrics(table._tbl) is None,
+                    "rhythm: a table Word is free to size is not modelled")
+
     # A word the typesetter broke keeps its hyphen where the line still ends.
     document = Document()
     first = document.add_paragraph()
