@@ -43,7 +43,7 @@ from xml.etree import ElementTree
 
 import pymupdf
 from docx import Document
-from docx.enum.text import WD_LINE_SPACING, WD_TAB_ALIGNMENT, WD_TAB_LEADER
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT, WD_TAB_LEADER
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
@@ -115,6 +115,31 @@ TOC_RUN_MIN = 3
 # Ceiling on the blank space carried over before an entry, so one bad reading
 # cannot push the list onto another page.
 TOC_MAX_SPACE_BEFORE_PT = 24.0
+
+# ── the decoration pdf2docx drops ─────────────────────────────────────────
+# A filled rectangle survives the conversion when it becomes a table cell and
+# is discarded otherwise. These separate the shapes worth putting back from
+# the ones that are already handled, and every number is from the reference
+# report: its table cells are 17.6 pt tall around an 11.6 pt line (ratio 1.5),
+# its code panels 46.2 pt around three of them (4.2), its accent bar 7.2 pt
+# wide, and its chart legend's swatches 9 pt squares 6 pt left of their label.
+PANEL_MIN_WIDTH_PT = 40.0
+PANEL_MIN_HEIGHT_PT = 12.0
+PANEL_PADDING_RATIO = 1.6
+BAR_MAX_WIDTH_PT = 12.0
+PANEL_MIN_SIDE_PT = 3.0
+SWATCH_MAX_SIDE_PT = 14.0
+SWATCH_TEXT_GAP_PT = 10.0
+# How many characters either side of a run boundary identify it. Eight is
+# enough to be unambiguous on a report and short enough to survive the
+# converter splitting a run somewhere else.
+PAIR_WINDOW = 8
+# A justified paragraph reaches the right edge on every line but its last.
+# Three lines is the shortest run where that means anything: two lines both
+# reaching the edge is also what a centred pair looks like.
+JUSTIFY_MIN_LINES = 3
+JUSTIFY_EDGE_PT = 3.0
+JUSTIFY_LINE_GAP_PT = 6.0
 
 # ── what the converter will not take on ───────────────────────────────────
 # Three bounds, all of them measured rather than guessed. The reference
@@ -495,6 +520,7 @@ def detect_band(doc, edge):
     wanted_top, wanted_bottom = top, bottom
     rule_under = False
     strip_behind = None
+    strip_full_width = False
     for drawing in repeating_drawings(doc, pages, edge):
         rect = drawing["rect"]
         if rect.y0 > wanted_bottom + BAND_GLUE_PT or rect.y1 < wanted_top - BAND_GLUE_PT:
@@ -503,6 +529,7 @@ def detect_band(doc, edge):
         wanted_bottom = max(wanted_bottom, rect.y1)
         if drawing.get("fill") is not None and rect.height > 1.0:
             strip_behind = tuple(drawing["fill"])
+            strip_full_width = rect.width >= doc[pages[0]].rect.width - 2.0
         elif edge == "top" and rect.y0 >= text_bottom - 1.0:
             rule_under = True
     if covers_a_stranger(doc, pages, members, wanted_top, wanted_bottom):
@@ -511,6 +538,7 @@ def detect_band(doc, edge):
         # it was left on) against deleting a finding.
         rule_under = False
         strip_behind = None
+        strip_full_width = False
     else:
         top, bottom = wanted_top, wanted_bottom
 
@@ -527,6 +555,7 @@ def detect_band(doc, edge):
         "columns": columns,
         "rule_under": rule_under,
         "strip_behind": strip_behind,
+        "strip_full_width": strip_full_width,
         # The rows this band is made of, so the text check can leave out
         # exactly those and nothing else.
         "members": members,
@@ -1016,7 +1045,7 @@ def band_height(band):
     return max(text, tallest * 1.15)
 
 
-def fill_band_paragraph(paragraph, band, left_margin, content_left, content_right):
+def fill_band_paragraph(paragraph, band, left_margin, right_margin, content_left, content_right):
     """One paragraph holding the band's left, centre and right columns.
 
     Tab stops and indents are measured from the section's own left margin,
@@ -1029,11 +1058,24 @@ def fill_band_paragraph(paragraph, band, left_margin, content_left, content_righ
     fmt.space_after = Pt(0)
     fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
     fmt.line_spacing = Pt(round(band_height(band), 1))
-    fmt.left_indent = Pt(round(max(0.0, content_left - left_margin), 1))
-    fmt.right_indent = Pt(0)
+    indent = max(0.0, content_left - left_margin)
+    # A strip that runs to the page edges in the PDF has to do the same here,
+    # and Word shades a paragraph between its indents, so the paragraph is
+    # pushed out into the margins and an extra tab stop puts the text back
+    # where the text area starts. Without this the strip stops at the text
+    # area and the page has two grey ends.
+    bleeds = band["edge"] == "bottom" and band["strip_behind"] and band.get("strip_full_width")
+    if bleeds:
+        fmt.left_indent = Pt(-round(left_margin, 1))
+        fmt.right_indent = Pt(-round(right_margin, 1))
+    else:
+        fmt.left_indent = Pt(round(indent, 1))
+        fmt.right_indent = Pt(0)
     reset_tab_stops(paragraph)
     centre = (content_left + content_right) / 2.0 - left_margin
     right = content_right - left_margin
+    if bleeds:
+        fmt.tab_stops.add_tab_stop(Pt(round(max(1.0, indent), 1)), WD_TAB_ALIGNMENT.LEFT, WD_TAB_LEADER.SPACES)
     fmt.tab_stops.add_tab_stop(Pt(round(max(1.0, centre), 1)), WD_TAB_ALIGNMENT.CENTER, WD_TAB_LEADER.SPACES)
     fmt.tab_stops.add_tab_stop(Pt(round(max(2.0, right), 1)), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.SPACES)
 
@@ -1041,6 +1083,8 @@ def fill_band_paragraph(paragraph, band, left_margin, content_left, content_righ
     for column in band["columns"]:
         slots[alignment_of(column, content_left, content_right)].append(column)
 
+    if bleeds:
+        paragraph.add_run("\t")
     for order, name in enumerate(("left", "centre", "right")):
         if order:
             paragraph.add_run("\t")
@@ -1156,6 +1200,7 @@ def apply_bands(document, bands, page_height, content_left, content_right, page_
             section.first_page_header.is_linked_to_previous = False
             section.first_page_footer.is_linked_to_previous = False
         left_margin = section.left_margin.pt
+        right_margin = section.right_margin.pt
         for part, band in (("header", header_band), ("footer", footer_band)):
             holder = getattr(section, part)
             if bare and index == 0:
@@ -1166,7 +1211,7 @@ def apply_bands(document, bands, page_height, content_left, content_right, page_
             holder.is_linked_to_previous = False
             clear_paragraph(holder.paragraphs[0])
             if band is not None and not bare:
-                fill_band_paragraph(holder.paragraphs[0], band, left_margin, content_left, content_right)
+                fill_band_paragraph(holder.paragraphs[0], band, left_margin, right_margin, content_left, content_right)
                 continue
             # An empty definition still reserves its distance plus a line, and
             # with the margins pdf2docx writes that is enough to push a full
@@ -1417,6 +1462,381 @@ def rebuild_toc(document, entries, content_left, content_right):
     return written, []
 
 
+# ── step 5: the decoration pdf2docx leaves behind ─────────────────────────
+#
+# It keeps a filled rectangle when it becomes a table cell and drops it
+# otherwise, so a code block's grey panel, the darker bar down its left edge
+# and a chart legend's colour squares all arrive as text on white paper. None
+# of that changes what the document says, and all of it is what makes a report
+# look like the PDF, so the rectangles are read out of the PDF and put back as
+# paragraph shading, a paragraph border and a coloured glyph.
+
+
+def hex_of(fill):
+    return "%02X%02X%02X" % tuple(max(0, min(255, int(round(c * 255)))) for c in tuple(fill)[:3])
+
+
+def find_decoration(doc, bands):
+    """Filled rectangles the converter will drop, and the text they belong to.
+
+    A panel is a filled rectangle with room around the text inside it. A table
+    cell is a filled rectangle the text exactly fills, and pdf2docx already
+    handles those, so the ratio of the rectangle's height to the tallest row
+    inside it is what separates them: the reference report's cells come out at
+    1.5 and its code panels at 4.2.
+
+    A swatch is a small filled square sitting just left of a text row, which is
+    how a chart legend is drawn.
+    """
+    member_rows = set()
+    for band in bands:
+        member_rows |= band.get("members") or set()
+    panels, swatches = [], []
+    for index in range(doc.page_count):
+        page = doc[index]
+        rows = [r for r in page_rows(page) if row_id(index, r) not in member_rows]
+        # A table cell has neighbours: another filled rectangle sharing its
+        # top and bottom (the rest of the row) or its left and right (the rest
+        # of the column). A panel stands on its own. This is what separates
+        # the two, because size does not: a risk matrix's cells are as tall as
+        # a code block and painting one of those onto a paragraph puts a red
+        # bar through a sentence. The accent bar is excluded from the test,
+        # since it shares its panel's top and bottom by construction.
+        wide = [d for d in page.get_drawings()
+                if d.get("fill") is not None and d["rect"].width > BAR_MAX_WIDTH_PT]
+        for drawing in page.get_drawings():
+            fill = drawing.get("fill")
+            if fill is None:
+                continue
+            rect = drawing["rect"]
+            if PANEL_MIN_SIDE_PT <= rect.width <= SWATCH_MAX_SIDE_PT and rect.height <= SWATCH_MAX_SIDE_PT:
+                # The label is the column that starts just to its right, not
+                # the row: a legend puts four swatches on one line and only
+                # the first of them would ever sit at the row's own left edge.
+                for row in rows:
+                    if row["y0"] >= rect.y1 or row["y1"] <= rect.y0:
+                        continue
+                    label = next((c for c in row["columns"] if 0 <= c["x0"] - rect.x1 <= SWATCH_TEXT_GAP_PT), None)
+                    if label:
+                        swatches.append({"fill": tuple(fill), "row": row, "label": label["text"]})
+                        break
+                continue
+            if rect.width < PANEL_MIN_WIDTH_PT or rect.height < PANEL_MIN_HEIGHT_PT:
+                continue
+            if has_grid_neighbour(rect, wide):
+                continue  # a table cell, which pdf2docx colours itself
+            inside = [r for r in rows if r["y0"] >= rect.y0 - 1 and r["y1"] <= rect.y1 + 1
+                      and r["x0"] >= rect.x0 - 1 and r["x1"] <= rect.x1 + 1]
+            if not inside:
+                continue
+            tallest = max(r["y1"] - r["y0"] for r in inside)
+            if len(inside) < 2 and rect.height < PANEL_PADDING_RATIO * tallest:
+                continue  # text that exactly fills its box is a cell too
+            panels.append({"fill": tuple(fill), "rows": inside, "rect": rect, "page": index, "bar": None})
+    # A narrow filled rectangle hugging a panel's left edge is the accent bar.
+    for index in range(doc.page_count):
+        for drawing in doc[index].get_drawings():
+            fill = drawing.get("fill")
+            rect = drawing["rect"]
+            if fill is None or rect.width > BAR_MAX_WIDTH_PT:
+                continue
+            for panel in panels:
+                if panel["page"] != index or panel["bar"] is not None:
+                    continue
+                if abs(rect.x1 - panel["rect"].x0) <= 1.5 and abs(rect.y0 - panel["rect"].y0) <= 2.0:
+                    panel["bar"] = {"fill": tuple(fill), "width": rect.width}
+    return panels, swatches
+
+
+def has_grid_neighbour(rect, others):
+    """Another filled rectangle sharing this one's row or its column."""
+    for other in others:
+        box = other["rect"]
+        if abs(box.x0 - rect.x0) < 0.5 and abs(box.x1 - rect.x1) < 0.5 and abs(box.y0 - rect.y0) > 0.5:
+            return True
+        if abs(box.y0 - rect.y0) < 0.5 and abs(box.y1 - rect.y1) < 0.5 and abs(box.x0 - rect.x0) > 0.5:
+            return True
+    return False
+
+
+def shade_run_of_paragraphs(document, panels):
+    """Shade the paragraphs a panel's text ended up in, and draw its bar.
+
+    Matching is by text, in document order: the same code block appears on
+    every finding page of a report, so "the only paragraph that contains this
+    line" is the wrong question. The panels are walked in page order against a
+    cursor into the paragraphs, which pairs the nth occurrence with the nth
+    panel. A row that matches nothing ahead of the cursor is skipped. A
+    paragraph
+    that already carries a fill, or sits in a table cell that does, is left
+    alone: pdf2docx colours the cells it recognised and a second fill would
+    fight with it. It does not colour a code block, even though it does put
+    one in a cell, which is why "is it in a table" is the wrong question and
+    "does it already have a colour" is the right one.
+    """
+    body = document.element.body
+    # Every paragraph, including the ones that already have a colour: a panel
+    # the converter did handle still has to consume its place in the order, or
+    # the cursor runs ahead and the next panel is painted onto the wrong text.
+    paragraphs = body_paragraphs(document)
+    squashed = [compare_squash(paragraph_text(p)) for p in paragraphs]
+    painted = 0
+    cursor = 0
+    for panel in sorted(panels, key=lambda p: (p["page"], p["rect"].y0)):
+        matched = []
+        for row in panel["rows"]:
+            needle = compare_squash(row["text"])
+            if len(needle) < COMPARE_MIN_CHARS:
+                continue
+            position = next((i for i in range(cursor, len(squashed)) if needle in squashed[i]), None)
+            if position is not None:
+                matched.append(position)
+        if not matched:
+            continue
+        for position in sorted(set(matched)):
+            if already_shaded(body, paragraphs[position]):
+                continue
+            paragraph = Paragraph(paragraphs[position], document)
+            shade_paragraph(paragraph, panel["fill"])
+            if panel["bar"]:
+                left_border(paragraph, panel["bar"])
+            painted += 1
+        cursor = max(matched) + 1
+    return painted
+
+
+def already_shaded(body, element):
+    """Does this paragraph, or the cell holding it, already carry a fill?"""
+    node = element
+    while node is not None and node is not body:
+        properties = node.find(qn("w:pPr")) if node.tag == qn("w:p") else node.find(qn("w:tcPr"))
+        if properties is not None:
+            fill = properties.find(qn("w:shd"))
+            if fill is not None and (fill.get(qn("w:fill")) or "auto").lower() not in ("auto", "ffffff", ""):
+                return True
+        node = node.getparent()
+    return False
+
+
+def left_border(paragraph, bar):
+    node = OxmlElement("w:pBdr")
+    left = OxmlElement("w:left")
+    left.set(qn("w:val"), "single")
+    # Eighths of a point, and Word refuses anything above 48.
+    left.set(qn("w:sz"), str(max(4, min(48, int(round(bar["width"] * 8))))))
+    left.set(qn("w:space"), "0")
+    left.set(qn("w:color"), hex_of(bar["fill"]))
+    node.append(left)
+    properties = paragraph._p.get_or_add_pPr()
+    for existing in properties.findall(qn("w:pBdr")):
+        properties.remove(existing)
+    insert_ordered(properties, node, PPR_ORDER)
+
+
+def restore_swatches(document, swatches):
+    """Put a chart legend's colour squares back as coloured glyphs.
+
+    pdf2docx drops a small filled square that is not part of a table, so the
+    legend arrives as four words with nothing to tell them apart. A filled
+    square character in the swatch's colour, in the run the label starts,
+    reads the same at the size a legend is printed at.
+    """
+    paragraphs = body_paragraphs(document)
+    squashed = [compare_squash(paragraph_text(p)) for p in paragraphs]
+    by_row = {}
+    for swatch in swatches:
+        by_row.setdefault(id(swatch["row"]), []).append(swatch)
+    added = 0
+    for group in by_row.values():
+        labels = [compare_squash(s["label"]) for s in group]
+        if not all(labels):
+            continue
+        runs = None
+        # The whole legend in one paragraph, run by run.
+        for element, text in zip(paragraphs, squashed):
+            if all(label in text for label in labels):
+                paragraph = Paragraph(element, document)
+                found = [next((r._element for r in paragraph.runs
+                               if compare_squash(r.text).startswith(label)), None) for label in labels]
+                if all(run is not None for run in found):
+                    runs = found
+                break
+        # Or one paragraph per label, in order, which is how the converter
+        # writes a legend it has read as a column of cells.
+        if runs is None:
+            window = matching_sequence(paragraphs, squashed, labels)
+            if window is None:
+                continue
+            runs = [element.find(qn("w:r")) for element in window]
+            if any(run is None for run in runs):
+                continue
+        for swatch, target in zip(group, runs):
+            target.addprevious(colour_square(target, swatch["fill"]))
+            added += 1
+    return added
+
+
+def matching_sequence(paragraphs, squashed, labels):
+    """The first run of paragraphs whose texts are exactly these labels, in order."""
+    filled = [i for i, text in enumerate(squashed) if text]
+    for start in range(len(filled) - len(labels) + 1):
+        window = filled[start : start + len(labels)]
+        if [squashed[i] for i in window] == labels:
+            return [paragraphs[i] for i in window]
+    return None
+
+
+def colour_square(sibling, fill):
+    """A run holding a filled square in `fill`, styled like its neighbour."""
+    mark = copy.deepcopy(sibling if sibling.tag == qn("w:r") else OxmlElement("w:r"))
+    if mark.tag != qn("w:r"):
+        mark = OxmlElement("w:r")
+    for child in list(mark):
+        if child.tag != qn("w:rPr"):
+            mark.remove(child)
+    properties = mark.find(qn("w:rPr"))
+    if properties is None:
+        properties = OxmlElement("w:rPr")
+        mark.insert(0, properties)
+    for existing in properties.findall(qn("w:color")):
+        properties.remove(existing)
+    colour = OxmlElement("w:color")
+    colour.set(qn("w:val"), hex_of(fill))
+    properties.append(colour)
+    text = OxmlElement("w:t")
+    text.set(qn("xml:space"), "preserve")
+    text.text = "■ "
+    mark.append(text)
+    return mark
+
+
+def justified_openings(doc, bands, content_left, content_right):
+    """The first line of every paragraph the PDF justified.
+
+    pdf2docx reads alignment off line geometry and gets it right on some
+    paragraphs and not others in the same document. The PDF says it plainly: a
+    justified paragraph's lines all reach the right edge of the column except
+    the last one. Three lines is the shortest run where that means anything,
+    because two lines that both reach the edge is also what a centred pair
+    looks like.
+    """
+    member_rows = set()
+    for band in bands:
+        member_rows |= band.get("members") or set()
+    width = content_right - content_left
+    openings = []
+    for index in range(doc.page_count):
+        rows = [r for r in page_rows(doc[index]) if row_id(index, r) not in member_rows]
+        run = []
+
+        def close(run):
+            if len(run) < JUSTIFY_MIN_LINES:
+                return
+            # The edge is taken from the run itself and then checked against
+            # the page's: justified prose overshoots the layout column by a
+            # glyph's overhang, by up to 5 pt on the reference report, while a
+            # table stops exactly on it.
+            edge = max(r["x1"] for r in run[:-1])
+            if edge < content_right - JUSTIFY_EDGE_PT:
+                return
+            if all(abs(r["x1"] - edge) <= JUSTIFY_EDGE_PT for r in run[:-1]):
+                openings.append(compare_squash(run[0]["text"]))
+
+        for row in rows + [None]:
+            starts = row is not None and abs(row["x0"] - content_left) <= JUSTIFY_EDGE_PT
+            # Consecutive lines of one paragraph: the next line's top may sit
+            # a little above the previous line's bottom, because a line box is
+            # taller than the text in it.
+            follows = starts and (not run or -JUSTIFY_LINE_GAP_PT <= row["y0"] - run[-1]["y1"] <= JUSTIFY_LINE_GAP_PT)
+            if not follows:
+                close(run)
+                run = [row] if starts else []
+            else:
+                run.append(row)
+            # A line that does not reach the edge is the last line of its
+            # paragraph, so the heading above a paragraph does not become part
+            # of it and drag the whole run below the flush test.
+            if run and run[-1]["x1"] < content_right - JUSTIFY_EDGE_PT:
+                close(run)
+                run = []
+    return [o for o in openings if len(o) >= COMPARE_MIN_CHARS and width > 0]
+
+
+def justify_paragraphs(document, openings):
+    """Set justified alignment on the paragraphs those lines opened."""
+    paragraphs = body_paragraphs(document)
+    squashed = [compare_squash(paragraph_text(p)) for p in paragraphs]
+    cursor = 0
+    done = 0
+    for opening in openings:
+        position = next((i for i in range(cursor, len(squashed)) if squashed[i].startswith(opening)), None)
+        if position is None:
+            continue
+        Paragraph(paragraphs[position], document).alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        cursor = position + 1
+        done += 1
+    return done
+
+
+# ── step 6: the text the converter ran together ───────────────────────────
+
+
+def spaced_pairs(doc):
+    """Boundaries where the PDF put a gap and the converter may not.
+
+    pdf2docx writes one run per PDF span and drops the space between two of
+    them, so a numbered step arrives as "1.{{REMEDIATION STEP}}". The PDF
+    knows there was a gap there, so the pairs are collected here and matched
+    against the converter's run boundaries afterwards.
+    """
+    pairs = set()
+    for index in range(doc.page_count):
+        for row in page_rows(doc[index]):
+            for left, right in zip(row["columns"], row["columns"][1:]):
+                pairs.add((compare_squash(left["text"])[-PAIR_WINDOW:],
+                           compare_squash(right["text"])[:PAIR_WINDOW]))
+            # Within a column the row builder already inserted the space, so
+            # the pair is taken from the text it produced.
+            for column in row["columns"]:
+                text = column["text"]
+                for position, char in enumerate(text):
+                    if char == " " and position and position + 1 < len(text):
+                        pairs.add((compare_squash(text[:position])[-PAIR_WINDOW:],
+                                   compare_squash(text[position + 1:])[:PAIR_WINDOW]))
+    return {pair for pair in pairs if pair[0] and pair[1]}
+
+
+def repair_text(document, pairs):
+    """Drop soft hyphens, and put back a space the converter ran together.
+
+    A soft hyphen is where the typesetter broke a word, not a character of the
+    document, and Word prints it: the reference report showed "em-ployed",
+    "likeli-hood" and "appro-priate" in the middle of a line. Real hyphens are
+    U+002D and are left alone, which is why this does not use pdf2docx's own
+    `delete_end_line_hyphen`: that would turn "non-critical" into
+    "noncritical".
+    """
+    removed, spaced = 0, 0
+    for element in body_paragraphs(document):
+        nodes = [n for n in element.iter(qn("w:t"))]
+        for node in nodes:
+            if node.text and "­" in node.text:
+                removed += node.text.count("­")
+                node.text = node.text.replace("­", "")
+                node.set(qn("xml:space"), "preserve")
+        for left, right in zip(nodes, nodes[1:]):
+            if not left.text or not right.text:
+                continue
+            if left.text[-1].isspace() or right.text[0].isspace():
+                continue
+            key = (compare_squash(left.text)[-PAIR_WINDOW:], compare_squash(right.text)[:PAIR_WINDOW])
+            if key[0] and key[1] and key in pairs:
+                right.text = " " + right.text
+                right.set(qn("xml:space"), "preserve")
+                spaced += 1
+    return removed, spaced
+
+
 # ── the safety net: did the Word file keep the PDF's text? ────────────────
 #
 # Every repair above deletes something from the document and writes something
@@ -1648,6 +2068,12 @@ def convert(pdf_path, docx_path, budget_seconds=None):
                 )
         repaired_lines = body_lines(doc, bands)
         plain_lines = body_lines(doc, [])
+        # Read before the bands are erased, so a panel that reaches into the
+        # band zone is still described, and kept for the post-processing pass
+        # that runs once the converter has produced a file.
+        panels, swatches = find_decoration(doc, bands)
+        pairs = spaced_pairs(doc)
+        justified = justified_openings(doc, bands, content_left, content_right)
         # Two inputs: the PDF as it stands, for the fallback, and a copy with
         # the bands erased, for the repaired pass.
         plain_pdf = docx_path + ".plain.pdf"
@@ -1675,6 +2101,10 @@ def convert(pdf_path, docx_path, budget_seconds=None):
         repair_warnings.extend(toc_warnings)
         if bands:
             repair_warnings.extend(apply_bands(document, bands, page_height, content_left, content_right, pages))
+        shade_run_of_paragraphs(document, panels)
+        restore_swatches(document, swatches)
+        justify_paragraphs(document, justified)
+        repair_text(document, pairs)
         document.save(part)
         missing = missing_from_docx(repaired_lines, docx_text(part, body_only=bool(bands)))
         checked_lines = repaired_lines
@@ -1705,6 +2135,14 @@ def convert(pdf_path, docx_path, budget_seconds=None):
             run_pdf2docx(plain_pdf, part)
             if not os.path.exists(part) or os.path.getsize(part) == 0:
                 raise ConvertError("the converter produced no Word file")
+            # The decoration is not a repair and cannot lose text, so it runs
+            # on the fallback too.
+            document = Document(part)
+            shade_run_of_paragraphs(document, panels)
+            restore_swatches(document, swatches)
+            justify_paragraphs(document, justified)
+            repair_text(document, pairs)
+            document.save(part)
             written = 0
             bands = []
             checked_lines = plain_lines

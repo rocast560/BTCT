@@ -336,7 +336,17 @@ def run_documents():
         passed &= check(any("told apart from the body" in w for w in result["warnings"]),
                         "band only: the warning says why", result["warnings"])
 
-        # 9. Too many shapes for the converter.
+        # 9. Soft hyphens are the typesetter's line breaks and have to go;
+        #    a real hyphen at a line end is part of the word and must stay.
+        result, path = run_case(cases.HYPHENS, workdir, "hyphens")
+        passed &= check(result["textCheck"]["missing"] == 0, "hyphens: nothing was lost", result["textCheck"])
+        text = convert.docx_text(path, body_only=False)
+        passed &= check("­" not in text, "hyphens: no soft hyphen reached the Word file",
+                        text.count("­"))
+        passed &= check("non-critical" in text, "hyphens: a real hyphen survived")
+        passed &= check("employed" in text or "employ" in text, "hyphens: the broken word was joined")
+
+        # 10. Too many shapes for the converter.
         pdf_path = os.path.join(workdir, "shapes.pdf")
         compile_case(cases.SHAPES, pdf_path)
         started = time.perf_counter()
@@ -348,7 +358,7 @@ def run_documents():
             passed &= check("too complex" in str(err), "shapes: the document was refused", err)
             passed &= check(spent < 1.0, "shapes: refused in under a second", "%.3f s" % spent)
 
-        # 10. A paragraph the converter dropped, simulated by taking one out of
+        # 11. A paragraph the converter dropped, simulated by taking one out of
         #    the PDF's side of the comparison's counterpart.
         result, path = run_case(cases.REPORT, workdir, "report2")
         text = convert.docx_text(path, body_only=True)
