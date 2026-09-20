@@ -2365,6 +2365,8 @@ table of contents, so that rung is the only one left to save the line.
   anchored, which happens in the middle of the walk, so the same fix there
   needs the cut to run from inside the walk and to be undoable per page. A
   finding card's bodies are still 2.3 pt low in the middle for this reason.
+  (Part eight: done. The cut runs at the top of `place_cell`, where the anchor
+  is already known, and the seams join the ones the pre-pass made.)
 - **Two lines the PDF sets closer than Word's boxes allow.** An exact line box
   puts 0.8 of its height above the baseline and 0.2 below, so two blocks need
   at least 0.2 of the first plus 0.8 of the second between their baselines.
@@ -2379,3 +2381,154 @@ table of contents, so that rung is the only one left to save the line.
 - **The heading table that opens a page** is 0.65 pt low, so pages 3 and 4
   carry that down. It is the same family as the cell-border inset part six
   measured and not the same number, so a term in that model is still missing.
+  (Part eight: there is no missing term. The 0.65 is the average of two cells
+  of one heading that Word draws 1.25 pt apart, and reading a page as rows
+  rather than columns hid that. Closed.)
+
+### Fidelity, part eight: two cells, one baseline
+
+Three commits. `test_convert.py` 255 to **268 checks, 0 FAIL**. Vitest unchanged
+at 56 files / 592 tests. Same metric, same defaults (`--line-breaks=pdf`), same
+machine, same Word, and Word itself reports **23 pages**, which is the number
+that matters.
+
+**Mean 0.9145 to 0.9151. Median 0.9175 to 0.9176. Worst page 0.8063 to
+0.8106.** Five pages up, eighteen unchanged, none down. 390 of 390 lines, no
+fallback, 27 table-of-contents entries, fonts embedded.
+
+This is the round where the returns stopped. It is written down anyway, because
+two of its three findings were mis-stated in earlier rounds and the third is a
+measurement that says a whole avenue is closed.
+
+#### The 0.65 pt in the heading model was 1.25 pt between two cells
+
+Six rounds called the section heading at the top of a page "0.65 pt low" and
+blamed a missing term in the model of where a cell's first line sits. It was
+neither 0.65 nor a model error.
+
+A heading arrives as a one-row table of two cells, the number in one and the
+title in the other, and the two carry different exact line heights: 25.2 pt
+against 23.65. Word draws each cell's first baseline from its own cell's
+height, so it put the number 1.25 pt below the title where the PDF has both on
+one line. Reading a page's text as rows merges the two into one and reports the
+average, which is where 0.65 came from.
+
+The number was never corrected because a cell is paired with the PDF through
+its text and "2." squashes to "2", which is shorter than the comparison's own
+minimum and occurs all over a report. Inside a cell, though, the pairing is not
+really by text: the lines were dropped into the cell by where their centres
+fall. A cell holding one paragraph with text, with one line in it and nothing
+placed yet, has nothing left to match, and the two are each other's. Two
+paragraphs, two lines, a nested table or anything already placed is refused.
+
+Eight headings and, it turned out, four more single-line cells. Page 22 gained
+most of anything this round: 0.8063 to 0.8106.
+
+#### The cut reached inside a cell
+
+Part seven cut a paragraph where the report changed its leading, at the top
+level only, because a cell's rows are known only once the table's grid has been
+anchored, which happens in the middle of the page's walk, and the walk runs
+twice with a restore between that puts spacing back and knows nothing about
+structure.
+
+The way in is that the anchor is known by the time the cell is reached, and the
+cell's own lines are already in hand there. So the cut runs at the top of
+`place_cell`, once, before the cell is walked: the walk then sees the pieces and
+never a paragraph changing under it. Running the walk again is harmless, because
+a piece has one leading and nothing left to cut, and because the pieces come to
+exactly the points the paragraph came to, so the second walk's reading of the
+converter's own heights is unchanged. The seams join the ones the top-level
+pre-pass made, so the existing rule covers them: a piece the pass did not go on
+to place is joined back up, which is also what gives a table back whole when one
+of its cells would not fit.
+
+The finding card writes four sub-headings and their paragraphs as one block of
+seven lines, at 13.48 pt inside a pair and 18.05 between two of them, so three
+of the seven sat 2.3 pt low. Page 14 0.8848 to 0.8923.
+
+#### Page 22 is not glyph positions
+
+Every round since the first has written "justification and glyph positions" next
+to page 22 and left it there. Measured, over the 40 lines of it that pair:
+
+| | median | mean | worst |
+|---|---|---|---|
+| where the line starts | +0.00 | +0.13 | 3.00 |
+| where the line ends | -0.09 | -4.84 | 34.42 |
+| a word's place inside the line | +0.09 | +5.43 | 34.37 |
+| a word's own width | +0.11 | +0.10 | 0.19 |
+
+The words are the right width to within a fifth of a point, and the lines start
+in the right place. The whole of the difference is the space between words: the
+PDF justifies those paragraphs and the Word file does not, so its lines end up
+to 34 pt short of the margin the PDF reaches.
+
+That is a fixable-sounding thing, and it was tried three ways.
+
+**Justify them.** Word does justify a line that ends in a manual line break,
+which was worth knowing: the line ends went from a mean of -4.84 to +0.27 at
+the median. The page still got worse, 0.8106 to 0.8010, because Word hands out
+the slack differently from typst, so the words in the middle of a line move
+further than they did when the line was simply short, and because the paragraph
+carries a widened column (the relief that stops a forced line wrapping twice),
+which a justified line then fills.
+
+**Justify them and take the relief away.** Pages 5 and 9 collapsed, 0.8415 to
+0.5755 and 0.8558 to 0.7306, because a forced line Word measures a hair wider
+than typst did wraps again and takes the rest of the page with it. The relief
+is not decoration.
+
+**Per-line character spacing**, which Word honours in twentieths of a point.
+Built as an oracle that reads how much each line needs from the render Word had
+already produced, which the converter itself could never know. Page 22 alone:
+0.8106 to 0.8180. The whole report: 0.9151 to **0.9148**. Even with information
+no implementation can have, it does not pay, because tracking a line to the
+right length moves every glyph in it while typst moved only the spaces.
+
+So it stays as it is, and the reason is now a measurement rather than a guess.
+
+#### What is still out, precisely
+
+Twenty-one of 545 paired columns sit more than 0.95 pt off. One of those is not
+real: page 10's chart is rasterised, so the PDF's legend words have no
+counterpart in the Word file and the comparison paired one of them with the same
+word elsewhere on the page.
+
+1. **Two lines the PDF sets closer than two Word boxes fit** (10 columns, pages
+   4, 14, 16, 18, 20; 1.5 to 2.5 pt). An exact line box puts the baseline at 0.8
+   of its height, and the box may not be shorter than the line's own ink ascent
+   over 0.8 or Word clips the top of it. Two consecutive lines therefore need at
+   least 0.2 of the first box plus 0.8 of the second between their baselines. The
+   card writes `{{TECHNIQUE}}` under `TECHNIQUES` at a 10.98 pt pitch with ink
+   reaching 10.29 pt above the baseline, which asks for boxes of 12.86. A DOCX
+   has no way to say "this box is 12.86 pt tall and sits 1.9 pt higher than that
+   implies".
+2. **A cell whose only line cannot come up far enough** (3 columns, pages 9 and
+   22; 1.2 to 1.3 pt). Same arithmetic one level down: the cell's top border plus
+   the shortest box its own ink allows already puts the line below where the PDF
+   has it.
+3. **The blocks under page 3's timeline table** (1 column over the threshold at
+   1.57 pt, plus its caption at 1.08). The table is moved onto the rules the PDF
+   drew for it and Word ends it about 1.1 pt below where the model says, so the
+   caption and the heading under it inherit that. Taking the move away costs the
+   page 0.06, so it stays.
+4. **Two counts in page 10's risk table**, 1.18 and 1.39 pt, the same family as 2.
+5. **Justification**, above: the largest thing left and the one with three
+   measured attempts against it.
+6. **Under a point, on every page**: the running header sits 0.60 pt low and the
+   footer's page number 0.80, which is the band paragraph's own line box against
+   the distance Word reserves for it. At the width the metric scores, 0.8 pt is a
+   fifth of a pixel.
+
+#### Measured and reverted
+
+- Justifying every multi-line paragraph: mean 0.9151 to 0.9106.
+- Deciding a paragraph's alignment once rather than once per line, which is the
+  correct reading of the pass and still made it worse: 0.9151 to 0.9142, because
+  the runs it newly justified then filled the widened column.
+- The same, with the relief removed from justified paragraphs: 0.9151 to 0.8980.
+- Oracle per-line character spacing over the whole report: 0.9151 to 0.9148.
+- Dropping the fit that moves a table onto the PDF's rules, on the theory that
+  part seven's corrected flow had made it redundant: 0.9151 to **0.9070**. It is
+  worth 0.06 on page 3 alone.
