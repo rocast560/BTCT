@@ -434,6 +434,27 @@ command palette. There is one report per workspace.
     third caller gets a 429 and is asked to come back in a moment. Measured in
     the 1 GB container on a 23-page report with a cover and six fonts: 0.8 s
     for the PDF and 6.9 s for the Word file, peaking at 176 MiB.
+  - **Word conversion bounds**, on top of the compile's own: **300 pages**,
+    **25 MB** of compiled PDF, and a per-page complexity ceiling (3 MB of
+    instruction stream, 10,000 vector drawings). A report's page holds about
+    60 drawings, so these only ever catch a document that would have taken
+    minutes: three pages of 120,000 rectangles are refused in 0.04 s instead
+    of costing the converter half a minute.
+  - **Links with unsupported addresses are removed** from the Word file.
+    Word follows a hyperlink's address, and `FILE://host/share/x` resolves as
+    UNC and leaks the reader's credentials to whoever owns that host, so only
+    `http`, `https` and `mailto` survive into the .docx. The export says how
+    many it dropped.
+  - **The Word file is checked against the PDF's text before you get it.**
+    Lifting a running header out of the page body and rewriting a table of
+    contents both delete part of the document, so afterwards every line of the
+    PDF is looked for in the Word file. If anything is missing, that file is
+    thrown away and the report is converted again with both repairs off, and
+    the banner says: "The header and footer could not be lifted safely on this
+    report, so the Word file keeps them in the page body and its page count
+    may differ from the PDF." If text is still missing after that, the file is
+    kept and the banner names how many lines and the first of them, so you can
+    check before sending.
   - **Fonts are not embedded in the Word file.** It is made from the PDF, so
     the layout is the PDF's, but Word asks the machine that opens it for the
     fonts by name. Install the report's fonts there, or expect substitutions.

