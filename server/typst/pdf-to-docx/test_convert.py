@@ -638,6 +638,25 @@ def run_documents():
         passed &= check(font_tools.embeddable({"fsType": 0}), "fonts: an installable font is allowed")
         passed &= check(font_tools.embeddable({"fsType": 8}), "fonts: an editable font is allowed")
 
+
+        # 12b. A budget too small for the fidelity passes skips them, says so,
+        #      and still checks that the Word file kept the PDF's text.
+        pdf_path = os.path.join(workdir, "budget.pdf")
+        compile_case(cases.REPORT, pdf_path)
+        tight = convert.convert(pdf_path, os.path.join(workdir, "budget.docx"), budget_seconds=0.001)
+        passed &= check(convert.CROWDED_OUT in tight["warnings"],
+                        "budget: a thin margin skips the layout passes", tight["warnings"][:1])
+        passed &= check(tight["textCheck"]["missing"] == 0,
+                        "budget: the text check still runs", tight["textCheck"])
+        roomy = convert.convert(pdf_path, os.path.join(workdir, "roomy.docx"), budget_seconds=600)
+        passed &= check(convert.CROWDED_OUT not in roomy["warnings"],
+                        "budget: a real margin keeps them", roomy["warnings"])
+        passed &= check(roomy["pages"] == tight["pages"],
+                        "budget: skipping them does not move the page count",
+                        (roomy["pages"], tight["pages"]))
+        passed &= check(convert.affordable(time.monotonic(), None, 999.0),
+                        "budget: no budget means no limit")
+
         # 13. Too many shapes for the converter.
         pdf_path = os.path.join(workdir, "shapes.pdf")
         compile_case(cases.SHAPES, pdf_path)

@@ -203,6 +203,11 @@ EMU_PER_PT = 12700
 # typst) are refused in 0.08 s instead of costing the converter 35.9 s and
 # 651 MB of RSS. Each refusal reads like the other server export limits and
 # sends the operator to the PDF, which has none of these problems.
+# What the fidelity passes and the text check cost, as multiples of the
+# repairs that must run before them. Measured on three documents; see
+# `affordable`.
+FIDELITY_COST_RATIO = 1.0
+CHECK_COST_RATIO = 3.0
 MAX_PAGES = 300
 MAX_PAGE_CONTENT_BYTES = 3_000_000
 MAX_PAGE_DRAWINGS = 10_000
@@ -3000,6 +3005,33 @@ def run_pdf2docx(source, target):
         converter.close()
 
 
+CROWDED_OUT = ("This report is large, so the Word file skips the final layout pass and may sit a "
+               "little differently from the PDF.")
+
+
+def affordable(started, budget, repairs):
+    """Is there time left for the passes that only make the file look right?
+
+    The two that grow with the document, breaking each paragraph where the PDF
+    broke it and putting every block on its own baseline, are worth their cost
+    on a report and not worth a timeout on a monster. What they will cost is
+    estimated from what this document has already cost: the repairs that have
+    to run whatever happens walk the same paragraphs, so their measured time is
+    the size of the document in the only unit that matters here. Measured over
+    the reference report, a 23-page prose document and a 25-page table of 1,249
+    rows, the two fidelity passes together come to about half of the repairs
+    before them and the text check after them to about one and a half times, so
+    the reservation below has roughly a two times margin over both.
+
+    The text check and the link check are never part of this decision. They are
+    what says the Word file still holds the PDF's words, and a file that has
+    not been checked is worth less than one that sits a point out of place.
+    """
+    if budget is None:
+        return True
+    return budget - (time.monotonic() - started) > repairs * (FIDELITY_COST_RATIO + CHECK_COST_RATIO)
+
+
 def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_dirs=()):
     """Read the PDF, decide the repairs, convert, and check nothing was lost.
 
@@ -3094,6 +3126,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             raise ConvertError("the converter produced no Word file")
         repair_warnings = []
         document = Document(part)
+        repairs = time.monotonic()
         written, toc_warnings = rebuild_toc(document, entries, content_left, content_right)
         repair_warnings.extend(toc_warnings)
         if bands:
@@ -3102,13 +3135,18 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         restore_swatches(document, swatches)
         align_paragraphs(document, aligned)
         fit_pictures(document, pictures)
-        if line_breaks == "pdf":
-            force_line_breaks(document, aligned, shaded)
+        repairs = time.monotonic() - repairs
+        if affordable(started, budget_seconds, repairs):
+            if line_breaks == "pdf":
+                force_line_breaks(document, aligned, shaded)
+        else:
+            repair_warnings.append(CROWDED_OUT)
         repair_text(document, pairs, shaded)
         restore_break_hyphens(document, broken, shaded)
         # Last, because it reads the spacing and the line count of every block
         # the passes above have finished writing.
-        align_vertical_rhythm(document, anchors, page_height)
+        if affordable(started, budget_seconds, repairs):
+            align_vertical_rhythm(document, anchors, page_height)
         document.save(part)
         missing = missing_from_docx(repaired_lines, docx_text(part, body_only=bool(bands)))
         checked_lines = repaired_lines
@@ -3142,15 +3180,21 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             # The decoration is not a repair and cannot lose text, so it runs
             # on the fallback too.
             document = Document(part)
+            repairs = time.monotonic()
             shaded = shade_run_of_paragraphs(document, panels)
             restore_swatches(document, swatches)
             align_paragraphs(document, aligned)
             fit_pictures(document, pictures)
-            if line_breaks == "pdf":
-                force_line_breaks(document, aligned, shaded)
+            repairs = time.monotonic() - repairs
+            if affordable(started, budget_seconds, repairs):
+                if line_breaks == "pdf":
+                    force_line_breaks(document, aligned, shaded)
+            elif CROWDED_OUT not in repair_warnings:
+                repair_warnings.append(CROWDED_OUT)
             repair_text(document, pairs, shaded)
             restore_break_hyphens(document, broken, shaded)
-            align_vertical_rhythm(document, plain_anchors, page_height)
+            if affordable(started, budget_seconds, repairs):
+                align_vertical_rhythm(document, plain_anchors, page_height)
             document.save(part)
             written = 0
             bands = []
