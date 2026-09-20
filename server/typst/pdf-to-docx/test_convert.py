@@ -254,6 +254,28 @@ def run_rhythm_checks():
     passed &= check(moved == 0 and kept is not None and abs(kept["before"] - 2.0) < 0.05,
                     "rhythm: a correction past the bottom margin is refused", kept and kept["before"])
 
+    # A word the typesetter broke keeps its hyphen where the line still ends.
+    document = Document()
+    first = document.add_paragraph()
+    first.add_run("Therefore, the company also em")
+    second = document.add_paragraph()
+    second.add_run("ployed a custom system")
+    broken = {(convert.compare_squash("Therefore, the company also em")[-convert.PAIR_WINDOW:],
+               convert.compare_squash("ployed a custom system")[:convert.PAIR_WINDOW])}
+    added = convert.restore_break_hyphens(document, broken)
+    ends = list(first._p.iter(convert.qn("w:t")))[-1]
+    passed &= check(added == 1 and ends.text.endswith("em-"),
+                    "rhythm: the break hyphen came back", (added, ends.text[-6:]))
+    convert.restore_break_hyphens(document, broken)
+    passed &= check(ends.text.endswith("em-") and not ends.text.endswith("em--"),
+                    "rhythm: and only once", ends.text[-6:])
+    elsewhere = Document()
+    one = elsewhere.add_paragraph()
+    one.add_run("a line that was not broken")
+    elsewhere.add_paragraph().add_run("and the next one")
+    passed &= check(convert.restore_break_hyphens(elsewhere, broken) == 0,
+                    "rhythm: a line end the PDF did not break gets nothing")
+
     # A code panel's accent bar stands off the text by the panel's padding.
     document = Document()
     paragraph = document.add_paragraph("nmap -sV")

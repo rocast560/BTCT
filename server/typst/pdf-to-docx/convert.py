@@ -225,6 +225,10 @@ ADDRESS_SPACE_LIMIT_BYTES = 3 * 1024 * 1024 * 1024
 SAFE_LINK_SCHEMES = ("http", "https", "mailto")
 LINK_SCHEME = re.compile(r"^\s*([A-Za-z][A-Za-z0-9+.\-]*)\s*:")
 
+# What a typesetter leaves where it broke a word. It is invisible to a reader
+# of the PDF, which prints a hyphen for it, and visible to a reader of a Word
+# file, which prints it as a hyphen in the middle of a line.
+SOFT_HYPHEN = "\u00ad"
 # Invisible characters a typesetter puts around a page number.
 INVISIBLE = "⁠​‌‍﻿"
 DIGITS = re.compile(r"\d+")
@@ -2639,6 +2643,82 @@ def typed_soft_hyphens(doc, bands):
     return max(0, typed)
 
 
+def broken_words(doc, bands):
+    """Boundaries where the typesetter broke a word across two lines.
+
+    It marks the break with a soft hyphen, which is invisible to a reader of
+    the PDF because the PDF prints a hyphen for it, and visible to a reader of
+    a Word file because Word prints it in the middle of a line. So every one
+    of them is removed, and where the Word file breaks the line in the same
+    place a real hyphen goes back: without it the page reads "em ployed".
+    """
+    members = set()
+    for band in bands:
+        members |= band.get("members") or set()
+    pairs = set()
+    for index in range(doc.page_count):
+        rows = [r for r in page_rows(doc[index]) if row_id(index, r) not in members]
+        for left, right in zip(rows, rows[1:]):
+            if not left["text"].rstrip().endswith(SOFT_HYPHEN):
+                continue
+            pairs.add((compare_squash(left["text"])[-PAIR_WINDOW:],
+                       compare_squash(right["text"])[:PAIR_WINDOW]))
+    return {pair for pair in pairs if pair[0] and pair[1]}
+
+
+def restore_break_hyphens(document, broken, shaded=()):
+    """Put the hyphen back at every line end where the PDF broke a word.
+
+    A line ends at a manual break or at the end of a paragraph, and the
+    converter writes most of the PDF's lines as paragraphs of their own, so
+    both count. The pair of words either side of the break identifies it, the
+    same way the space repair identifies a run boundary, so a hyphen is never
+    added anywhere the PDF did not break a word.
+    """
+    if not broken:
+        return 0
+    shaded = set(shaded)
+    stream = []
+    for element in body_paragraphs(document):
+        if is_code(element, shaded):
+            stream.append(None)
+            continue
+        for node in element.iter():
+            if node.tag == qn("w:t"):
+                stream.append(node)
+            elif node.tag in (qn("w:br"), qn("w:cr")):
+                stream.append(None)
+        stream.append(None)
+    added = 0
+    for index, item in enumerate(stream):
+        if item is not None:
+            continue
+        last, before = None, ""
+        for back in range(index - 1, -1, -1):
+            if stream[back] is None:
+                break
+            if last is None:
+                last = stream[back]
+            before = (stream[back].text or "") + before
+            if len(compare_squash(before)) >= PAIR_WINDOW:
+                break
+        after = ""
+        for ahead in range(index + 1, len(stream)):
+            if stream[ahead] is None:
+                break
+            after += stream[ahead].text or ""
+            if len(compare_squash(after)) >= PAIR_WINDOW:
+                break
+        if last is None or not (last.text or ""):
+            continue
+        key = (compare_squash(before)[-PAIR_WINDOW:], compare_squash(after)[:PAIR_WINDOW])
+        if key in broken and not last.text.rstrip().endswith("-"):
+            last.text = last.text + "-"
+            last.set(qn("xml:space"), "preserve")
+            added += 1
+    return added
+
+
 def spaced_pairs(doc):
     """Boundaries where the PDF put a gap and the converter may not.
 
@@ -2983,6 +3063,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         families = fonts.wanted_families(doc, font_family) if font_dirs else set()
         panels, swatches = find_decoration(doc, bands)
         pairs = spaced_pairs(doc)
+        broken = broken_words(doc, bands)
         aligned = flush_left_runs(doc, bands, content_left, content_right)
         typed_hyphens = typed_soft_hyphens(doc, bands)
         # Two inputs: the PDF as it stands, for the fallback, and a copy with
@@ -3019,6 +3100,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         if line_breaks == "pdf":
             force_line_breaks(document, aligned, shaded)
         repair_text(document, pairs, shaded)
+        restore_break_hyphens(document, broken, shaded)
         # Last, because it reads the spacing and the line count of every block
         # the passes above have finished writing.
         align_vertical_rhythm(document, anchors, page_height)
@@ -3062,6 +3144,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             if line_breaks == "pdf":
                 force_line_breaks(document, aligned, shaded)
             repair_text(document, pairs, shaded)
+            restore_break_hyphens(document, broken, shaded)
             align_vertical_rhythm(document, plain_anchors, page_height)
             document.save(part)
             written = 0
