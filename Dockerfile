@@ -48,46 +48,37 @@ COPY server/package.json server/bun.lock* ./
 RUN bun install --frozen-lockfile || bun install
 
 # ─────────────────────────────────────────────────────────────────────────
-# Stage 3: the report export binaries. They are only ever spawned when
-# ENABLE_TYPST=1, but they ship by default so turning the flag on is a
-# restart rather than a rebuild. Both archives are pinned by version and by
-# sha256.
+# Stage 3: the typst compiler. It is only ever spawned when ENABLE_TYPST=1,
+# but it ships by default so turning the flag on is a restart rather than a
+# rebuild. The archive is pinned by version and by sha256.
 # ─────────────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS report-bins
 
-# THE FOUR DIGESTS BELOW ARE TRUST-ON-FIRST-USE, recorded 2026-09-19.
-# Neither project publishes a signed checksum file, so they were computed
-# from the release artefacts the first build downloaded and cross-checked
-# against the digest GitHub's own release API reports for the same assets.
-# That makes them an integrity control (the build fails if those bytes ever
-# change) and not an authenticity one.
+# THE TWO DIGESTS BELOW ARE TRUST-ON-FIRST-USE, recorded 2026-09-19.
+# The project publishes no signed checksum file, so they were computed from
+# the release artefacts the first build downloaded and cross-checked against
+# the digest GitHub's own release API reports for the same assets. That makes
+# them an integrity control (the build fails if those bytes ever change) and
+# not an authenticity one.
 #
-# TO BUMP A VERSION: change the ARG, run the build, let the sha256sum step
+# TO BUMP THE VERSION: change the ARG, run the build, let the sha256sum step
 # fail and print the digest it saw. Before pasting that digest in, check it
 # out of band against the release asset itself:
 #
 #   gh api repos/typst/typst/releases/tags/v<X> --jq '.assets[] | {name, digest}'
-#   gh api repos/jgm/pandoc/releases/tags/<Y>   --jq '.assets[] | {name, digest}'
 #
-# Then update the date on this comment. Both bumps also invalidate a
-# measured safety property, so neither is only a version change:
-#   TYPST_VERSION  re-run the SVG href checks in docs/typst-tab-2026-09.md.
-#                  A staged SVG is never sized, and that is safe only
-#                  because usvg resolves an href for exactly <image> and
-#                  <feImage> and typst refuses http, file and out-of-root
-#                  hrefs inside an SVG.
-#   PANDOC_VERSION re-run the sandbox attack inputs (`read` of an absolute
-#                  path, `include` of a path outside the root, and an image
-#                  at a URL): the DOCX path is safe because --sandbox
-#                  refuses all three in the reader step.
+# Then update the date on this comment. The bump also invalidates a measured
+# safety property, so it is not only a version change: re-run the SVG href
+# checks in docs/typst-tab-2026-09.md. A staged SVG is never sized, and that
+# is safe only because usvg resolves an href for exactly <image> and
+# <feImage> and typst refuses http, file and out-of-root hrefs inside an SVG.
 ARG TYPST_VERSION=0.14.2
-ARG PANDOC_VERSION=3.11
 ARG TARGETARCH
 
-# A box that will never export can build without them and save the measured
-# 205 MiB: `--build-arg WITH_REPORT_BINS=0`. The server still starts, the
-# capabilities route reports both false, the buttons do not appear and the
-# export routes answer 501.
+# A box that will never export can build without the export tools and save
+# the measured size: `--build-arg WITH_REPORT_BINS=0`. The server still
+# starts, the capabilities route reports both false, the buttons do not
+# appear and the export routes answer 501.
 ARG WITH_REPORT_BINS=1
 
 RUN set -eu; \
@@ -99,25 +90,59 @@ RUN set -eu; \
 RUN set -eu; \
     [ "${WITH_REPORT_BINS}" = "1" ] || exit 0; \
     case "${TARGETARCH:-amd64}" in \
-      amd64) T=x86_64-unknown-linux-musl; P=amd64; \
-        TS=a6044cbad2a954deb921167e257e120ac0a16b20339ec01121194ff9d394996d; \
-        PS=37edb3bbcf722f921a009941bf5874e2e0c09263226c9b4a2d980788cb062ab6;; \
-      arm64) T=aarch64-unknown-linux-musl; P=arm64; \
-        TS=491b101aa40a3a7ea82a3f8a6232cabb4e6a7e233810082e5ac812d43fdcd47a; \
-        PS=56ed5566ec41d22ec9ee0704e6ac0b98ba102e92384efd5306173a22d314c79a;; \
+      amd64) T=x86_64-unknown-linux-musl; \
+        TS=a6044cbad2a954deb921167e257e120ac0a16b20339ec01121194ff9d394996d;; \
+      arm64) T=aarch64-unknown-linux-musl; \
+        TS=491b101aa40a3a7ea82a3f8a6232cabb4e6a7e233810082e5ac812d43fdcd47a;; \
       *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1;; \
     esac; \
     curl -fsSL -o /tmp/typst.tar.xz "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${T}.tar.xz"; \
     echo "${TS}  /tmp/typst.tar.xz" | sha256sum -c -; \
     tar -xJf /tmp/typst.tar.xz -C /tmp; \
     install -m 0755 "/tmp/typst-${T}/typst" /out/typst; \
-    curl -fsSL -o /tmp/pandoc.tar.gz "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-linux-${P}.tar.gz"; \
-    echo "${PS}  /tmp/pandoc.tar.gz" | sha256sum -c -; \
-    tar -xzf /tmp/pandoc.tar.gz -C /tmp; \
-    install -m 0755 "/tmp/pandoc-${PANDOC_VERSION}/bin/pandoc" /out/pandoc; \
-    rm -rf /tmp/typst.tar.xz /tmp/pandoc.tar.gz "/tmp/typst-${T}" "/tmp/pandoc-${PANDOC_VERSION}"; \
-    /out/typst --version; \
-    /out/pandoc --version | head -1
+    rm -rf /tmp/typst.tar.xz "/tmp/typst-${T}"; \
+    /out/typst --version
+
+# ─────────────────────────────────────────────────────────────────────────
+# Stage 3b: the Word converter's Python environment. The DOCX export turns
+# the finished PDF into Word with pdf2docx (server/typst/pdf-to-docx), which
+# needs a real Python. It is built on the runtime's own base image so the
+# virtualenv's interpreter symlink resolves to the same /usr/bin/python3
+# there, and it is copied over whole.
+#
+# TO BUMP A PIN: edit server/typst/pdf-to-docx/requirements.txt. The hashes
+# are what `pip-compile --generate-hashes` produced for pdf2docx's whole
+# dependency tree, so regenerate the file rather than editing one line:
+#
+#   docker run --rm oven/bun:1.3-slim sh -c 'apt-get update >/dev/null && \
+#     apt-get install -y --no-install-recommends python3 python3-venv >/dev/null && \
+#     python3 -m venv /v && /v/bin/pip install -q pip-tools && \
+#     echo pdf2docx==<X> > /req.in && \
+#     /v/bin/pip-compile --generate-hashes --no-header -o /dev/stdout /req.in'
+#
+# Then re-run server/typst/pdf-to-docx/test_convert.py and compare.ps1
+# against a real report: the band and table-of-contents repairs are written
+# against what pdf2docx produces, and a new version can change that.
+# ─────────────────────────────────────────────────────────────────────────
+FROM oven/bun:1.3-slim AS pdf2docx-venv
+ARG WITH_REPORT_BINS=1
+COPY server/typst/pdf-to-docx/requirements.txt /tmp/requirements.txt
+RUN set -eu; \
+    mkdir -p /opt/pdf2docx; \
+    [ "${WITH_REPORT_BINS}" = "1" ] || exit 0; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends python3 python3-venv; \
+    rm -rf /var/lib/apt/lists/*; \
+    python3 -m venv /opt/pdf2docx; \
+    /opt/pdf2docx/bin/pip install --no-cache-dir --disable-pip-version-check --require-hashes -r /tmp/requirements.txt; \
+    /opt/pdf2docx/bin/python -I -c "import pdf2docx"; \
+    find /opt/pdf2docx -depth -name __pycache__ -type d -exec rm -rf {} +; \
+    /opt/pdf2docx/bin/python -c "import pdf2docx, pymupdf, docx"
+# pip compiles everything it installs, which is bytecode for hundreds of
+# modules the converter never loads; the line above throws that away and then
+# imports once to put back only what it does load. The export child runs with
+# -B, so without this it would recompile pymupdf, numpy and OpenCV on every
+# export, on the one core it is allowed.
 
 # ─────────────────────────────────────────────────────────────────────────
 # Stage 4: minimal runtime image. Server code + server node_modules +
@@ -132,7 +157,8 @@ ENV NODE_ENV=production \
     PORT=8080 \
     STATIC_DIR=/app/dist \
     DB_PATH=/data/data.sqlite \
-    BACKUP_DIR=/backups
+    BACKUP_DIR=/backups \
+    PDF2DOCX_PYTHON=/opt/pdf2docx/bin/python
 
 # Copy server source + its node_modules. Ownership is set as each layer is
 # written: a later `chown -R … /app` would rewrite every file and duplicate
@@ -156,27 +182,34 @@ COPY --chown=bun:bun server/retention.mjs     /app/server/retention.mjs
 
 # The server-side report export (ENABLE_TYPST=1). The whole server/typst/
 # directory is copied rather than a line per file, so a new module there
-# cannot be forgotten; the cost is the .d.mts declarations and
-# bake.check.mjs, a few kilobytes the runtime never loads.
+# cannot be forgotten; the cost is the .d.mts declarations, bake.check.mjs
+# and the converter's developer tools, a few kilobytes the runtime never
+# loads.
 ARG WITH_REPORT_BINS=1
 COPY --from=report-bins /out/ /usr/local/bin/
+COPY --from=pdf2docx-venv /opt/pdf2docx /opt/pdf2docx
 COPY --chown=bun:bun server/typst/ /app/server/typst/
-# The crop, blur and placeholder math the browser uses, imported by
-# server/typst/bake.mjs and docx-source.mjs rather than copied, so a
-# redaction bakes with the same numbers the preview drew. The list comes
-# from reading those imports and then the imports of each file named:
-# blur-math and crop-math take only types (erased by Bun), image-format and
-# typst-geometry take nothing, and typst-placeholders takes typst-geometry.
-# cwd is /app/server, so ../../src/lib from /app/server/typst resolves here.
-# A new src/lib import under server/typst/ needs a name on this line.
-COPY --chown=bun:bun src/lib/blur-math.ts src/lib/crop-math.ts src/lib/image-format.ts \
-     src/lib/typst-placeholders.ts src/lib/typst-geometry.ts /app/src/lib/
-# Fail the build here rather than at somebody's first export: the typst
-# binary is static musl, but pandoc's linux release links against glibc and
-# this base image is not the one that fetched it. Skipped, not relaxed, when
-# the binaries were deliberately left out.
-RUN if [ "${WITH_REPORT_BINS}" = "1" ]; then typst --version && pandoc --version | head -1; \
-    else echo "report binaries left out (WITH_REPORT_BINS=0): server export is unavailable"; fi
+# The crop and blur math the browser uses, imported by server/typst/bake.mjs
+# rather than copied, so a redaction bakes with the same numbers the preview
+# drew. The list comes from reading those imports and then the imports of
+# each file named: blur-math and crop-math take only types (erased by Bun)
+# and image-format takes nothing. cwd is /app/server, so ../../src/lib from
+# /app/server/typst resolves here. A new src/lib import under server/typst/
+# needs a name on this line.
+COPY --chown=bun:bun src/lib/blur-math.ts src/lib/crop-math.ts src/lib/image-format.ts /app/src/lib/
+# The Python the virtualenv's interpreter symlink points at. python3 is the
+# smallest package that brings a working standard library on Debian trixie;
+# python3-minimal alone leaves out modules pdf2docx imports.
+RUN set -eu; \
+    if [ "${WITH_REPORT_BINS}" = "1" ]; then \
+      apt-get update; \
+      apt-get install -y --no-install-recommends python3; \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
+# Fail the build here rather than at somebody's first export. Skipped, not
+# relaxed, when the export tools were deliberately left out.
+RUN if [ "${WITH_REPORT_BINS}" = "1" ]; then typst --version && /opt/pdf2docx/bin/python -I -B -c "import pdf2docx; print('pdf2docx ok')"; \
+    else echo "report tools left out (WITH_REPORT_BINS=0): server export is unavailable"; fi
 
 # Copy the static client build.
 COPY --from=client-build --chown=bun:bun /app/dist /app/dist
