@@ -214,6 +214,11 @@ EMU_PER_PT = 12700
 # `affordable`.
 FIDELITY_COST_RATIO = 1.0
 CHECK_COST_RATIO = 3.0
+# Kept back from the font-conversion allowance for writing the package. The
+# reference report's Word file is 2.6 MB and rewriting it with its font parts
+# took 0.4 s, so four times that leaves room for a document several times its
+# size without letting a redrawn font be the reason nothing is delivered.
+FONT_WRITE_RESERVE_S = 1.6
 MAX_PAGES = 300
 MAX_PAGE_CONTENT_BYTES = 3_000_000
 MAX_PAGE_DRAWINGS = 10_000
@@ -3384,7 +3389,25 @@ def affordable(started, budget, repairs):
     return budget - (time.monotonic() - started) > repairs * (FIDELITY_COST_RATIO + CHECK_COST_RATIO)
 
 
-def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_dirs=()):
+def font_conversion_allowance(started, budget):
+    """The seconds left that redrawing a font's outlines may spend.
+
+    Redrawing one face costs 1.0 to 4.9 seconds, measured over the thirteen
+    OpenType faces this repo ships, and a family is four of them, so it is
+    the one step here that can be worth several seconds and is still optional:
+    without it Word substitutes, which is bad, and past the deadline the
+    caller gets nothing at all, which is worse. So it is given what is left
+    after the file has been written and a margin kept for writing it, and it
+    stops converting when that runs out rather than starting a face it cannot
+    finish.
+    """
+    if budget is None:
+        return None
+    return max(0.0, budget - (time.monotonic() - started) - FONT_WRITE_RESERVE_S)
+
+
+def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_dirs=(),
+            convert_fonts=True):
     """Read the PDF, decide the repairs, convert, and check nothing was lost.
 
     The two repairs delete part of the document and write something back, and
@@ -3578,13 +3601,20 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
                 "the Word file came out with a link this server does not allow (%s)"
                 % truncate(unsafe[0], 60)
             )
-        embedded, skipped = ([], [])
+        embedded, skipped, redrawn = ([], [], [])
         if font_plan:
-            embedded, skipped = fonts.embed(part, font_plan)
+            embedded, skipped, redrawn = fonts.embed(
+                part, font_plan, convert_fonts, font_conversion_allowance(started, budget_seconds))
             for family, why in skipped:
                 warnings.append(
                     "%s could not be embedded (%s), so on a computer without it Word will substitute "
                     "another font and some lines may wrap twice." % (family, why)
+                )
+            if redrawn:
+                warnings.append(
+                    "%s had outlines of a kind Word will not carry, so they were redrawn as TrueType "
+                    "to go in the file. Every advance width is unchanged, so no line moves."
+                    % ", ".join(redrawn)
                 )
         if squares and swatch_face is None:
             warnings.append(
@@ -3613,6 +3643,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         },
         "lineBreaks": line_breaks,
         "fontsEmbedded": embedded,
+        "fontsRedrawn": redrawn,
         "tocEntries": written,
         "textCheck": {"pdfLines": len(checked_lines), "missing": len(missing), "fellBack": fell_back},
         "warnings": warnings,
@@ -3665,8 +3696,8 @@ def main(argv):
     args = [a for a in argv[1:] if not a.startswith("--")]
     flags = [a for a in argv[1:] if a.startswith("--")]
     if len(args) not in (3, 4):
-        print("usage: convert.py [--line-breaks=pdf|word] [--fonts=DIR] <in.pdf> <out.docx> <result.json> [budget]",
-              file=sys.stderr)
+        print("usage: convert.py [--line-breaks=pdf|word] [--fonts=DIR] [--no-font-conversion]"
+              " <in.pdf> <out.docx> <result.json> [budget]", file=sys.stderr)
         return 2
     pdf_path, docx_path, result_path = args[0], args[1], args[2]
     # `pdf` reproduces the PDF's own line endings, which is what the report
@@ -3679,6 +3710,10 @@ def main(argv):
     # browser compiler ships, so the families the PDF names can be found
     # as files and carried into the Word file.
     font_dirs = [flag.split("=", 1)[1] for flag in flags if flag.startswith("--fonts=")]
+    # Word carries TrueType outlines only, so a PostScript-outline face is
+    # redrawn on the way in. This turns that off, for anyone who would rather
+    # ship a font Word substitutes for than one it has redrawn.
+    convert_fonts = "--no-font-conversion" not in flags
     # How long the caller will wait, so the decision to convert a second time
     # is made here rather than by a SIGKILL with a generic message.
     budget = None
@@ -3687,7 +3722,7 @@ def main(argv):
             budget = max(1.0, float(args[3]))
     try:
         result = convert(pdf_path, docx_path, budget_seconds=budget, line_breaks=line_breaks,
-                         font_dirs=font_dirs)
+                         font_dirs=font_dirs, convert_fonts=convert_fonts)
     except ConvertError as err:
         write_result(result_path, {"ok": False, "message": str(err)[:300]})
         print(str(err)[:300], file=sys.stderr)

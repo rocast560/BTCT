@@ -21,8 +21,9 @@ Name ID 2 only ever says Regular, Bold, Italic or Bold Italic, because those
 four are all Word keeps per family. A weight outside them, SemiBold say, is a
 family of its own: name ID 1 is `Poppins SemiBold` and name ID 2 is
 `Regular`. Asking for `Poppins` with the bold bit on gets a different face
-with a fake weight painted over it, so the flags are read as words and
-`SemiBold` is not `Bold`.
+with a fake weight painted over it, so that record is read whole rather than
+searched: `SemiBold` is not `Bold`, and `BoldItalic` is both. See `style_of`,
+where each of those was a bug before it was a rule.
 
 The embedding format is awkward but small. Each font is a part under
 `word/fonts/` whose first 32 bytes are XORed with a key taken from the part's
@@ -44,20 +45,37 @@ and 40 MB for the file, because the export as a whole is capped at 100 MB.
 
 **Word carries TrueType outlines and nothing else.** A font whose outlines
 are PostScript, the `.otf` flavour, can be written into the package and
-declared in the table and Word will still substitute, so it is refused with a
-reason instead. That is measured, not assumed: `font_probe.py` made one probe
-family of each kind out of the same report, and Word's render came back with
-the TrueType family and with Calibri where the other one should have been.
+declared in the table and Word will still substitute. That is measured, not
+assumed: `font_probe.py` made one probe family of each kind out of the same
+report, and Word's render came back with the TrueType family and with Calibri
+where the other one should have been. It is not a rare case either, because
+typst's own default font is one of them, so such a face is **redrawn** on the
+way in: every cubic curve is approximated by a quadratic within a thousandth
+of an em, and everything a line's width depends on, the advance widths, the
+vertical metrics, the kerning and the shaping tables, is left exactly as it
+was. Only the side bearings move, and only to the redrawn outline's own left
+edge. See `to_truetype`.
 
 **Licences are read, not assumed.** The OS/2 table's `fsType` says what the
 foundry allows. 0 is installable, 8 is editable, 4 is preview and print, and
-2 is restricted. Only the first three are embedded; a restricted font, or one
-whose bitmap-embedding-only bit is set, is skipped and named in a warning so
-whoever sends the file knows a reader without it will see something else.
+2 is restricted. The first two are embedded and the other two are skipped and
+named in a warning, so whoever sends the file knows a reader without the font
+will see something else. Preview and print is refused for a reason of its
+own: Word honours that bit by opening the document read-only, which takes
+away the one thing this export is for.
+
+Redrawing the outlines is a modification, which is a second question and gets
+a second answer: the licence name records are read too, and a face is only
+redrawn under a licence that is recognised here as allowing it. An
+unrecognised licence is refused and named rather than guessed at. The
+embedded copy keeps the family name it came with, because that name is the
+only thing Word matches on, so this is not a renamed derivative anybody
+receives as a font: it is the same face inside one document.
 """
 
 import os
 import re
+import time
 import uuid
 import zipfile
 
@@ -71,6 +89,10 @@ FONT_REL_TYPE = R_NS + "/font"
 # OS/2 fsType. Bit 1 means the foundry forbids embedding outright; bit 9 means
 # only a bitmap may be embedded, which a Word file cannot do.
 FS_RESTRICTED = 0x0002
+# Bit 2 means a reader may look at the document and print it and may not edit
+# it, and Word honours that by opening the whole document read-only. See
+# `embeddable`.
+FS_PREVIEW_PRINT = 0x0004
 FS_BITMAP_ONLY = 0x0200
 # The tables a font needs before Word can lay a line out with it. Outlines are
 # in `glyf` or in one of the two CFF flavours; the rest are what a reader has
@@ -106,11 +128,37 @@ STYLE_ELEMENTS = {
 # reading and 16 and 17 for the real one.
 NAME_FAMILY, NAME_SUBFAMILY, NAME_FULL = 1, 2, 4
 NAME_POSTSCRIPT, NAME_TYPO_FAMILY, NAME_TYPO_SUBFAMILY = 6, 16, 17
-NAME_IDS = (NAME_FAMILY, NAME_SUBFAMILY, NAME_FULL,
-            NAME_POSTSCRIPT, NAME_TYPO_FAMILY, NAME_TYPO_SUBFAMILY)
-SLANT_WORDS = {"italic", "oblique"}
-STYLE_WORDS = re.compile(r"[\s\-_,]+")
+# Where a font says what may be done with it. 13 and 14 are the licence and
+# its URL, and 0 is the copyright notice, which is where several families put
+# the licence instead: New Computer Modern names the GUST Font License in 0
+# and has no 13 at all.
+NAME_COPYRIGHT, NAME_LICENCE, NAME_LICENCE_URL = 0, 13, 14
+NAME_IDS = (NAME_COPYRIGHT, NAME_FAMILY, NAME_SUBFAMILY, NAME_FULL,
+            NAME_POSTSCRIPT, NAME_LICENCE, NAME_LICENCE_URL,
+            NAME_TYPO_FAMILY, NAME_TYPO_SUBFAMILY)
 NOT_A_NAME = re.compile(r"[^0-9a-z]+")
+# Licences this recognises well enough to convert a font's outlines under.
+# Conversion is a modification, so it is not done on a licence nobody here
+# has read: an unrecognised one is refused and named, which is the same
+# answer the restricted `fsType` bit gets. The phrases are matched against
+# the licence, the licence URL and the copyright notice, with punctuation and
+# case removed, so a font that states its licence in any of the three is
+# found.
+CONVERTIBLE_LICENCES = (
+    ("the SIL Open Font License", ("silopenfontlicense", "openfontlicenseorg", "scriptssilorgofl")),
+    ("the Apache License 2.0", ("apachelicenseversion20", "apache20", "apachelicense20",
+                                "wwwapacheorglicenseslicense20")),
+    ("the Bitstream Vera licence", ("bitstreamvera",)),
+    ("the GUST Font License", ("gustfontlicense",)),
+    ("the Ubuntu Font Licence", ("ubuntufontlicence", "ubuntufontlicense")),
+)
+# How far a quadratic curve may sit from the cubic it replaces, in em. One
+# unit per thousand is what every converter uses and is a twentieth of a pixel
+# at 20 pt on a 300 dpi page, so nothing a reader can see moves.
+CONVERT_MAX_ERR_EM = 0.001
+# Tables that describe outlines this no longer has, or vouch for bytes this
+# has changed.
+CONVERT_DROPS = ("CFF ", "CFF2", "VORG", "DSIG")
 # Which slot to fall back to when a family has no face for what a run asks
 # for: keep the slant and drop the weight first, because a Word file that
 # loses an italic reads worse than one that loses a bold.
@@ -118,16 +166,29 @@ SLOT_ORDER = ((False, False), (False, True), (True, False), (True, True))
 
 
 def style_of(subfamily):
-    """Bold and italic, read as words off a legacy subfamily name.
+    """Bold and italic, read off a legacy subfamily name.
 
     Name ID 2 is the one field a font uses to say which of Word's four slots
-    it fills, and it says it in whole words: Regular, Bold, Italic, Bold
-    Italic, with Book and Oblique in the wild for the first and the third.
-    Reading it as words is what keeps `SemiBold` from being taken for `Bold`,
-    which matters because those two are different families to Word.
+    it fills, and the format allows it four answers: Regular, Bold, Italic
+    and Bold Italic, with Book and Oblique in the wild for the first and the
+    third. So the whole string is read rather than any word of it. The slant
+    is a suffix, and what is left in front of it is the weight, which is bold
+    when it is the word `bold` and nothing else.
+
+    Both halves of that are load-bearing, and each was a bug first. A
+    substring test makes `SemiBold` bold, and a SemiBold face is a family of
+    its own that Word would then paint a fake weight over. Splitting into
+    words instead makes `BoldItalic`, which is how New Computer Modern spells
+    it, neither bold nor italic, so it takes the regular slot and the real
+    regular face never gets carried.
     """
-    words = {word for word in STYLE_WORDS.split((subfamily or "").strip().lower()) if word}
-    return "bold" in words, bool(words & SLANT_WORDS)
+    text = key_of(subfamily)
+    italic = False
+    for slant in ("italic", "oblique"):
+        if text.endswith(slant):
+            italic, text = True, text[: -len(slant)]
+            break
+    return text == "bold", italic
 
 
 def key_of(name):
@@ -207,6 +268,10 @@ def read_font(path):
         "fsType": fs_type,
         "damaged": not whole,
         "postscriptOutlines": postscript,
+        # Name IDs 13, 14 and 0, run together, because a font may state its
+        # terms in any of the three.
+        "licenceText": " ".join(names.get(name_id, "") for name_id in
+                                (NAME_LICENCE, NAME_LICENCE_URL, NAME_COPYRIGHT)).strip(),
     }
 
 
@@ -246,26 +311,165 @@ def covers(entry, codepoint):
 
 
 def embeddable(entry):
-    """Does the foundry allow this font to travel inside a document?"""
+    """May this font travel in a file that is still worth receiving?
+
+    `fsType` has three levels above restricted. Installable and editable are
+    both fine. Preview and print is refused, and not on the licence's account:
+    Word honours that bit by opening the whole document read-only, so the one
+    thing this export exists to hand somebody, a report they can edit, is
+    exactly what embedding such a face takes away. Measured on the starter
+    report, whose italic is one: Word declined to repaginate it and answered
+    `this command is not available` to a request to save it.
+    """
     fs = entry["fsType"]
-    if fs & FS_BITMAP_ONLY:
+    if fs & FS_BITMAP_ONLY or fs & FS_RESTRICTED:
         return False
-    return not (fs & FS_RESTRICTED)
+    return not (fs & FS_PREVIEW_PRINT)
 
 
-def carriable(entry):
+def licence_of(entry):
+    """The licence this font states, when it is one this recognises.
+
+    A font states its terms in prose, so this is a recognition and not a
+    reading: a licence nobody here has looked at gets no answer rather than a
+    guess. What the answer is used for is narrow. It never decides whether a
+    font may be embedded, which is what the `fsType` bits are for. It decides
+    only whether this may redraw the outlines on the way in.
+    """
+    text = key_of(entry.get("licenceText"))
+    if not text:
+        return None
+    for label, phrases in CONVERTIBLE_LICENCES:
+        if any(phrase in text for phrase in phrases):
+            return label
+    return None
+
+
+def convertible(entry):
+    """May this face's outlines be redrawn so that Word can carry them?"""
+    return bool(entry.get("postscriptOutlines")) and licence_of(entry) is not None
+
+
+def carriable(entry, convert_outlines=True):
     """Will this face be in the file and drawn from it, rather than named?"""
-    return (not entry.get("damaged") and not entry.get("postscriptOutlines")
-            and embeddable(entry))
+    if entry.get("damaged") or not embeddable(entry):
+        return False
+    if not entry.get("postscriptOutlines"):
+        return True
+    return bool(convert_outlines) and convertible(entry)
 
 
-def refusal(entries):
-    """Why none of a family's faces can travel, in the reader's terms."""
+def refusal(entries, convert_outlines=True):
+    """Why none of these faces can travel, in the reader's terms."""
     if all(e.get("damaged") for e in entries):
         return "the font file is damaged"
-    if all(e.get("postscriptOutlines") for e in entries if not e.get("damaged")):
-        return "Word does not carry a font whose outlines are PostScript"
+    alive = [e for e in entries if not e.get("damaged")]
+    if alive and all(e["fsType"] & FS_PREVIEW_PRINT and not (e["fsType"] & FS_RESTRICTED)
+                     and not (e["fsType"] & FS_BITMAP_ONLY) for e in alive):
+        return ("its licence lets a reader print the document but not edit it, and Word "
+                "opens a document carrying such a font read-only")
+    if alive and all(e.get("postscriptOutlines") for e in alive):
+        if not convert_outlines:
+            return ("its outlines are a kind Word cannot embed, and converting them "
+                    "is turned off")
+        if not any(convertible(e) for e in alive):
+            return ("its outlines are a kind Word cannot embed, and its licence does "
+                    "not clearly allow converting them")
+        return "there was not enough time left to convert its outlines"
     return "its licence does not allow embedding"
+
+
+def to_truetype(path):
+    """The same face with quadratic outlines, in memory, or None.
+
+    `w:embedTrueTypeFonts` means what it says, so a font whose outlines are
+    PostScript is written into the package and ignored. The outlines are the
+    only thing Word objects to, and a cubic curve has a quadratic within a
+    thousandth of an em of it, so the face is redrawn rather than dropped.
+
+    Everything a line's width depends on is left exactly as it was: the
+    advance widths in `hmtx`, the vertical metrics in `hhea` and `OS/2`, and
+    the kerning and shaping tables. Only the side bearing moves, and only to
+    the redrawn outline's own left edge, which is where the format says it
+    has to be. `post` is written as format 2 so the glyph names survive, and
+    falls back to format 3 when they will not fit, which is the one case
+    where something is lost and it is something no reader draws.
+    """
+    try:
+        from fontTools.ttLib import TTFont, newTable
+        from fontTools.pens.cu2quPen import Cu2QuPen
+        from fontTools.pens.ttGlyphPen import TTGlyphPen
+    except ImportError:  # pragma: no cover - fontTools ships with pdf2docx
+        return None
+    import io
+
+    try:
+        font = TTFont(path, fontNumber=0)
+    except Exception:  # noqa: BLE001 - a font we cannot read is one we skip
+        return None
+    try:
+        if "glyf" in font or not any(table in font for table in POSTSCRIPT_OUTLINES):
+            return None
+        if "CFF2" in font or "gvar" in font:
+            return None  # a variable font has no single set of outlines to draw
+        order = font.getGlyphOrder()
+        source = font.getGlyphSet()
+        error = CONVERT_MAX_ERR_EM * font["head"].unitsPerEm
+        drawn = {}
+        for name in order:
+            pen = TTGlyphPen(drawn)
+            # Reversed, because TrueType fills the other way round than
+            # PostScript does and an unreversed contour comes out hollow.
+            source[name].draw(Cu2QuPen(pen, error, reverse_direction=True))
+            drawn[name] = pen.glyph()
+
+        glyf = newTable("glyf")
+        glyf.glyphOrder = order
+        glyf.glyphs = drawn
+        font["loca"] = newTable("loca")
+        font["glyf"] = glyf
+        for table in CONVERT_DROPS:
+            if table in font:
+                del font[table]
+        glyf.compile(font)
+
+        hmtx = font["hmtx"]
+        for name, glyph in drawn.items():
+            if hasattr(glyph, "xMin"):
+                hmtx[name] = (hmtx[name][0], glyph.xMin)  # the advance is untouched
+
+        font["head"].glyphDataFormat = 0
+        font["maxp"] = maxp = newTable("maxp")
+        maxp.tableVersion = 0x00010000
+        maxp.maxZones = 1
+        maxp.maxTwilightPoints = 0
+        maxp.maxStorage = 0
+        maxp.maxFunctionDefs = 0
+        maxp.maxInstructionDefs = 0
+        maxp.maxStackElements = 0
+        maxp.maxSizeOfInstructions = 0
+        maxp.maxComponentElements = max(
+            [len(g.components) for g in drawn.values() if g.isComposite()] or [0])
+        maxp.compile(font)
+
+        post = font["post"]
+        post.formatType = 2.0
+        post.extraNames = []
+        post.mapping = {}
+        post.glyphOrder = order
+        try:
+            post.compile(font)
+        except OverflowError:
+            post.formatType = 3.0
+
+        font.sfntVersion = "\000\001\000\000"
+        out = io.BytesIO()
+        font.save(out)
+        return out.getvalue()
+    except Exception:  # noqa: BLE001 - a face we cannot redraw is one we do not carry
+        return None
+    finally:
+        font.close()
 
 
 def collect(directories):
@@ -413,33 +617,72 @@ def face_for_char(plan_, codepoint):
     return None
 
 
-def embed(docx_path, plan_):
-    """Put the fonts in the file. Returns (embedded families, skipped names)."""
+def face_bytes(entry, budget):
+    """The bytes to carry for this face, redrawn first when they have to be.
+
+    `budget` is a one-element list holding the seconds left for conversion,
+    or None for no limit, and it is decremented as faces are converted: a
+    report that needs six faces redrawn should not spend the caller's whole
+    margin doing it and then be killed before it writes the file.
+    """
+    if not entry.get("postscriptOutlines"):
+        with open(entry["path"], "rb") as handle:
+            return handle.read(), False
+    if budget[0] is not None and budget[0] <= 0:
+        return None, False
+    started = time.monotonic()
+    data = to_truetype(entry["path"])
+    if budget[0] is not None:
+        budget[0] -= time.monotonic() - started
+    return data, data is not None
+
+
+def embed(docx_path, plan_, convert_outlines=True, convert_seconds=None):
+    """Put the fonts in the file.
+
+    Returns the families carried, the names skipped with a reason each, and
+    the families whose outlines had to be redrawn on the way in.
+    """
     skipped = [(name, "no font file for it was staged") for name in plan_["missing"]]
     chosen = []
+    redrawn = set()
     for family in sorted(plan_["families"]):
         slots = plan_["families"][family]
         entries = [slots[style] for style in SLOT_ORDER if style in slots]
-        usable = [e for e in entries if carriable(e)]
+        usable = [e for e in entries if carriable(e, convert_outlines)]
         if not usable:
-            skipped.append((family, refusal(entries)))
+            skipped.append((family, refusal(entries, convert_outlines)))
             continue
+        # A family can be carried in some of its faces and not others, and a
+        # missing italic is a substituted italic, so each one says so.
+        kept = {id(e) for e in usable}
+        for entry in entries:
+            if id(entry) not in kept:
+                skipped.append(("%s %s" % (family, entry["subfamily"] or "Regular"),
+                                refusal([entry], convert_outlines)))
         chosen.append((family, usable))
     if not chosen:
-        return [], skipped
+        return [], skipped, sorted(redrawn)
 
     parts = {}
     table_rows = []
     rels = []
     carried = 0
     embedded = []
+    budget = [convert_seconds]
     for family, entries in chosen:
         rows = []
         for entry in entries:
             style = STYLE_ELEMENTS[(entry["bold"], entry["italic"])]
             if any(row.startswith("<" + style) for row in rows):
                 continue
-            size = os.path.getsize(entry["path"])
+            data, converted = face_bytes(entry, budget)
+            if data is None:
+                skipped.append((family, refusal([entry], convert_outlines)
+                                if budget[0] is not None and budget[0] <= 0
+                                else "its outlines could not be redrawn for Word"))
+                continue
+            size = len(data)
             if size > MAX_FONT_BYTES:
                 skipped.append((family, "the font file is %d MB, over the %d MB a single face may take"
                                 % (round(size / (1024 * 1024)), MAX_FONT_BYTES // (1024 * 1024))))
@@ -451,18 +694,19 @@ def embed(docx_path, plan_):
             key = "{%s}" % str(uuid.uuid4()).upper()
             rid = "rIdFont%d" % (len(parts) + 1)
             name = "fonts/font%d.odttf" % (len(parts) + 1)
-            with open(entry["path"], "rb") as handle:
-                parts["word/" + name] = obfuscate(handle.read(), key)
+            parts["word/" + name] = obfuscate(data, key)
             carried += size
             rels.append((rid, name))
             rows.append('<%s r:id="%s" w:fontKey="%s" w:subsetted="false"/>' % (style, rid, key))
+            if converted:
+                redrawn.add(family)
         if rows:
             table_rows.append('<w:font w:name="%s">%s</w:font>' % (escape(family), "".join(rows)))
             embedded.append(family)
     if not table_rows:
-        return [], skipped
+        return [], skipped, sorted(redrawn)
     rewrite(docx_path, parts, table_rows, rels)
-    return embedded, skipped
+    return embedded, skipped, sorted(redrawn)
 
 
 def escape(text):

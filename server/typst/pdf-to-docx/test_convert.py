@@ -481,7 +481,8 @@ def face_entry(path, family, **extra):
     """A staged face as `fonts` describes one, for the refusal checks."""
     entry = {"path": path, "family": family, "subfamily": "Regular", "postscript": "",
              "full": "", "typoFamily": "", "typoSubfamily": "", "bold": False,
-             "italic": False, "fsType": 0, "damaged": False, "postscriptOutlines": False}
+             "italic": False, "fsType": 0, "damaged": False, "postscriptOutlines": False,
+             "licenceText": "This Font Software is licensed under the SIL Open Font License"}
     entry.update(extra)
     return entry
 
@@ -490,6 +491,92 @@ def one_family_plan(family, entry):
     """A plan holding one family of one face, which is all a refusal needs."""
     return {"faces": {family: entry}, "missing": [], "families": {family: {(False, False): entry}},
             "byFamily": {family.lower(): family}, "byFace": {}}
+
+
+def run_font_conversion_checks(font_tools, font_dir, workdir):
+    """A PostScript-outline face is redrawn, and only where it may be.
+
+    The redrawn face is what a reader will be shown, so the checks are on the
+    bytes that go in the file rather than on the decision to make them: it
+    has to parse, it has to have quadratic outlines and no PostScript ones,
+    and every advance width has to be the number it was, because the line
+    endings in this Word file are the PDF's and a width that moved is a line
+    that wraps twice.
+    """
+    import io
+
+    from fontTools.ttLib import TTFont
+
+    passed = True
+    source = next((os.path.join(font_dir, n) for n in sorted(os.listdir(font_dir))
+                   if n.lower().endswith(".otf")), None)
+    if source is None:
+        print("SKIP  no OpenType font was staged, so the conversion is untested")
+        return passed
+    entry = font_tools.read_font(source)
+    passed &= check(entry["postscriptOutlines"], "fonts: the staged .otf reads as PostScript outlines")
+    passed &= check(font_tools.licence_of(entry) is not None,
+                    "fonts: and its licence is one this recognises", font_tools.licence_of(entry))
+
+    data = font_tools.to_truetype(source)
+    passed &= check(data is not None, "fonts: it converts")
+    if data is None:
+        return passed
+    before, after = TTFont(source, fontNumber=0), TTFont(io.BytesIO(data), fontNumber=0)
+    try:
+        passed &= check("glyf" in after and "CFF " not in after,
+                        "fonts: the converted face has quadratic outlines and no PostScript ones")
+        passed &= check(after.sfntVersion == "\000\001\000\000",
+                        "fonts: and says so in its header", repr(after.sfntVersion))
+        moved = [g for g in before.getGlyphOrder() if before["hmtx"][g][0] != after["hmtx"][g][0]]
+        passed &= check(not moved, "fonts: every advance width is the number it was",
+                        (len(moved), len(before.getGlyphOrder())))
+        vertical = [(t, f) for t, f in (("hhea", "ascent"), ("hhea", "descent"), ("hhea", "lineGap"),
+                                        ("OS/2", "sTypoAscender"), ("OS/2", "sTypoDescender"),
+                                        ("OS/2", "usWinAscent"), ("OS/2", "usWinDescent"),
+                                        ("head", "unitsPerEm"))
+                    if getattr(before[t], f) != getattr(after[t], f)]
+        passed &= check(not vertical, "fonts: and so is every vertical metric", vertical)
+        passed &= check(all(t in after for t in ("GPOS", "GSUB", "kern") if t in before),
+                        "fonts: the kerning and shaping tables came across")
+        passed &= check(all(before["name"].getDebugName(i) == after["name"].getDebugName(i)
+                            for i in (1, 2, 6)),
+                        "fonts: and it still calls itself what it did",
+                        (after["name"].getDebugName(1), after["name"].getDebugName(2)))
+    finally:
+        before.close()
+        after.close()
+
+    # It goes in the file, in the slot its own subfamily names.
+    target = os.path.join(workdir, "converted.docx")
+    blank = Document()
+    blank.add_paragraph("x")
+    blank.save(target)
+    family = entry["family"]
+    embedded, refused, redrawn = font_tools.embed(target, one_family_plan(family, entry))
+    passed &= check(embedded == [family] and redrawn == [family],
+                    "fonts: a PostScript-outline face is carried, redrawn", (embedded, redrawn))
+    with zipfile.ZipFile(target) as archive:
+        table = archive.read("word/fontTable.xml").decode("utf-8")
+    slot = font_tools.STYLE_ELEMENTS[(entry["bold"], entry["italic"])]
+    passed &= check(('<w:font w:name="%s">' % family) in table and ("<" + slot) in table,
+                    "fonts: under its own name and in its own slot", slot)
+
+    # And only where it may be: the option off, an unreadable licence, and a
+    # margin too thin to redraw anything in.
+    embedded, refused, redrawn = font_tools.embed(target, one_family_plan(family, entry),
+                                                  convert_outlines=False)
+    passed &= check(embedded == [] and "turned off" in refused[0][1],
+                    "fonts: with conversion off it is refused", refused)
+    unreadable = dict(entry, licenceText="All rights reserved, Example Type Foundry")
+    embedded, refused, redrawn = font_tools.embed(target, one_family_plan(family, unreadable))
+    passed &= check(embedded == [] and "does not clearly allow" in refused[0][1],
+                    "fonts: a licence this cannot read is refused", refused)
+    embedded, refused, redrawn = font_tools.embed(target, one_family_plan(family, entry),
+                                                 convert_seconds=0.0)
+    passed &= check(embedded == [] and "not enough time" in refused[0][1],
+                    "fonts: and so is a margin too thin to redraw it in", refused)
+    return passed
 
 
 RUN_FONTS = W + "rFonts"
@@ -786,6 +873,22 @@ def run_documents():
         passed &= check(not font_tools.embeddable({"fsType": 0x0200}), "fonts: a bitmap-only font is refused")
         passed &= check(font_tools.embeddable({"fsType": 0}), "fonts: an installable font is allowed")
         passed &= check(font_tools.embeddable({"fsType": 8}), "fonts: an editable font is allowed")
+        # Preview-and-print is refused for Word's reason, not the foundry's:
+        # a document carrying one opens read-only and cannot be exported.
+        passed &= check(not font_tools.embeddable({"fsType": 0x0004}),
+                        "fonts: a preview-and-print font is refused")
+        passed &= check("read-only" in font_tools.refusal([face_entry(__file__, "Locked", fsType=0x0004)]),
+                        "fonts: and the reason says why")
+
+        # Name ID 2 decides which of Word's four slots a face fills, and both
+        # of the ways of misreading it lose a face.
+        for subfamily, want in (("Regular", (False, False)), ("Bold", (True, False)),
+                                ("Italic", (False, True)), ("Bold Italic", (True, True)),
+                                ("BoldItalic", (True, True)), ("BoldOblique", (True, True)),
+                                ("Book", (False, False)), ("Oblique", (False, True)),
+                                ("SemiBold", (False, False)), ("SemiBoldItalic", (False, True))):
+            passed &= check(font_tools.style_of(subfamily) == want,
+                            "fonts: %r is %s" % (subfamily, want), font_tools.style_of(subfamily))
 
         # A font file cut short parses lazily and would be embedded whole.
         whole = [name for name in sorted(os.listdir(font_dir)) if name.lower().endswith((".ttf", ".otf"))]
@@ -803,22 +906,18 @@ def run_documents():
             passed &= check(font_tools.read_font(os.path.join(font_dir, whole[0])).get("damaged") is False,
                             "fonts: a whole font is not")
             hurt_entry = dict(face_entry(hurt, "Hurt"), damaged=True)
-            _, refused = font_tools.embed(None, one_family_plan("Hurt", hurt_entry))
+            _, refused, _ = font_tools.embed(None, one_family_plan("Hurt", hurt_entry))
             passed &= check([why for _, why in refused] == ["the font file is damaged"],
                             "fonts: and it says the file is damaged", refused)
 
-        # A font Word will not carry whatever the file says is refused too.
-        postscript = dict(face_entry(__file__, "Curly"), postscriptOutlines=True)
-        _, refused = font_tools.embed(None, one_family_plan("Curly", postscript))
-        passed &= check([why for _, why in refused] == ["Word does not carry a font whose outlines are PostScript"],
-                        "fonts: a PostScript-outline font is refused", refused)
+        passed &= run_font_conversion_checks(font_tools, font_dir, workdir)
 
         # And there is a bound on the bytes a Word file may carry.
         huge = face_entry(os.path.join(font_dir, whole[0]) if whole else __file__, "Huge")
         keep = font_tools.MAX_FONT_BYTES
         font_tools.MAX_FONT_BYTES = 1
         try:
-            embedded, refused = font_tools.embed(None, one_family_plan("Huge", huge))
+            embedded, refused, _ = font_tools.embed(None, one_family_plan("Huge", huge))
         finally:
             font_tools.MAX_FONT_BYTES = keep
         passed &= check(embedded == [] and refused and "may take" in refused[0][1],
