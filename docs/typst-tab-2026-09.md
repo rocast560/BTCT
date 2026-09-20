@@ -380,12 +380,35 @@ $ docker run --rm --entrypoint sh btct-measure:step2 -c "ls -l /usr/local/bin/ty
 204.6 MiB of binary for 205 MiB of image, so the modules themselves are
 rounding error. pandoc is three times the size of typst, which I did not
 expect and cannot do anything about: it is a statically linked Haskell binary
-carrying every reader and writer it has.
+carrying every reader and writer it has. The step 1 baseline already carried
+step 2's `jimp` dependency, which `24c7941` had installed, so the +205 MiB is
+the two binaries and nothing else; jimp itself is about 11 MB in
+`server/node_modules` (`du -sh`: 3.3M for `jimp`, 7.7M for `@jimp`) and was
+paid for before this.
+
+A box that will never export can leave both binaries out:
+`docker build --build-arg WITH_REPORT_BINS=0`. Measured against the same
+tree, that image is 418MB against 691MB by `docker images` and 283 MiB
+against 488 MiB by `du -sm /` inside a container, so the saving is the same
+205 MiB the binaries cost. The server starts, `/healthz` answers 200,
+`GET /api/typst/capabilities` returns `{"pdf":false,"docx":false}` with
+`ENABLE_TYPST=1`, and both export routes answer 501 with the binary's name.
+
+The arm64 artefacts are pinned and hashed alongside the amd64 ones, but I
+have only ever built and run the amd64 path. The arm64 digests come from the
+release assets, not from an image I have booted, so treat that build path as
+untested rather than as working.
 
 Both archives are pinned by version **and** by sha256 in the `report-bins`
-stage. Neither project publishes a checksum file, so I downloaded the four
-release artefacts (amd64 and arm64 of each), computed the digests and put them
-in the Dockerfile; the build now fails if those bytes ever change. The build
+stage. Neither project publishes a signed checksum file, so I downloaded the
+four release artefacts (amd64 and arm64 of each), computed the digests and put
+them in the Dockerfile; the build now fails if those bytes ever change. That
+is trust on first use, so I also cross-checked all four against the digest
+GitHub's own release API reports for the same assets
+(`gh api repos/typst/typst/releases/tags/v0.14.2 --jq '.assets[] | {name, digest}'`,
+and the same for `jgm/pandoc`). All four match, which is a second observation
+of the same stored bytes rather than an upstream signature, and the Dockerfile
+now says that next to the digests along with what to re-run on a bump. The build
 log shows the verification and the versions, in the fetch stage and again in
 the runtime stage, because typst's musl build is static while pandoc's linux
 release links against glibc and the runtime base image is not the one that
@@ -482,14 +505,45 @@ searched for in the whole PDF, with a control that finds the same slice in the
 source file. The larger screenshot scores better because the pixelate block is
 larger relative to the 1 px noise, which is what you would want.
 
-What that test proves is narrower than it looks, and the comment at the top of
-`bake.check.mjs` now says so. A bake that does nothing scores 1.000 and a token
-blur scores 0.464, so it catches a no-op and it catches an obviously weak
-stand-in. It does **not** catch a weakened bake: a 2 px pixelate block scores
-0.236 and a gaussian path that keeps the blur but drops the downscale scores
-0.161, and both pass. The block-size floor and the downscale are what actually
-make the pixels unrecoverable, and they are guarded by the unit tests over
-`src/lib/blur-math.ts`, not by this correlation.
+The correlation on its own proves less than it looks. A bake that does nothing
+scores 1.000 and a token blur scores 0.464, so it catches a no-op and an
+obviously weak stand-in. It does **not** catch a weakened bake: a 2 px
+pixelate block scores 0.236 and a gaussian path that keeps the blur but drops
+the downscale scores 0.161, and both are under the limit. The block-size floor
+and the downscale are what actually make the pixels unrecoverable, and
+`blur-math.test.ts` only proves the math returns the right numbers, not that
+`bakeBlurs` uses them.
+
+So `bake.check.mjs` now measures three more things, and prints all of them on
+every run:
+
+```
+gaussian: corr=0.003  pixelate: corr=0.033  (limit 0.25)
+pixelate: blockPx=8 runs=13x13 shortest=7px (2px blocks measured 21 runs, shortest 2)
+gaussian downscale: real=0.003 downscale-free control=0.161 gap=0.158 (min 0.1)
+worker: 16994 B identical to the in-process bake; the webp case exits 1 with no output and says "a.webp: webp images with crop or blur cannot be baked server…"
+```
+
+The mosaic's run lengths are measured along both axes of the baked output and
+checked against the block `pixelParams` asked for: 13 runs of 7 or 8 pixels
+for the real bake, against 21 runs with a 2 pixel minimum for the weakened
+one. Nine cells are also checked for flatness in two dimensions, because a
+run scan alone would pass for stripes. The gaussian output is compared with a
+downscale-free control computed inside the script from the same radius: the
+real path keeps 0.003 of the pattern against the control's 0.161, and a bake
+that dropped the downscale would *be* the control, so its gap is exactly
+0.000. And the reference image is baked through a real `bake-worker.mjs`
+child, whose bytes have to match the in-process result, while an un-bakeable
+input has to leave no output file, a not-ok result and a refusal out of
+`bakeFailureMessage`. That last one is the only check that can guard the
+redaction guarantee across the process boundary.
+
+I ran all three as negative controls against patched copies, restored
+afterwards and never committed: the 2 px block fails the run-length check
+while still scoring 0.236 on the correlation, the downscale-free gaussian
+fails on a 0.000 gap while scoring 0.161, and a worker patched to write the
+original bytes when `bakeImage` throws fails on "a failed bake must leave no
+output file at all".
 
 ### Many screenshots in one export, and the reason it needs a budget
 
@@ -563,6 +617,76 @@ at the container's memory ceiling and stalls collaboration for seconds at a
 time, and the 120 MP budget that admits it was set from the compiler's cost, not
 from the bake's. The budget stops the box dying; it does not stop it stuttering.
 I am not changing a limit here on my own; the numbers are the point.
+
+#### After the fix
+
+Every redaction now runs in a bun child process of its own, one image at a
+time, and `stageReport` sizes and budgets the whole report before it bakes
+anything. Same container, same twelve pictures, same 200 ms `/healthz` poll:
+
+| | before | after |
+|---|---|---|
+| bun relay RSS peak | 1,004,752 kB (981 MiB) | **89,968 kB (87.9 MiB)** |
+| worst `/healthz` | two consecutive polls timed out at 5 s | **0.0153 s**, 70 polls, 0 failures |
+| container `memory.peak` | 1,073,741,824 B, the limit exactly | 697,643,008 B (665 MiB) |
+| wall time | 12.89 s | 16.12 s |
+| `OOMKilled` / restarts | false / 0 | false / 0 |
+
+The relay's own working set does not move any more: 79,600 kB before the
+export, 89,968 kB at the peak, 81,992 kB two minutes later, with the cgroup
+back at 55,128,064 B. The 981 MiB is still spent, but it is spent in a
+process that exits, which is why the container total comes down by a third
+as well. `memory.events` recorded `oom 0 oom_kill 0` throughout.
+
+The wall time is the price: **+3.23 seconds over twelve images, about 0.27 s
+per spawn**, which is bun starting and importing jimp once per picture. The
+other twelve-image case in the table above (3600x2700, 116.6 MP) went from
+11.09 s to 13.73 s, +2.64 s, about 0.22 s each. A quarter more wall time for
+an export that no longer stops every editor in the workspace is a trade I
+would take twice.
+
+The over-budget refusal is the other half, and it is the bigger number:
+
+| | before | after |
+|---|---|---|
+| 13 screenshots, 126.4 MP, time to the 422 | 10.64 s | **0.014 s** |
+| memory moved by that refusal | 868,937,728 B (829 MiB) | none measurable, `memory.peak` did not move |
+
+That one is not the child process, it is the two passes: nothing is read for
+a second time, decoded or baked until the whole report has been sized and
+charged, so a report the server will not export is refused before it has
+done any work at all.
+
+Nothing else changed. One ordinary export each way: PDF 200 in 0.626 s,
+63,890 B; DOCX 200 in 0.534 s, 12,989 B, both with `X-Baked-Images: 1` and
+the computed-caption warning, and both byte-for-byte the same size as before
+the fix. The redaction proof gives the same numbers too: 0.033 on the
+reference pattern inside the container, and on the 1920x1080 screenshot a
+left-half correlation of -0.000, zero pixels changed in the right half, and
+the original PNG's IDAT slice absent from the PDF.
+
+Two failure paths, because the guarantee is the point of the feature:
+
+- **A bake that cannot work.** A referenced, blurred `.webp`: 422 in 0.143 s
+  (PDF) and 0.128 s (DOCX), reading `secret.webp: webp images with crop or
+  blur cannot be baked server-side; export from the app instead`. That
+  sentence comes out of the child's `result.json`. Nothing was left in
+  `/tmp`, and a 64-byte slice of the original webp appears in neither
+  response body.
+- **A bake that is killed.** I sent `SIGKILL` to a running bake child four
+  seconds into the twelve-image export, which is the signal a cgroup OOM
+  sends. The export answered **422 in 4.39 s** with `The export ran out of
+  memory on the server. Export the PDF from the browser instead.`, `/healthz`
+  answered in 4.7 ms while it happened and 4.3 ms after, the container never
+  restarted, and `/tmp` was clean. Before this change that memory pressure
+  landed on the relay instead.
+
+Two honest caveats. The cgroup's `memory.current` sampler is useless after
+the first heavy run on a container, because the page cache from the previous
+export stays resident until something needs the memory; only the first run's
+sample and the monotonic `memory.peak` are worth quoting, and those are what
+the table uses. And I did not arrange a real cgroup OOM: I sent the same
+signal by hand and checked what the code does with it.
 
 ### The two hostile inputs, re-checked on Linux
 
@@ -681,6 +805,16 @@ in the child, which leaves the 1 GB box room for the relay and one bake.
   happens against the reference implementation this was ported from, so it is a
   property of the library. The check now uses a seeded non-periodic pattern
   with no period a fixed kernel can exploit.
+- **`escapeContent`'s `\/` was checked against the wrong parser.** I chose it
+  because the typst CLI treats `//` as a line comment even inside content
+  brackets, so an unescaped caption like "Open redirect to //evil.com" left an
+  unclosed `[...]`. But nothing in the DOCX path ever reaches the typst CLI:
+  the only consumer is pandoc's own typst reader. So I settled it with pandoc
+  3.11 itself, the version in the image. `#figure(image("assets/x.png"),
+  caption: [Auth bypass on \/admin])` and the `\/\/evil.com` form both come
+  back out as `Auth bypass on /admin` and `Open redirect to //evil.com`, with
+  no visible backslash anywhere in the output. Both parsers accept the escape;
+  no change was needed, and now that is measured rather than assumed.
 - **50 MB of peak per megapixel**, measured on the ladder from 3.7 MP to 25 MP,
   which is what set the per-image cap at 10 MP instead of the 30 I first chose.
   A 5K screenshot is refused, and the message sends the operator to the browser
@@ -688,12 +822,17 @@ in the child, which leaves the 1 GB box room for the relay and one bake.
 
 ### What is still open, on the server export
 
-- **The bake stalls the relay and sits at the memory ceiling** for a report
-  with a dozen large redacted screenshots. Numbers above. Both halves are the
-  same cause: a synchronous jimp pass per image in the process that relays Yjs.
-  The obvious fixes are to move the bake into a child process or a worker, or
-  to lower the total budget to something the bake can afford rather than
-  something the compiler can. Neither is mine to choose here.
+- ~~**The bake stalls the relay and sits at the memory ceiling.**~~ Fixed:
+  the bake moved into one short-lived child process per image, and the whole
+  report is sized and budgeted before any of it is baked. Numbers in "After
+  the fix" above. The total budget is still set from the compiler's cost
+  rather than the bake's, which is now the right way round, because the bake
+  is no longer the expensive half.
+- **The per-spawn cost is bun's start-up**, about 0.22 to 0.27 s per redacted
+  image, because each child imports jimp from scratch. A pool would amortise
+  that and would bring back the "one process holds the memory across images"
+  problem the fix exists to remove, so I left it. If wall time ever matters
+  more than the isolation, that is the knob.
 - **Step 3 of the Word conversion is not sandboxed.** The confinement is the
   AST filter plus an `lstat` per target. Nothing else in a pandoc AST makes the
   docx writer read a file as far as I can tell, and `RawBlock` and `RawInline`

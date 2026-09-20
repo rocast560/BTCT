@@ -382,10 +382,14 @@ command palette. There is one report per workspace.
   image ships both, so on a normal deployment they are simply there. Both run
   on the server, which stages the report and its screenshots in a temporary
   directory and **bakes every crop and redaction into the images before either
-  format is produced**, using the same geometry the preview drew. The original
-  upload is never touched, and a format that cannot be re-encoded (gif, webp,
-  or an svg carrying a crop or a blur) is refused rather than written out
-  unredacted.
+  format is produced**, using the same geometry the preview drew. Each image is
+  redacted in a short-lived child process of its own, one at a time, and a
+  redaction that fails, is killed or times out stops the whole export with a
+  422: there is no path on which the original bytes are used instead. The
+  original upload is never touched, and a format that cannot be re-encoded
+  (gif, webp, or an svg carrying a crop or a blur) is refused rather than
+  written out unredacted. The banner after an export says how many images were
+  baked.
   DOCX goes through pandoc's Typst reader, which follows headings, text,
   tables, lists and figures. What it does not follow is layout: your `#show`
   and `#set` rules, page geometry, custom fonts and anything drawn with Typst
@@ -419,9 +423,21 @@ command palette. There is one report per workspace.
     thread with one job and overflows its stack somewhere between 2000 and
     3000 sections, which is reported as "this report is too large for the
     server compiler".
-  - **120 seconds** per child process, **100 MB** per output file, and **two
-    exports at a time** (one running, one queued). A third caller gets a 429
-    and is asked to come back in a moment.
+  - **120 seconds** per compile or conversion, **30 seconds** per image
+    redaction, **100 MB** per output file, and **two exports at a time** (one
+    running, one queued). A third caller gets a 429 and is asked to come back
+    in a moment.
+  - **Temporary disk.** An export stages into the OS temp directory (`/tmp` in
+    the container, on its writable layer, not on the data volume) and uses up
+    to about 300 MB while it runs: the 200 MB of staged files, one image being
+    redacted beside them, and the finished PDF or Word file. A `read_only:
+    true` container, or a tmpfs on `/tmp` smaller than that, breaks server
+    export; use `tmpfs: /tmp:size=512m` if you run the container read-only.
+  - **Health probes keep answering.** Measured in the 1 GB container on a
+    report with twelve 10-megapixel redacted screenshots, the worst `/healthz`
+    during the export was **15 ms** over 70 polls with no failures, because
+    every redaction runs outside the relay process. Numbers, and what it was
+    before, in [docs/typst-tab-2026-09.md](docs/typst-tab-2026-09.md).
 - **`Mod+F`** opens the report's own search over the whole document, because
   CodeMirror's built-in only decorates what is currently scrolled into view.
 - A Report tab left open in your browser when the flag gets turned off does
@@ -900,16 +916,20 @@ server/
   typst/                      Server-side report export, imported only when ENABLE_TYPST is on:
     index.mjs                 The two routes: capabilities, and export?format=pdf|docx
     export.mjs                Finds the CLIs, spawns them (argv array, minimal env, 120 s, SIGKILL), queue of 2
-    stage.mjs                 One export's temp directory: main.typ, vetted images under assets/, fonts under fonts/
+    stage.mjs                 One export's temp directory: plans the whole report, then stages main.typ, images, fonts
+    bake-worker.mjs           One image, redacted, in a process of its own (argv in, out.bin + result.json out)
+    child-env.mjs             PATH and nothing else: the environment every export child gets
+    referenced-assets.mjs     Which /assets/ names the report actually mentions (pure)
+    warnings.mjs              The X-Export-Warnings header: per-entry and whole-header caps (pure)
     vet-asset.mjs             Decides (purely) whether an asset record may touch the filesystem at all
     image-size.mjs            Dimensions from a PNG/JPEG/GIF/WebP header, and the SVG refusal rules
     pixel-budget.mjs          Total staged megapixels per export (TYPST_EXPORT_MAX_TOTAL_MP)
     bake.mjs                  Crop + blur burned into the bytes, with src/lib's own math
-    bake.check.mjs            Standalone proof that a bake destroys the pixels (`bun server/typst/bake.check.mjs`)
+    bake.check.mjs            Standalone proof that a bake destroys the pixels, uses the block floor and the downscale, and refuses across the worker boundary (`bun server/typst/bake.check.mjs`)
     docx-source.mjs           Rewrites the report into what pandoc's Typst reader can follow
     docx-ast.mjs              Filters pandoc's JSON AST: only staged images survive, raw blocks never do
     package-spec.mjs          Finds an @preview / @local package spec anywhere in the source
-    diagnostics.mjs           Typst diagnostics, path scrubbing, signal-death messages (pure)
+    diagnostics.mjs           Typst diagnostics, path scrubbing, signal-death and bake-failure messages (pure)
     serial.mjs, admission.mjs One at a time, at most two queued (pure)
 cmdlog-agent/                 Standalone Python 3 shell-capture agent (own README + tests)
   btct_agent/                 matcher, redactor, spool, shipper, daemon, installer, hooks/
@@ -1098,10 +1118,14 @@ scripts/
    path whose parent resolves to `ASSETS_DIR` itself, a matching row in the
    server's own `assets` inventory, and `kind` plus workspace taken from that
    row, never from the record); every staged image is sized from its header
-   before anything decodes it, and a total-pixel budget bounds the export;
-   images are baked before either format is produced, from one staged
-   directory, with the crop and blur math imported from `src/lib` rather than
-   copied; pandoc's reader always runs with `--sandbox` and only the
+   before anything decodes it, and a total-pixel budget bounds the export,
+   both decided for the whole report before any of it is baked; images are
+   baked before either format is produced, from one staged directory, with
+   the crop and blur math imported from `src/lib` rather than copied; each
+   redaction runs in a short-lived child process of its own, one per image,
+   whose output is staged only when it reports success and leaves a non-empty
+   file, so a failed, killed or timed-out bake is a 422 and never a fallback
+   to the original bytes; pandoc's reader always runs with `--sandbox` and only the
    AST-filtered JSON reaches the unsandboxed writer step; and every child gets
    an argv array, a minimal environment and a timeout, with its error text
    path-scrubbed. Do not add an unsandboxed reader, a shell string, or a path
@@ -1261,10 +1285,26 @@ The image also ships the two **server export** binaries, `typst` 0.14.2 and
 [Dockerfile](Dockerfile)'s `report-bins` stage and installed to
 `/usr/local/bin`. They cost about 205 MiB of image and nothing at all at
 runtime until somebody clicks DOCX or PDF (server), so there is no separate
-switch: `ENABLE_TYPST` is the switch. If you run BTCT from source instead,
-install the two CLIs yourself and put them on the server process's `PATH`, or
-point `TYPST_CLI` / `PANDOC_CLI` at them; without them the tab simply does not
-show those two buttons and browser PDF export still works.
+switch: `ENABLE_TYPST` is the switch. A box that will never export can leave
+them out with `docker build --build-arg WITH_REPORT_BINS=0`, which saves that
+205 MiB (measured: 283 MiB inside the container against 488 MiB); the server
+still starts, the two buttons do not appear, and the export routes answer
+501. If you run BTCT from source instead, install the two CLIs yourself and
+put them on the server process's `PATH`, or point `TYPST_CLI` / `PANDOC_CLI`
+at them; without them the tab simply does not show those two buttons and
+browser PDF export still works.
+
+**Bumping either binary is not just a version change.** The four sha256
+digests are self-computed (neither project publishes a signed checksum file),
+and the procedure for replacing one, including the out-of-band cross-check
+against the digest GitHub's release API reports and the safety checks each
+bump invalidates, is written beside the `ARG`s in the
+[Dockerfile](Dockerfile).
+
+**Server export needs writable temporary space**, about 300 MB of it while an
+export runs, in the OS temp directory rather than on the data volume: see
+"Server export limits" under [Report (Typst)](#report-typst) if you run the
+container read-only or with a tmpfs on `/tmp`.
 
 **Deny the container outbound network if your deployment lets you.** Server
 export refuses Typst package specs before the compiler starts and confines the
@@ -1391,6 +1431,15 @@ server still holds the LevelDB lock, moves the current data into
 (without any stale `-wal`/`-shm`), rebuilds the Yjs rooms through y-leveldb,
 and copies the assets. `--partial` restores a backup that lacks a category on
 top of the existing data. `Restore-BTCT.ps1` wraps the three commands.
+
+After a `--partial` restore, or any restore that leaves the SQLite database
+and the Yjs rooms out of step, check the report before you trust it: **the
+`assets` table is load-bearing for server export.** An image record in the
+shared doc with no matching inventory row is skipped without a word (that is
+deliberate, since the record is the one thing any account can forge), so the
+file never reaches the compiler and the operator sees a Typst "file not
+found" against the line that placed it rather than a message about the
+restore.
 
 A cold, byte-for-byte copy of the volume (for migrations) is still possible
 with `docker run --rm -v beenthereconqueredthat_btct-data:/data:ro -v ${PWD}/backups:/backup alpine tar czf /backup/volume.tgz -C /data .`,
