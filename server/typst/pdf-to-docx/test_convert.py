@@ -358,7 +358,33 @@ def run_documents():
         passed &= check("2. version1.2.3 is the baseline" in text,
                         "prose: a version number inside a word was left alone")
 
-        # 11. Too many shapes for the converter.
+        # 11. Line breaks. The default reproduces the PDF's own line endings
+        #     with manual breaks; `word` lets Word re-flow. Neither may put a
+        #     break inside code or inside a table cell.
+        pdf_path = os.path.join(workdir, "breaks.pdf")
+        compile_case(cases.HYPHENS, pdf_path)
+        forced = os.path.join(workdir, "breaks-pdf.docx")
+        flowed = os.path.join(workdir, "breaks-word.docx")
+        result = convert.convert(pdf_path, forced)
+        passed &= check(result["lineBreaks"] == "pdf", "breaks: pdf is the default", result["lineBreaks"])
+        passed &= check(result["textCheck"]["missing"] == 0, "breaks: nothing was lost", result["textCheck"])
+        other = convert.convert(pdf_path, flowed, line_breaks="word")
+        passed &= check(other["lineBreaks"] == "word", "breaks: word mode is available")
+        with zipfile.ZipFile(forced) as archive:
+            forced_xml = archive.read("word/document.xml").decode("utf-8")
+        with zipfile.ZipFile(flowed) as archive:
+            flowed_xml = archive.read("word/document.xml").decode("utf-8")
+        passed &= check(forced_xml.count("<w:br/>") > flowed_xml.count("<w:br/>"),
+                        "breaks: pdf mode adds manual breaks",
+                        (forced_xml.count("<w:br/>"), flowed_xml.count("<w:br/>")))
+
+        result, path = run_case(cases.CODE_AND_MARKERS, workdir, "codebreaks")
+        with zipfile.ZipFile(path) as archive:
+            body = archive.read("word/document.xml").decode("utf-8")
+        panel = body[body.find("deploy") - 900 : body.find("deploy") + 400] if "deploy" in body else ""
+        passed &= check("<w:br/>" not in panel, "breaks: none inside a code panel")
+
+        # 12. Too many shapes for the converter.
         pdf_path = os.path.join(workdir, "shapes.pdf")
         compile_case(cases.SHAPES, pdf_path)
         started = time.perf_counter()
@@ -370,7 +396,7 @@ def run_documents():
             passed &= check("too complex" in str(err), "shapes: the document was refused", err)
             passed &= check(spent < 1.0, "shapes: refused in under a second", "%.3f s" % spent)
 
-        # 12. A paragraph the converter dropped, simulated by taking one out of
+        # 13. A paragraph the converter dropped, simulated by taking one out of
         #    the PDF's side of the comparison's counterpart.
         result, path = run_case(cases.REPORT, workdir, "report2")
         text = convert.docx_text(path, body_only=True)

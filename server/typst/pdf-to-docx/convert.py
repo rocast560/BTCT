@@ -144,6 +144,11 @@ MONOSPACE = re.compile(r"mono|courier|consol|menlo|inconsolata|source ?code", re
 JUSTIFY_MIN_LINES = 3
 JUSTIFY_EDGE_PT = 3.0
 JUSTIFY_LINE_GAP_PT = 6.0
+# Slack added to a paragraph whose lines are broken where the PDF broke them.
+# Word and typst measure a justified line a fraction differently, and a line
+# that fills the column exactly in the PDF wraps twice here without it.
+LINE_FIT_RELIEF_PT = 4.0
+LINE_FIT_MAX_RELIEF_PT = 12.0
 # English Metric Units, which is what a drawing in a Word file is measured in.
 EMU_PER_PT = 12700
 
@@ -1825,7 +1830,12 @@ def flush_left_runs(doc, bands, content_left, content_right):
                 edge = max(r["x1"] for r in run[:-1])
                 justified = (edge >= content_right - JUSTIFY_EDGE_PT
                              and all(abs(r["x1"] - edge) <= JUSTIFY_EDGE_PT for r in run[:-1]))
-            found.append({"lines": lines, "justified": justified})
+            # How far the run's longest line reaches past the column the
+            # page nominally has. Word measures a line against the indents it
+            # is given, and a forced line that is a hair too wide wraps twice:
+            # the PDF's own overshoot is what that hair measures.
+            overshoot = max((r["x1"] for r in run), default=content_right) - content_right
+            found.append({"lines": lines, "justified": justified, "overshoot": overshoot})
 
         for row in rows + [None]:
             starts = row is not None and abs(row["x0"] - content_left) <= JUSTIFY_EDGE_PT
@@ -1845,6 +1855,130 @@ def flush_left_runs(doc, bands, content_left, content_right):
                 close(run)
                 run = []
     return found
+
+
+def force_line_breaks(document, runs, shaded):
+    """Break each paragraph where the PDF broke it.
+
+    Word's text engine breaks a justified line a word earlier or later than
+    typst did, and on a text-heavy page that is the whole of what is left to
+    see. The PDF knows where every line ended, so the converter's paragraphs
+    are split there with a manual break and left justified: Word justifies a
+    line that ends in a manual break, so they still reach both margins.
+
+    What this costs is re-flow. Editing such a paragraph leaves the old breaks
+    where they were, and the reader has to delete them (Find and Replace, `^l`
+    for a space) to get a paragraph that wraps by itself again. The owner
+    asked for the PDF's layout, which is what `--line-breaks=pdf` means.
+
+    Code is never touched: a code block's lines are already separate
+    paragraphs and its text must come out byte for byte. Neither is a
+    paragraph the PDF wrote as one line, because there is nothing to break.
+    """
+    paragraphs = body_paragraphs(document)
+    squashed = [compare_squash(paragraph_text(p)) for p in paragraphs]
+    shaded = set(shaded)
+    cursor = 0
+    broken = 0
+    for run in runs:
+        lines = [line for line in run["lines"] if len(line) >= COMPARE_MIN_CHARS]
+        if len(lines) < 2:
+            cursor += 1
+            continue
+        joined = "".join(lines)
+        position = next((i for i in range(cursor, len(squashed)) if squashed[i] == joined), None)
+        if position is None:
+            cursor += 1
+            continue
+        element = paragraphs[position]
+        if is_code(element, shaded) or in_table_single_line(document.element.body, element):
+            cursor = position + 1
+            continue
+        added = split_paragraph_at(element, lines)
+        if added:
+            # Widen the column by what the PDF's own lines overhang it, so a
+            # line that fits there fits here and Word does not wrap it again
+            # into a short orphan.
+            relief = min(LINE_FIT_MAX_RELIEF_PT, max(0.0, run.get("overshoot", 0.0)) + LINE_FIT_RELIEF_PT)
+            Paragraph(element, document).paragraph_format.right_indent = Pt(-round(relief, 1))
+        broken += added
+        cursor = position + 1
+    return broken
+
+
+def in_table_single_line(body, element):
+    """Is this paragraph inside a table cell?
+
+    Breaking inside one changes the row's height, and pdf2docx sized every row
+    from the lines it wrote. Measured on the reference report, breaking inside
+    cells cost page 9 about 0.07 of structural similarity on its own.
+    """
+    node = element.getparent()
+    while node is not None and node is not body:
+        if node.tag == qn("w:tc"):
+            return True
+        node = node.getparent()
+    return False
+
+
+def split_paragraph_at(element, lines):
+    """Insert `w:br` at each of the PDF's line ends, splitting runs if need be.
+
+    Landing a break only where a run boundary happens to fall is worse than
+    not breaking at all: the paragraph then carries some of the PDF's line
+    ends and lets Word choose the rest, and the two disagree. Measured on the
+    reference report, that took three pages down by up to 0.23 structural
+    similarity. So a break that falls inside a run splits it.
+    """
+    runs = [node for node in element.iter(qn("w:r")) if node.find(qn("w:t")) is not None]
+    if not runs:
+        return 0
+    wanted = []
+    total = 0
+    for line in lines[:-1]:
+        total += len(line)
+        wanted.append(total)
+
+    seen = 0
+    inserted = 0
+    queue = list(runs)
+    while queue and wanted:
+        node = queue.pop(0)
+        text = node.find(qn("w:t"))
+        raw = text.text or ""
+        length = len(compare_squash(raw))
+        if wanted[0] > seen + length:
+            seen += length
+            continue
+        cut = raw_offset_for(raw, wanted[0] - seen)
+        if cut is None:
+            seen += length
+            continue
+        if cut < len(raw):
+            tail = copy.deepcopy(node)
+            spare = tail.find(qn("w:t"))
+            spare.text = raw[cut:]
+            spare.set(qn("xml:space"), "preserve")
+            text.text = raw[:cut]
+            text.set(qn("xml:space"), "preserve")
+            node.addnext(tail)
+            queue.insert(0, tail)
+        # Its own run, so the break carries no text formatting of its own.
+        holder = OxmlElement("w:r")
+        holder.append(OxmlElement("w:br"))
+        node.addnext(holder)
+        inserted += 1
+        wanted.pop(0)
+        seen += len(compare_squash(raw[:cut]))
+    return inserted
+
+
+def raw_offset_for(text, squashed_count):
+    """Where in `text` the first `squashed_count` comparable characters end."""
+    for cut in range(1, len(text) + 1):
+        if len(compare_squash(text[:cut])) >= squashed_count:
+            return cut
+    return None
 
 
 def align_paragraphs(document, runs):
@@ -2157,7 +2291,7 @@ def run_pdf2docx(source, target):
         converter.close()
 
 
-def convert(pdf_path, docx_path, budget_seconds=None):
+def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf"):
     """Read the PDF, decide the repairs, convert, and check nothing was lost.
 
     The two repairs delete part of the document and write something back, and
@@ -2253,6 +2387,8 @@ def convert(pdf_path, docx_path, budget_seconds=None):
         restore_swatches(document, swatches)
         align_paragraphs(document, aligned)
         fit_pictures(document, pictures)
+        if line_breaks == "pdf":
+            force_line_breaks(document, aligned, shaded)
         repair_text(document, pairs, shaded)
         document.save(part)
         missing = missing_from_docx(repaired_lines, docx_text(part, body_only=bool(bands)))
@@ -2291,6 +2427,8 @@ def convert(pdf_path, docx_path, budget_seconds=None):
             restore_swatches(document, swatches)
             align_paragraphs(document, aligned)
             fit_pictures(document, pictures)
+            if line_breaks == "pdf":
+                force_line_breaks(document, aligned, shaded)
             repair_text(document, pairs, shaded)
             document.save(part)
             written = 0
@@ -2333,6 +2471,7 @@ def convert(pdf_path, docx_path, budget_seconds=None):
             "footer": any(b["edge"] == "bottom" for b in bands),
             "pagesWithBands": len({index for band in bands for index in band["pages"]}),
         },
+        "lineBreaks": line_breaks,
         "tocEntries": written,
         "textCheck": {"pdfLines": len(checked_lines), "missing": len(missing), "fellBack": fell_back},
         "warnings": warnings,
@@ -2382,18 +2521,27 @@ def cap_address_space():
 
 def main(argv):
     cap_address_space()
-    if len(argv) not in (4, 5):
-        print("usage: convert.py <in.pdf> <out.docx> <result.json> [budget-seconds]", file=sys.stderr)
+    args = [a for a in argv[1:] if not a.startswith("--")]
+    flags = [a for a in argv[1:] if a.startswith("--")]
+    if len(args) not in (3, 4):
+        print("usage: convert.py [--line-breaks=pdf|word] <in.pdf> <out.docx> <result.json> [budget-seconds]",
+              file=sys.stderr)
         return 2
-    pdf_path, docx_path, result_path = argv[1], argv[2], argv[3]
+    pdf_path, docx_path, result_path = args[0], args[1], args[2]
+    # `pdf` reproduces the PDF's own line endings, which is what the report
+    # is for; `word` lets Word re-flow, which reads better under editing.
+    line_breaks = "pdf"
+    for flag in flags:
+        if flag.startswith("--line-breaks="):
+            line_breaks = "word" if flag.split("=", 1)[1] == "word" else "pdf"
     # How long the caller will wait, so the decision to convert a second time
     # is made here rather than by a SIGKILL with a generic message.
     budget = None
-    if len(argv) == 5:
+    if len(args) == 4:
         with contextlib.suppress(ValueError):
-            budget = max(1.0, float(argv[4]))
+            budget = max(1.0, float(args[3]))
     try:
-        result = convert(pdf_path, docx_path, budget_seconds=budget)
+        result = convert(pdf_path, docx_path, budget_seconds=budget, line_breaks=line_breaks)
     except ConvertError as err:
         write_result(result_path, {"ok": False, "message": str(err)[:300]})
         print(str(err)[:300], file=sys.stderr)
