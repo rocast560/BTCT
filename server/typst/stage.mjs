@@ -1,8 +1,10 @@
 // One export's working directory: main.typ, baked images under assets/, the
 // workspace's own fonts under fonts/. Always removed by the caller's finally.
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { readTypstSource, listAssetRecords } from '../yjs-data.mjs';
 import { ASSETS_DIR } from '../data-export.mjs';
 import { getAsset } from '../db.mjs';
@@ -10,6 +12,10 @@ import { vetAssetRecord } from './vet-asset.mjs';
 import { imageSize, looksLikeSvg, svgRefusal } from './image-size.mjs';
 import { createPixelBudget } from './pixel-budget.mjs';
 import { referencedAssetNames } from './referenced-assets.mjs';
+import { bakeFailureMessage, scrubPaths } from './diagnostics.mjs';
+import { childEnv } from './child-env.mjs';
+import { hasBlurs } from '../../src/lib/blur-math.ts';
+import { isFullFrame } from '../../src/lib/crop-math.ts';
 
 export class ExportError extends Error {
   constructor(status, message, diagnostics) { super(message); this.status = status; this.diagnostics = diagnostics; }
@@ -50,8 +56,20 @@ const MAX_MEGAPIXELS = 10;
 const MAX_PIXELS = MAX_MEGAPIXELS * 1_000_000;
 const SVG_NAME = /\.svg$/i;
 
+// Per image, not per export: the 120 s the compile gets was chosen for a
+// whole document, and one 10 MP bake measured under three seconds. Before
+// this, bakeImage had no timeout at all.
+const BAKE_TIMEOUT_MS = 30_000;
+// Resolved from this module's own URL, so it does not depend on cwd (the
+// children run with their output directory as cwd).
+const BAKE_WORKER = fileURLToPath(new URL('./bake-worker.mjs', import.meta.url));
+
 function statOrNull(file) {
   try { return fs.statSync(file); } catch { return null; }
+}
+
+async function statOrNullAsync(file) {
+  try { return await fs.promises.stat(file); } catch { return null; }
 }
 
 /**
@@ -68,7 +86,7 @@ function statOrNull(file) {
  * Returns the plan: one small entry per file, holding paths and numbers and
  * never bytes.
  */
-function planReport(workspaceId, source, records) {
+async function planReport(workspaceId, source, records) {
   const referenced = referencedAssetNames(source);
   const plan = [];
   const claimed = new Set();
@@ -118,11 +136,14 @@ function planReport(workspaceId, source, records) {
     // decoding it is what has to be refused, so the header decides. The
     // buffer goes out of scope at the end of this iteration: nothing here
     // accumulates image bytes.
-    const bytes = new Uint8Array(fs.readFileSync(from));
+    const bytes = new Uint8Array(await fs.promises.readFile(from));
     const dims = imageSize(bytes);
-    // A superset of what bakeImage treats as work: a full-frame crop counts
-    // here and not there, which errs towards refusing.
-    const mayBake = !!a.crop || (Array.isArray(a.blurs) && a.blurs.length > 0);
+    // Exactly what bakeImage acts on, from the same two predicates it uses,
+    // so the parent's decision and the child's cannot drift. It has to be
+    // exact in both directions: an image this calls bakeable and bakeImage
+    // declines would fail the export, and one this calls plain while
+    // bakeImage would have redacted it must not exist at all.
+    const mayBake = (!!a.crop && !isFullFrame(a.crop)) || hasBlurs(a.blurs);
     // The .svg name is what buys the unsized exemption below, and typst
     // picks its decoder from that name too, so the bytes have to agree
     // with it either way, and an SVG that could hide a raster inside
@@ -144,8 +165,11 @@ function planReport(workspaceId, source, records) {
       if (!(SVG_NAME.test(name) && looksLikeSvg(bytes))) {
         throw new ExportError(422, `${name}: this image's size could not be read, so it cannot be exported from the server.`);
       }
+      // Only an SVG reaches this line, so this is the SVG-with-a-redaction
+      // refusal and it says so. A full-frame crop is not a redaction and no
+      // longer trips it.
       if (mayBake) {
-        throw new ExportError(422, `${name} cannot be sized from its header, so the server will not redact it. Export the PDF from the browser instead.`);
+        throw new ExportError(422, `${name}: SVG images cannot be redacted on the server. Export the PDF from the browser instead.`);
       }
     } else if (dims.width * dims.height > MAX_PIXELS) {
       throw new ExportError(422, `${name} is too large to export from the server (${dims.width} x ${dims.height}). Export the PDF from the browser instead, or downscale the screenshot.`);
@@ -164,51 +188,128 @@ function planReport(workspaceId, source, records) {
   return { plan, warnings, skippedDuplicates, account };
 }
 
+/** Run one bake worker to completion. Never rejects: it reports how it ended. */
+function runBakeWorker(args, cwd) {
+  return new Promise((resolve) => {
+    // execFile, the asynchronous one. NEVER execFileSync or spawnSync: a
+    // synchronous spawn blocks the event loop for the whole bake, which is
+    // precisely the relay stall this child process exists to remove, only
+    // with the memory cost moved and the pause left behind.
+    execFile(process.execPath, args, {
+      cwd, env: childEnv(), windowsHide: true, maxBuffer: 1024 * 1024,
+      timeout: BAKE_TIMEOUT_MS, killSignal: 'SIGKILL',
+    }, (err, _stdout, stderr) => {
+      resolve({
+        code: err ? (typeof err.code === 'number' ? err.code : 1) : 0,
+        killed: !!(err && err.killed), // and only this means our own timeout fired
+        signal: err?.signal ?? null,
+        stderr: String(stderr ?? ''),
+      });
+    });
+  });
+}
+
+/**
+ * Redact one image in a short-lived child, or stop the export.
+ *
+ * The parent never holds the original bytes for an image it is redacting:
+ * the child is given the vetted absolute path and reads the file itself, and
+ * it writes into a directory outside the typst compile root, so an
+ * unredacted original is never written inside the root even for an instant.
+ *
+ * Success is BOTH a result file saying ok AND a non-empty output file.
+ * Anything else is a 422. There is deliberately no branch that stages the
+ * original instead, and there must never be one.
+ */
+async function bakeInChild(bakeRoot, item, index) {
+  const dir = path.join(bakeRoot, String(index));
+  await fs.promises.mkdir(dir);
+  const meta = JSON.stringify({ crop: item.crop, blurs: item.blurs }); // small, so one argv value
+  const child = await runBakeWorker([BAKE_WORKER, item.from, dir, item.name, meta], dir);
+
+  // null means no result file at all, which is the only case where the
+  // child's stderr is the best thing left to say.
+  let resultOk = false;
+  let resultMessage = null;
+  try {
+    const parsed = JSON.parse(await fs.promises.readFile(path.join(dir, 'result.json'), 'utf8'));
+    resultOk = parsed?.ok === true;
+    resultMessage = typeof parsed?.message === 'string' ? parsed.message : '';
+  } catch { /* the child died before it could say anything */ }
+
+  const out = path.join(dir, 'out.bin');
+  const size = (await statOrNullAsync(out))?.size ?? 0;
+  if (!resultOk || size <= 0) {
+    throw new ExportError(422, bakeFailureMessage({
+      code: child.code,
+      killed: child.killed,
+      signal: child.signal,
+      // The child only ever sees paths under ASSETS_DIR and its own bake
+      // directory; the second is handled by the staging marker.
+      stderr: scrubPaths(child.stderr, ASSETS_DIR),
+      resultOk,
+      resultMessage,
+      outputExists: size > 0,
+    }, item.name));
+  }
+  return { file: out, size };
+}
+
 export async function stageReport(workspaceId) {
   const source = await readTypstSource(workspaceId);
   if (source === null) throw new ExportError(404, 'this workspace has no report yet');
   const records = await listAssetRecords(workspaceId);
-  const { plan, warnings, skippedDuplicates, account } = planReport(workspaceId, source, records);
+  const { plan, warnings, skippedDuplicates, account } = await planReport(workspaceId, source, records);
 
   // Only now does anything land on disk. Nothing may sit between this line
   // and the try: the catch is what removes the directory, and the caller's
   // finally only runs once this returns.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'btct-typst-'));
+  // Where the bake children write. Outside the compile root on purpose, and
+  // created only if something is actually redacted.
+  let bakeRoot = null;
+  let handedOver = false;
   try {
     fs.mkdirSync(path.join(root, 'assets'));
     fs.mkdirSync(path.join(root, 'fonts'));
-    fs.writeFileSync(path.join(root, 'main.typ'), source);
-    const { bakeImage } = await import('./bake.mjs'); // jimp loads on first export, not at boot
+    await fs.promises.writeFile(path.join(root, 'main.typ'), source);
     let baked = 0;
-    for (const item of plan) {
+    for (let i = 0; i < plan.length; i += 1) {
+      const item = plan[i];
       const dest = path.join(root, item.kind === 'font' ? 'fonts' : 'assets', item.name);
-      if (!item.mayBake) { fs.copyFileSync(item.from, dest); continue; }
-      const bytes = new Uint8Array(fs.readFileSync(item.from));
-      let out;
-      // bakeImage's own message already starts with the filename.
-      try { out = await bakeImage(bytes, { crop: item.crop, blurs: item.blurs }, item.name); }
-      catch (err) { throw new ExportError(422, err instanceof Error ? err.message : String(err)); }
-      const written = out ?? bytes;
+      // Nothing to apply: the file is copied as it is, and no child runs.
+      // This is the one path on which original bytes reach the compile root,
+      // and `mayBake` is what keeps a redacted image off it.
+      if (!item.mayBake) { await fs.promises.copyFile(item.from, dest); continue; }
+      bakeRoot ??= await fs.promises.mkdtemp(path.join(os.tmpdir(), 'btct-bake-'));
+      // One child per image, sequential. Not pooled and not parallel:
+      // serial.mjs and the admission gate already allow one export at a
+      // time, and typst runs after every bake has finished.
+      const out = await bakeInChild(bakeRoot, item, i);
       // The byte ceiling was charged from the file's size in pass 1; a
       // re-encode can grow, so the difference is charged here and "200 MB
       // of staged files" stays true.
-      account(Math.max(0, written.byteLength - item.size));
-      fs.writeFileSync(dest, written);
-      if (out) baked += 1;
+      account(Math.max(0, out.size - item.size));
+      await fs.promises.rename(out.file, dest);
+      baked += 1;
     }
+    handedOver = true;
     return { root, source, baked, skippedDuplicates, warnings };
-  } catch (err) {
-    unstage(root);
-    throw err;
+  } finally {
+    // The bake directory is finished with the moment staging is: every file
+    // still in it is a leftover. The compile root belongs to the caller once
+    // this function returns it, and to this finally until then.
+    if (bakeRoot) await unstage(bakeRoot);
+    if (!handedOver) await unstage(root);
   }
 }
 
-export function unstage(root) {
-  // Never throws: this runs from a finally and from the catch above, where a
-  // second error would replace the one the caller needs to see. The retries
-  // are for Windows, where a file a just-killed child had open answers EBUSY
-  // for a moment, and giving up there would leave screenshots in the OS temp
-  // directory.
-  try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
+export async function unstage(root) {
+  // Never throws: this runs from a finally, where a second error would
+  // replace the one the caller needs to see. The retries are for Windows,
+  // where a file a just-killed child had open answers EBUSY for a moment,
+  // and giving up there would leave screenshots in the OS temp directory.
+  // The promises form retries without the synchronous sleep rmSync does.
+  try { await fs.promises.rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
   catch (err) { console.error('[typst] could not remove the staged directory', err); }
 }

@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseDiagnostics, scrubPaths, childFailureMessage } from './diagnostics.mjs';
+import { childEnv } from './child-env.mjs';
 import { createSerial } from './serial.mjs';
 import { createAdmission } from './admission.mjs';
 import { toPandocSource, pandocSourceWarnings } from './docx-source.mjs';
@@ -62,21 +63,6 @@ export function capabilities() {
   return { pdf: !!c.typst, docx: !!c.pandoc };
 }
 
-// A child gets PATH and nothing else it does not need to start. The server's
-// own environment holds AUTH_SECRET and the cmdlog and backup tokens, and
-// neither CLI has any business reading them.
-function childEnv() {
-  const env = { PATH: process.env.PATH ?? '' };
-  if (process.platform === 'win32') {
-    // Windows binaries fail to start without these: SystemRoot resolves the
-    // system DLLs, TEMP/TMP is where both CLIs write their scratch files.
-    for (const key of ['SystemRoot', 'windir', 'TEMP', 'TMP', 'PATHEXT']) {
-      if (process.env[key]) env[key] = process.env[key];
-    }
-  }
-  return env;
-}
-
 // An argument array, never a shell string: a caption or a filename from the
 // shared doc must never be parsed by a shell.
 function run(cli, args, cwd) {
@@ -117,14 +103,15 @@ function failed(result, cli, fallback, diagnostics) {
 }
 
 /** The finished file, refused when it is too big to hand back. */
-function readOutput(file, label) {
-  const stat = fs.statSync(file);
+async function readOutput(file, label) {
+  const stat = await fs.promises.stat(file);
   if (stat.size > MAX_OUTPUT_BYTES) {
     throw new ExportError(422, `The exported ${label} is too large (${Math.round(stat.size / 1024 / 1024)} MB).`);
   }
   // A Buffer, which goes straight to res.end: no Uint8Array round trip and no
-  // second copy of a 100 MB file.
-  return fs.readFileSync(file);
+  // second copy of a 100 MB file. Read asynchronously, because up to 100 MB
+  // off the disk is not something to stop the Yjs relay for.
+  return fs.promises.readFile(file);
 }
 
 // The 17 default faces the browser compiler uses, staged by scripts/fonts.ts.
@@ -180,7 +167,7 @@ async function toPdf(root, source) {
       ? `Typst error at ${first.file ?? '?'}:${first.line ?? '?'}: ${first.message}`
       : (scrubPaths(result.stderr, root).trim() || 'the report did not compile'), diagnostics);
   }
-  return readOutput(out, 'PDF');
+  return await readOutput(out, 'PDF');
 }
 
 /** Is this AST target a regular file sitting directly in the staged assets directory? */
@@ -224,7 +211,7 @@ const pandocWarnings = (stderr) => String(stderr).split(/\r?\n/)
 async function toDocx(root, source) {
   const cli = clis().pandoc;
   if (!cli) throw new ExportError(501, 'pandoc not found on this server');
-  fs.writeFileSync(path.join(root, 'docx.typ'), toPandocSource(source));
+  await fs.promises.writeFile(path.join(root, 'docx.typ'), toPandocSource(source));
 
   const read = await run(cli, ['docx.typ', '-f', 'typst', '-t', 'json', '--sandbox', '-o', 'ast.json'], root);
   const astFile = path.join(root, 'ast.json');
@@ -235,11 +222,11 @@ async function toDocx(root, source) {
       ?? new ExportError(422, 'pandoc finished without producing a file.');
   }
   let ast;
-  try { ast = JSON.parse(fs.readFileSync(astFile, 'utf8')); }
+  try { ast = JSON.parse(await fs.promises.readFile(astFile, 'utf8')); }
   catch { throw new ExportError(422, 'pandoc produced a document this server could not read'); }
 
   const filtered = filterDocxImages(ast, (target) => stagedImageExists(root, target));
-  fs.writeFileSync(astFile, JSON.stringify(filtered.ast));
+  await fs.promises.writeFile(astFile, JSON.stringify(filtered.ast));
 
   const write = await run(cli, ['ast.json', '-f', 'json', '-t', 'docx', '--resource-path', '.', '-o', 'out.docx'], root);
   const out = path.join(root, 'out.docx');
@@ -248,7 +235,7 @@ async function toDocx(root, source) {
       ?? new ExportError(422, 'pandoc finished without producing a file.');
   }
   return {
-    bytes: readOutput(out, 'Word file'),
+    bytes: await readOutput(out, 'Word file'),
     warnings: [
       ...filtered.warnings,
       ...pandocWarnings(read.stderr).map((w) => scrubPaths(w, root)),
@@ -279,7 +266,7 @@ export function exportReport(workspaceId, format, isCancelled = () => false) {
       }
       return { bytes: await toPdf(root, source), baked, warnings };
     } finally {
-      unstage(root);
+      await unstage(root);
     }
   }).finally(() => admission.leave());
 }

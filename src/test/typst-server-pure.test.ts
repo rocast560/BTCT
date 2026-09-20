@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { parseDiagnostics, scrubPaths, childFailureMessage } from '../../server/typst/diagnostics.mjs';
+import { parseDiagnostics, scrubPaths, childFailureMessage, bakeFailureMessage } from '../../server/typst/diagnostics.mjs';
 import { createSerial } from '../../server/typst/serial.mjs';
 import { findPackageSpec } from '../../server/typst/package-spec.mjs';
 import { referencedAssetNames } from '../../server/typst/referenced-assets.mjs';
@@ -88,6 +88,14 @@ describe('scrubPaths', () => {
     expect(scrubPaths('could not read "/var/tmp/btct-typst-VmfxLw/main.typ"', root))
       .toBe('could not read "."');
     expect(scrubPaths('nothing to see here', root)).toBe('nothing to see here');
+  });
+
+  it('knows the bake children’s directory by the same marker', () => {
+    // A bake child runs in its own temp directory, and its message reaches a
+    // caller that never learns which one, so the marker pass has to work
+    // with no root at all.
+    expect(scrubPaths('open /var/tmp/btct-bake-Ab12Cd/3/out.part failed', '')).toBe('open . failed');
+    expect(scrubPaths('open /var/tmp/btct-bake-Ab12Cd/3/out.part failed', root)).toBe('open . failed');
   });
 });
 
@@ -208,5 +216,74 @@ describe('referencedAssetNames', () => {
   it('matches inside a comment or a raw block, which is accepted over-inclusion', () => {
     expect(names('// #image("/assets/old.png")')).toEqual(['old.png']);
     expect(names('```\n#image("/assets/sample.png")\n```')).toEqual(['sample.png']);
+  });
+});
+
+describe('bakeFailureMessage', () => {
+  // Every redaction runs in a child of its own, and anything other than
+  // "result says ok AND a non-empty file" stops the export. This is what the
+  // operator reads when that happens, and it is the only place that decides
+  // it, so the whole matrix is here.
+  const base = { code: 1, killed: false, signal: null, resultOk: false, resultMessage: null, outputExists: false, stderr: '' };
+
+  it('names our own timeout as a timeout', () => {
+    expect(bakeFailureMessage({ ...base, code: 124, killed: true, signal: 'SIGKILL' }, 'shot.png'))
+      .toBe('Redacting shot.png took too long on this server. Export the PDF from the browser instead.');
+  });
+
+  it('reads a SIGKILL we did not send as the memory killer', () => {
+    // After this change the kernel's OOM victim is the child, not the relay,
+    // so a cgroup OOM during a bake becomes a 422 rather than a dead server.
+    expect(bakeFailureMessage({ ...base, signal: 'SIGKILL' }, 'shot.png'))
+      .toBe('The export ran out of memory on the server. Export the PDF from the browser instead.');
+  });
+
+  it('names any other signal death', () => {
+    expect(bakeFailureMessage({ ...base, signal: 'SIGSEGV' }, 'shot.png'))
+      .toBe('The exporter stopped unexpectedly (bake, SIGSEGV).');
+  });
+
+  it('passes the child result message through, which already starts with the filename', () => {
+    expect(bakeFailureMessage({ ...base, resultMessage: 'shot.webp: webp images with crop or blur cannot be baked server-side; export from the app instead' }, 'shot.webp'))
+      .toBe('shot.webp: webp images with crop or blur cannot be baked server-side; export from the app instead');
+  });
+
+  it('scrubs a staged path out of the child result message', () => {
+    expect(bakeFailureMessage({ ...base, resultMessage: 'shot.png: ENOENT, open /var/tmp/btct-bake-Ab12Cd/0/out.part' }, 'shot.png'))
+      .toBe('shot.png: ENOENT, open .');
+  });
+
+  it('caps an over-long child result message at 300 characters', () => {
+    const long = `shot.png: ${'x'.repeat(500)}`;
+    const out = bakeFailureMessage({ ...base, resultMessage: long }, 'shot.png');
+    expect(out).toHaveLength(300);
+    expect(out.endsWith('\u2026')).toBe(true);
+  });
+
+  it('says the step produced nothing when the child exited cleanly with no image', () => {
+    expect(bakeFailureMessage({ ...base, code: 0, resultOk: true, resultMessage: '', outputExists: false }, 'shot.png'))
+      .toBe('shot.png: the redaction step produced no image, so the export was stopped.');
+    expect(bakeFailureMessage({ ...base, code: 0, resultOk: false, resultMessage: '' }, 'shot.png'))
+      .toBe('shot.png: the redaction step produced no image, so the export was stopped.');
+  });
+
+  it('falls back to the child stderr only when there is no result file at all', () => {
+    // resultMessage null means nothing was written; an empty string means a
+    // result file that said nothing, and then the stderr is not the story.
+    expect(bakeFailureMessage({ ...base, stderr: 'Segmentation fault' }, 'shot.png'))
+      .toBe('shot.png: the redaction step failed. Segmentation fault');
+    expect(bakeFailureMessage({ ...base, resultMessage: '', stderr: 'Segmentation fault' }, 'shot.png'))
+      .toBe('shot.png: the redaction step produced no image, so the export was stopped.');
+  });
+
+  it('scrubs and caps the stderr fallback too', () => {
+    const out = bakeFailureMessage({ ...base, stderr: `at /var/tmp/btct-bake-Ab12Cd/0 ${'y'.repeat(500)}` }, 'shot.png');
+    expect(out).toHaveLength(300);
+    expect(out).toContain('shot.png: the redaction step failed. at . ');
+  });
+
+  it('survives a result with missing fields', () => {
+    expect(bakeFailureMessage({}, 'shot.png')).toBe('shot.png: the redaction step produced no image, so the export was stopped.');
+    expect(bakeFailureMessage(null, 'shot.png')).toBe('shot.png: the redaction step produced no image, so the export was stopped.');
   });
 });
