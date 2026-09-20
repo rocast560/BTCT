@@ -378,8 +378,9 @@ command palette. There is one report per workspace.
   build time by `bun run fonts`, so the compiler never calls a CDN.
 - **Export**: **PDF** and **SVG** come from the same in-browser compiler and
   need nothing of the server. Two more buttons, **DOCX** and **PDF (server)**,
-  appear when the server has the `typst` and `pandoc` binaries; the Docker
-  image ships both, so on a normal deployment they are simply there. Both run
+  appear when the server has the `typst` binary and, for Word, a Python with
+  `pdf2docx`; the Docker image ships both, so on a normal deployment they are
+  simply there. Both run
   on the server, which stages the report and its screenshots in a temporary
   directory and **bakes every crop and redaction into the images before either
   format is produced**, using the same geometry the preview drew. Each image is
@@ -390,14 +391,18 @@ command palette. There is one report per workspace.
   (gif, webp, or an svg carrying a crop or a blur) is refused rather than
   written out unredacted. The banner after an export says how many images were
   baked.
-  DOCX goes through pandoc's Typst reader, which follows headings, text,
-  tables, lists and figures. What it does not follow is layout: your `#show`
-  and `#set` rules, page geometry, custom fonts and anything drawn with Typst
-  code do not survive, figure slots become plain figures, and a slot whose
-  caption is computed rather than a plain string arrives as the word "Figure".
-  The export says so in an info banner naming the line, so you can fix the
-  caption or fix the Word file. Treat the DOCX as a draft to hand to somebody
-  who wants Word, and the PDF as the deliverable.
+  DOCX is made **from the finished PDF**, not from your Typst source, so it
+  keeps the layout: the cover, the coloured risk tables, the finding cards,
+  the code blocks and the page breaks are the ones you compiled, and the text
+  is still editable in Word. A running header or footer comes back as a real
+  Word header and footer with a live page-number field, and a table of
+  contents is rewritten one clean line per entry with dot leaders. Measured on
+  a 23-page report: 23 pages in Word, median page similarity 0.98 against the
+  PDF. Two things to know. **Fonts are not embedded**, so Word substitutes
+  unless the report's fonts are installed on the machine that opens it. And
+  Word re-flows with its own metrics, so a long line can wrap one word
+  differently. Treat the DOCX as the copy for somebody who wants Word, and the
+  PDF as the deliverable.
 - **Server export limits.** Every one of these answers with a 422 and a
   sentence in the report tab's banner, and in every case the browser PDF
   export is the way through, because it has the whole browser's memory rather
@@ -423,14 +428,20 @@ command palette. There is one report per workspace.
     thread with one job and overflows its stack somewhere between 2000 and
     3000 sections, which is reported as "this report is too large for the
     server compiler".
-  - **120 seconds** per compile or conversion, **30 seconds** per image
-    redaction, **100 MB** per output file, and **two exports at a time** (one
-    running, one queued). A third caller gets a 429 and is asked to come back
-    in a moment.
+  - **120 seconds** per compile and another **120 seconds** for the Word
+    conversion that follows it, **30 seconds** per image redaction, **100 MB**
+    per output file, and **two exports at a time** (one running, one queued). A
+    third caller gets a 429 and is asked to come back in a moment. Measured in
+    the 1 GB container on a 23-page report with a cover and six fonts: 0.8 s
+    for the PDF and 6.9 s for the Word file, peaking at 176 MiB.
+  - **Fonts are not embedded in the Word file.** It is made from the PDF, so
+    the layout is the PDF's, but Word asks the machine that opens it for the
+    fonts by name. Install the report's fonts there, or expect substitutions.
   - **Temporary disk.** An export stages into the OS temp directory (`/tmp` in
     the container, on its writable layer, not on the data volume) and uses up
     to about 300 MB while it runs: the 200 MB of staged files, one image being
-    redacted beside them, and the finished PDF or Word file. A `read_only:
+    redacted beside them, and the finished PDF plus, for Word, the stripped
+    copy of it and the .docx. A `read_only:
     true` container, or a tmpfs on `/tmp` smaller than that, breaks server
     export; use `tmpfs: /tmp:size=512m` if you run the container read-only.
   - **Health probes keep answering.** Measured in the 1 GB container on a
@@ -773,8 +784,8 @@ Base URL defaults to the same origin. Bearer token from `/api/login`
 | `GET` | `/api/assets?workspaceId=…` | yes | Metadata inventory of a workspace's assets |
 | `GET` | `/api/assets/:id` | yes | The raw asset bytes (`Cache-Control: immutable`, since bytes never change for an id) |
 | `DELETE` | `/api/assets/:id` | uploader/admin | Delete the row **and** the file on disk |
-| `GET` | `/api/typst/capabilities` | yes | Which server exports are available: `{ pdf, docx }`, one per CLI found on `PATH`. 404 when `ENABLE_TYPST` is off (as does every route below) |
-| `POST` | `/api/typst/:workspaceId/export?format=pdf\|docx` | yes | Export that workspace's report, with its crops and redactions baked in. 200 returns the file bytes (`application/pdf` or the Word MIME type, `Cache-Control: no-store`) plus `X-Baked-Images` (how many images were re-encoded) and, when there is anything to say, `X-Export-Warnings` (percent-encoded JSON array of strings, at most 10 and 4000 characters). 400 bad workspace id or format, 401 no/blocked account, 404 no report for that workspace, 422 anything the report or its images did wrong (the message is the banner text), 429 two exports already queued, 501 the CLI went missing after the capabilities check |
+| `GET` | `/api/typst/capabilities` | yes | Which server exports are available: `{ pdf, docx }`. `pdf` means typst was found; `docx` means that plus a Python that can import `pdf2docx`, probed once in a child process and cached. 404 when `ENABLE_TYPST` is off (as does every route below) |
+| `POST` | `/api/typst/:workspaceId/export?format=pdf\|docx` | yes | Export that workspace's report, with its crops and redactions baked in. 200 returns the file bytes (`application/pdf` or the Word MIME type, `Cache-Control: no-store`) plus `X-Baked-Images` (how many images were re-encoded) and, when there is anything to say, `X-Export-Warnings` (percent-encoded JSON array of strings, at most 10 and 4000 characters). 400 bad workspace id or format, 401 no/blocked account, 404 no report for that workspace, 422 anything the report or its images did wrong (the message is the banner text), 429 two exports already queued, 501 the tools for that format are not installed (checked before anything is staged) or went missing mid-export |
 | `GET` | `/api/pages/:id/versions` | yes | Version timeline of a page, newest first: `{ versions, users, tracked, dirty, twinExists }`. Imports the page's legacy `pageSnapshots` rows on first read |
 | `POST` | `/api/pages/:id/versions` | yes | Record a version of the open page now (`{ name?, trigger: 'named' \| 'restore' }`); 409 when the page room is not open on the server |
 | `GET` | `/api/pages/:id/versions/:vid` | yes | One version with its twin `snapshot` and full `state` (both base64; the state is derived from the twin when the row has none) |
@@ -837,8 +848,12 @@ scheduled backups are written; `/backups` in Docker, bind-mounted from
 `ENABLE_TYPST` (`"1"` or `"true"` turns on the Typst report tab; off by
 default, exposed to clients as `features.typst` from `GET /api/settings`, and
 not settable from the UI so a small box can't be switched on by mistake),
-`TYPST_CLI` and `PANDOC_CLI` (absolute paths to the two export binaries;
-unset means "look on `PATH`", which is what the Docker image relies on),
+`TYPST_CLI` (absolute path to the typst binary; unset means "look on
+`PATH`", which is what the Docker image relies on),
+`PDF2DOCX_PYTHON` (absolute path to a Python interpreter that can import
+`pdf2docx`, used for the DOCX export; the Docker image sets it to
+`/opt/pdf2docx/bin/python`, and unset means "try `python3` then `python` on
+`PATH`"),
 `TYPST_EXPORT_MAX_TOTAL_MP` (total screenshot megapixels one server export may
 stage; default 120, accepted 10 to 2000, anything else falls back to 120),
 `ADMIN_USERNAME`/`ADMIN_PASSWORD` (bootstrap admin, default `admin`/`changeme!`).
@@ -915,7 +930,7 @@ server/
   restore.mjs                 Restore CLI (run with the server stopped)
   typst/                      Server-side report export, imported only when ENABLE_TYPST is on:
     index.mjs                 The two routes: capabilities, and export?format=pdf|docx
-    export.mjs                Finds the CLIs, spawns them (argv array, minimal env, 120 s, SIGKILL), queue of 2
+    export.mjs                Finds typst and the converter's Python, spawns them (argv array, minimal env, 120 s, SIGKILL), queue of 2
     stage.mjs                 One export's temp directory: plans the whole report, then stages main.typ, images, fonts
     bake-worker.mjs           One image, redacted, in a process of its own (argv in, out.bin + result.json out)
     child-env.mjs             PATH and nothing else: the environment every export child gets
@@ -926,10 +941,12 @@ server/
     pixel-budget.mjs          Total staged megapixels per export (TYPST_EXPORT_MAX_TOTAL_MP)
     bake.mjs                  Crop + blur burned into the bytes, with src/lib's own math
     bake.check.mjs            Standalone proof that a bake destroys the pixels, uses the block floor and the downscale, and refuses across the worker boundary (`bun server/typst/bake.check.mjs`)
-    docx-source.mjs           Rewrites the report into what pandoc's Typst reader can follow
-    docx-ast.mjs              Filters pandoc's JSON AST: only staged images survive, raw blocks never do
+    pdf-to-docx/convert.py    The finished PDF turned into Word: strips the repeating bands, runs pdf2docx, puts the bands back as real Word headers and footers, rebuilds the table of contents
+    pdf-to-docx/requirements.txt  pdf2docx and its dependency tree, pinned with hashes (the image installs it with --require-hashes)
+    pdf-to-docx/compare.ps1   Developer tool: compile, convert, render through Word, score page against page, draw contact sheets (with compare_pages.py)
+    pdf-to-docx/test_convert.py  Developer tool: the band and table-of-contents readers, against a PDF it builds itself
     package-spec.mjs          Finds an @preview / @local package spec anywhere in the source
-    diagnostics.mjs           Typst diagnostics, path scrubbing, signal-death and bake-failure messages (pure)
+    diagnostics.mjs           Typst diagnostics, path scrubbing, signal-death, bake-failure and Word-conversion messages (pure)
     serial.mjs, admission.mjs One at a time, at most two queued (pure)
 cmdlog-agent/                 Standalone Python 3 shell-capture agent (own README + tests)
   btct_agent/                 matcher, redactor, spool, shipper, daemon, installer, hooks/
@@ -1125,11 +1142,12 @@ scripts/
    redaction runs in a short-lived child process of its own, one per image,
    whose output is staged only when it reports success and leaves a non-empty
    file, so a failed, killed or timed-out bake is a 422 and never a fallback
-   to the original bytes; pandoc's reader always runs with `--sandbox` and only the
-   AST-filtered JSON reaches the unsandboxed writer step; and every child gets
-   an argv array, a minimal environment and a timeout, with its error text
-   path-scrubbed. Do not add an unsandboxed reader, a shell string, or a path
-   built from CRDT text. One assumption is version-dependent: a staged SVG is
+   to the original bytes; the Word file is made by converting the PDF that
+   typst just produced, in an isolated Python child (`-I`, which ignores every
+   `PYTHON*` variable and the user site directory), so the only thing that
+   parses report content is typst itself; and every child gets an argv array,
+   a minimal environment and a timeout, with its error text path-scrubbed. Do
+   not add a shell string, or a path built from CRDT text. One assumption is version-dependent: a staged SVG is
    never sized, and is safe only because usvg resolves an href for exactly two
    elements, `<image>` and `<feImage>` (both refused by name, along with any
    `data:` URI), and because typst refuses http, file and out-of-root hrefs
@@ -1280,26 +1298,38 @@ build time); the flag only decides whether any client is allowed to ask for
 them. See [Report (Typst)](#report-typst) and
 [docs/typst-tab-2026-09.md](docs/typst-tab-2026-09.md).
 
-The image also ships the two **server export** binaries, `typst` 0.14.2 and
-`pandoc` 3.11, pinned by version and by sha256 in the
-[Dockerfile](Dockerfile)'s `report-bins` stage and installed to
-`/usr/local/bin`. They cost about 205 MiB of image and nothing at all at
+The image also ships what **server export** needs: the `typst` 0.14.2 binary,
+pinned by version and by sha256 in the [Dockerfile](Dockerfile)'s
+`report-bins` stage and installed to `/usr/local/bin`, and a virtualenv at
+`/opt/pdf2docx` holding `pdf2docx` and its dependency tree, built in the
+`pdf2docx-venv` stage from
+[server/typst/pdf-to-docx/requirements.txt](server/typst/pdf-to-docx/requirements.txt)
+with `pip --require-hashes`. Together they cost about 405 MiB of image
+(measured: 689 MiB against 283 MiB with them left out) and nothing at all at
 runtime until somebody clicks DOCX or PDF (server), so there is no separate
 switch: `ENABLE_TYPST` is the switch. A box that will never export can leave
-them out with `docker build --build-arg WITH_REPORT_BINS=0`, which saves that
-205 MiB (measured: 283 MiB inside the container against 488 MiB); the server
-still starts, the two buttons do not appear, and the export routes answer
-501. If you run BTCT from source instead, install the two CLIs yourself and
-put them on the server process's `PATH`, or point `TYPST_CLI` / `PANDOC_CLI`
-at them; without them the tab simply does not show those two buttons and
-browser PDF export still works.
+them out with `docker build --build-arg WITH_REPORT_BINS=0`; the server still
+starts, the two buttons do not appear, and the export routes answer 501. If
+you run BTCT from source instead, put `typst` on the server process's `PATH`
+or point `TYPST_CLI` at it, and for Word make a virtualenv from that
+requirements file and point `PDF2DOCX_PYTHON` at its `python`. Without them
+the tab simply does not show those two buttons and browser PDF export still
+works.
 
-**Bumping either binary is not just a version change.** The four sha256
-digests are self-computed (neither project publishes a signed checksum file),
-and the procedure for replacing one, including the out-of-band cross-check
-against the digest GitHub's release API reports and the safety checks each
-bump invalidates, is written beside the `ARG`s in the
-[Dockerfile](Dockerfile).
+**PyMuPDF, which `pdf2docx` uses to read the PDF, is AGPL-3.0**, so a build
+that ships this image ships AGPL code; Artifex also sells a commercial licence
+if that matters to you. Nothing else in BTCT's dependency tree is AGPL, and
+`--build-arg WITH_REPORT_BINS=0` leaves it out entirely.
+
+**Bumping typst or the Python pins is not just a version change.** The two
+sha256 digests are self-computed (the project publishes no signed checksum
+file), and the procedure for replacing one, including the out-of-band
+cross-check against the digest GitHub's release API reports and the safety
+checks the bump invalidates, is written beside the `ARG`s in the
+[Dockerfile](Dockerfile). A `pdf2docx` bump has its own note there: the header,
+footer and table-of-contents repairs are written against what that version
+produces, so re-run `server/typst/pdf-to-docx/test_convert.py` and
+`compare.ps1` against a real report afterwards.
 
 **Server export needs writable temporary space**, about 300 MB of it while an
 export runs, in the OS temp directory rather than on the data volume: see
@@ -1308,9 +1338,10 @@ container read-only or with a tmpfs on `/tmp`.
 
 **Deny the container outbound network if your deployment lets you.** Server
 export refuses Typst package specs before the compiler starts and confines the
-package cache to the export's own temporary directory, and pandoc's reader
-runs under `--sandbox`, so nothing here is supposed to reach the internet. A
-network policy is the layer that does not depend on any of that being right.
+package cache to the export's own temporary directory, and the Word converter
+reads a local PDF and writes a local file, so nothing here is supposed to
+reach the internet. A network policy is the layer that does not depend on any
+of that being right.
 The compose files do not set one, because the right way to express it differs
 per host (an `internal` network, `--network none` with a reverse proxy in
 front, an egress firewall rule).

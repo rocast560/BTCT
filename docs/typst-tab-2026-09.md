@@ -611,7 +611,7 @@ the workspace stops syncing for roughly ten seconds while somebody exports a
 Word file.
 
 So, plainly: **server export of many large redacted screenshots is not safe on a
-1 GB box yet.** One or two of them is fine and fast, which is the ordinary case
+1 GB box yet** (fixed since; see "After the fix" two paragraphs below)**.** One or two of them is fine and fast, which is the ordinary case
 and the one the buttons exist for. A dozen at the top of the per-image cap sits
 at the container's memory ceiling and stalls collaboration for seconds at a
 time, and the 120 MP budget that admits it was set from the compiler's cost, not
@@ -833,14 +833,289 @@ in the child, which leaves the 1 GB box room for the relay and one bake.
   that and would bring back the "one process holds the memory across images"
   problem the fix exists to remove, so I left it. If wall time ever matters
   more than the isolation, that is the knob.
-- **Step 3 of the Word conversion is not sandboxed.** The confinement is the
-  AST filter plus an `lstat` per target. Nothing else in a pandoc AST makes the
-  docx writer read a file as far as I can tell, and `RawBlock` and `RawInline`
-  are dropped before it sees the tree, but that is reasoning rather than a
-  sandbox.
+- ~~**Step 3 of the Word conversion is not sandboxed.**~~ Gone with the route:
+  the Word file is no longer made from the report source at all. See "The Word
+  file is now made from the PDF" below.
 - **`docker images` SIZE and the filesystem disagree** on this host by about
   115 MiB per image. I used the filesystem number and said so; I did not chase
   the containerd accounting.
 - **The download could not be captured through Chrome's own download path** in
   this headless setup, so the click-through proves the bytes from the anchor
   the app clicked rather than from a file Chrome wrote.
+
+## The Word file is now made from the PDF (2026-09-19)
+
+I gave the owner the DOCX button and they exported their real CPTC report with
+it. They rejected the result on sight. Not "some layout is off": the cover was
+gone, every heading was numbered "0", and there was not a single colour, table
+fill or running header anywhere in the file. 15 pages against the PDF's 23.
+
+That is not a bug in the wiring. It is what pandoc's Typst reader does with a
+template built out of `#place`, grids, counters and custom `#show` rules. The
+reader follows a subset of Typst and evaluates almost none of the presentation,
+so everything the owner had actually designed was the part that did not come
+across. I had written "structure survives, custom layout does not" in the UI
+and thought that was an honest warning. On a real report it turns out to mean
+"almost nothing survives", which is not the same sentence.
+
+### Three routes, measured against the same report
+
+I rendered each candidate DOCX back to PDF through Word and put it next to the
+real one, page for page.
+
+| route | pages | what it looked like |
+|---|---|---|
+| pandoc from Typst source (what shipped) | 15 | no cover, headings numbered "0", no colour, no tables fills, no header |
+| `typst --features html` then pandoc html to docx | 23 | every word present, every piece of styling gone |
+| the finished PDF through **pdf2docx** | 44 | near-identical to the PDF, but 21 pages too many and a scrambled contents page |
+
+The third one is the interesting failure, because the thing that was wrong with
+it was small and the thing that was right with it was everything: the cover,
+Poppins, the coloured risk matrix, the finding cards with their severity
+stripes, the code blocks. Two specific defects:
+
+1. **The footer overflowed every page.** pdf2docx has no idea that the band at
+   the bottom of each page is a running footer; it converts it as body content,
+   Word re-flows it, and each page grows by the height of its own footer until
+   it spills. 23 pages became 44.
+2. **The table of contents came apart.** Entries merged into each other, page
+   numbers landed beside the wrong titles, and the dot leaders came through as
+   literal runs of periods.
+
+Deleting the two bands out of the PDF before converting fixed the page count
+exactly: 23 in, 23 out. So the route was right and the repairs were the work.
+
+### What `pdf-to-docx/convert.py` does
+
+One Python script, run as a short-lived child after the same typst compile that
+`format=pdf` runs. It is written against page geometry, not against one
+template, because the next report will not be this one.
+
+**Finding the bands.** Every text row in the top or bottom 12% of a page is
+normalized (whitespace collapsed, digit runs replaced with `#`, so a page number
+stops being part of the identity) and keyed by that text plus its rounded top
+edge. A key that appears on at least 60% of the pages that have anything in
+that zone is a band. Pages with nothing there, such as a cover, are not counted
+either way, which is how the cover keeps its bare header for free.
+
+One rule earns its place beyond that: **the band is the cluster nearest the
+page edge**. Body content repeats too. A report whose every page opens with a
+heading of the same shape has a repeating row inside the 12% zone, and without
+this rule the heading would be detected as a header and deleted out of the
+document. So after the repeating rows are found, only those within about 1.6
+row heights of the outermost one are kept. My self-test builds exactly that
+trap and the rule is what makes it pass.
+
+Vector drawings that repeat with the text join the band when they sit within
+30 pt of it: a rule under a header, a filled strip behind a footer. That is how
+the band's real y-extent is found, and the extent is what gets erased.
+
+**Page numbers.** Within a repeating row, the digit runs line up slot by slot
+across pages. A slot whose value equals its page index plus a constant is the
+page number, and that constant is what `w:pgNumType w:start` gets. This report
+prints "1" on physical page 2, so the offset is 0 and Word starts counting at
+0, which makes the cover page zero and every printed number match the PDF. The
+numbers in the Word file are a real `PAGE` field, not text.
+
+**Erasing them.** A PyMuPDF redaction annotation with no fill over the band
+rectangle, with `PDF_REDACT_IMAGE_NONE` and line art removed only when fully
+covered, so a figure that reaches into the zone is left alone. That PDF is what
+pdf2docx converts.
+
+**Putting them back.** python-docx, on every section pdf2docx produced, which
+is one per page for this document. Each band row is split into columns wherever
+a horizontal gap wider than 4 pt appears, each column is classified left,
+centre or right against the document's own text-area edges, and the three go
+into one paragraph separated by tabs with a centre and a right tab stop.
+
+Three things there cost me time.
+
+- **Word merged the Header style's tab stops with mine.** The built-in Header
+  and Footer styles carry a centre stop at 4.5" and a right stop at 9", sized
+  for one-inch margins, and a paragraph's own stops are added to those rather
+  than replacing them. The first tab went to the style's centre stop and the
+  right-hand piece of the header landed in the middle of the page. The fix is
+  to emit an explicit `w:tab w:val="clear"` at each inherited position.
+- **Word refuses to open a file whose property elements are out of order.**
+  Appending `w:shd` and `w:pBdr` to the end of a `w:pPr` produces "the file
+  appears to be corrupted", not a warning. WordprocessingML validates child
+  order, so the script inserts into the schema's sequence.
+- **A header reserves space from the body.** Word puts the body at
+  `max(topMargin, headerDistance + headerHeight)`, and pdf2docx sets a top
+  margin that assumed no header at all, so adding one pushed every page down by
+  the header's height and turned 23 pages into 28. The script sets the top
+  margin to what the header needs and takes exactly that much back off the
+  spacer paragraph pdf2docx writes at the top of each page, so the first line
+  of body text lands where it did in the PDF. An empty header is not free
+  either: the cover got a 49 pt shove from the empty definition that exists
+  only to stop it inheriting the band, until that definition was flattened to a
+  1 pt line at distance 0.
+
+**The contents page.** TOC lines are read out of the PDF: a title, a run of six
+or more dots, a trailing number. The converted document's dot-leader paragraphs
+are grouped into stretches, entries are matched to a stretch by their title
+text, and each stretch is replaced with one clean paragraph per entry: the
+indent from the PDF's own x position, the title, a tab, the page number, and a
+right-aligned dot-leader tab stop at the text area's right edge. Line spacing is
+set to the exact pitch measured between the PDF's own entries, which is what
+keeps the list the same height and the page count intact.
+
+pdf2docx had put this report's contents page inside a table with merged cells,
+which is worth knowing for two reasons. Walking the python-docx object model
+visits a merged cell once per grid column it spans, so the first version of this
+deleted the same paragraph twice and left a table cell with no paragraph in it,
+which is another way to make Word say "corrupted". And a paragraph inside a
+table cell clips its dot leader at the cell's width rather than the page's. So
+the replacements are written at the body level and the original entries are
+removed a whole table row at a time.
+
+If a report has no repeating band and no dot leaders, both steps do nothing.
+
+### The result on the owner's report
+
+23 pages in the PDF, 23 pages in Word. Per-page similarity, which is one minus
+the mean absolute difference of the two pages rendered greyscale at 200 px
+wide, so 1.000 is identical:
+
+| | |
+|---|---|
+| worst page | **0.8962** (page 1, the cover) |
+| median | **0.9828** |
+| mean | **0.9766** |
+| pages below 0.96 | 1 (the cover) |
+
+The cover is the only page that is visibly different, and it is not mine: the
+raw pdf2docx output scores the same 0.8962 there. It renders the cover as one
+page image and places it slightly larger than the page. Every other page is
+between 0.956 and 0.995, and at reading distance the difference is Word
+wrapping a long line one word earlier.
+
+The header (`{{CLIENT NAME}} Security Assessment` left, `{{OUR_COMPANY}}`
+right, rule beneath) and the footer (`CONFIDENTIAL – DO NOT DISTRIBUTE` centred
+in red on a light strip, page number right) are on pages 2 to 23 and absent
+from the cover, with the printed numbers matching the PDF. 27 contents entries
+were rebuilt, one line each, dot leaders and right-aligned page numbers.
+
+Then the same script on BTCT's own starter template, which has no running
+header, no footer and no contents page: 2 pages against 2, both repairs
+reported doing nothing, worst page 0.9555 and median 0.9988. That is the check
+that the heuristics are not written for one report.
+
+Contact sheets for both are produced by `pdf-to-docx/compare.ps1`, which
+compiles, converts, renders the Word file back through Word itself and draws
+the reference pages above the candidates.
+
+### What it cost the image
+
+| | before (pandoc) | after (pdf2docx) |
+|---|---|---|
+| whole image, sum of layer sizes | 511.8 MB (488 MiB) | **722.0 MB (689 MiB)** |
+| the export tools' share | 214.9 MB | **425.1 MB** |
+| `--build-arg WITH_REPORT_BINS=0` | 296.9 MB (283 MiB) | **296.9 MB (283 MiB)** |
+
+The pieces of that 425 MB: the virtualenv layer is 336 MB (321 MiB on disk,
+mostly OpenCV, PyMuPDF and NumPy), Debian's `python3` is 38 MB, and typst is
+51 MB. pandoc alone was 164 MB, so the honest way to put it is that Word output
+that looks like the PDF costs about 210 MB more than Word output that did not.
+The owner chose that trade with the numbers in front of them.
+
+Two things keep it from being worse. pip compiles bytecode for everything it
+installs, which is hundreds of modules the converter never loads; the build
+throws all of it away and then imports once, so only the bytecode that is
+actually used is in the image. The export child runs with `-B`, so without that
+it would recompile PyMuPDF, NumPy and OpenCV on every export, on the one core
+it is allowed. And the whole thing is still behind `WITH_REPORT_BINS`, which is
+unchanged at 283 MiB.
+
+The requirements file is pinned and hashed. `pip --require-hashes` refuses to
+install anything whose artefact does not match, so a changed wheel on PyPI
+fails the build instead of shipping.
+
+### In the container, on 1 GB and two cores
+
+`btct-measure:after`, `--memory 1g --cpus 2`, the owner's report seeded through
+a real websocket connection and real asset uploads, with a `/healthz` poll every
+200 ms throughout because the process is also the team's Yjs relay.
+
+| | PDF | DOCX |
+|---|---|---|
+| wall time | 0.77 s | **6.85 s** |
+| cgroup `memory.peak` after | 125,820,928 B (120 MiB) | **184,979,456 B (176 MiB)** |
+| `memory.current` sampled at 50 ms, max | 122,183,680 B | 184,647,680 B |
+| worst `/healthz` during the export | 0.0082 s | **0.0100 s**, 32 polls, 0 failures |
+| OOM kills | none | none |
+
+6.85 s for a 23-page report, of which the compile is 0.8 and the rest is Python
+starting up and pdf2docx working. Peak memory 176 MiB out of 1024. The relay
+never noticed: the worst health check during a DOCX export was 10 ms. That is
+the number I care about most, because the bake was the thing that used to stall
+it, and the converter is a separate process for the same reason the bake is.
+
+The Word file the container produced scores exactly what the local one does:
+worst 0.8962, median 0.9828. Same bytes of logic, different machine.
+
+### The redaction still holds, through the PDF
+
+This is the guarantee the whole feature exists for, so it is re-checked rather
+than reasoned about. The seeded screenshot is 1920x1080 with a pixelate blur
+over its left half. Against the container's own DOCX, with the image now
+travelling upload to bake to PDF to `word/media/`:
+
+```
+word/media: image1.png
+embedded bytes differ from the upload: true (49976 vs 706682)
+DOCX left-half correlation with the original (inset 8px): -0.000 (limit 0.25)
+DOCX right half, pixels differing by more than 8/255: 0 of 1004416 (0.000%)
+IDAT slice found in the PDF: false
+IDAT slice found in the DOCX: false
+  (control) the same slice is found in the original png: true
+REDACTION PROOF: ok
+```
+
+The route is in fact easier to defend than the old one. There is now exactly one
+path from an asset's bytes to a deliverable: vet, size, bake in a child, compile
+with typst, convert that PDF. The Word file cannot disagree with the PDF about a
+redaction because it is made out of it.
+
+Flag-off behaviour is unchanged: with `ENABLE_TYPST` unset the routes answer 404
+before they look at a token, and the container's process table holds nothing but
+`bun`. Built with `--build-arg WITH_REPORT_BINS=0`, `/opt/pdf2docx` is empty,
+there is no `python3`, capabilities reports `{"pdf":false,"docx":false}` and both
+formats answer 501.
+
+### Security, restated for this route
+
+The converter's input is a PDF that our own typst produced from hostile source.
+PyMuPDF therefore parses attacker-influenced but typst-generated content, which
+is a much smaller surface than the old arrangement where pandoc parsed the
+report source itself. It runs as a separate process with `childEnv()` (PATH and
+nothing else, so `AUTH_SECRET` and the ingest tokens never reach it), an argv
+array rather than a shell string, `-I` isolated mode so every `PYTHON*` variable
+and the user site directory are ignored, `-B` so it writes no bytecode into the
+image, a 120 s timeout with SIGKILL behind it, and a failure message that is
+path-scrubbed and capped before it can reach a response body. It needs no
+network at all, so the advice to deny the container egress is unchanged and now
+covers one fewer thing that might have wanted it.
+
+### What is still imperfect
+
+- **The cover page.** pdf2docx renders a full-page image slightly larger than
+  the page. 0.8962 against 0.98 for every other page, and it is the first thing
+  anyone opens. I did not chase it because it is inside pdf2docx's own image
+  placement, not in either repair.
+- **Fonts are not embedded.** Word substitutes unless the report's fonts are
+  installed on the machine that opens the file. Embedding is possible (the
+  fonts are already staged for the compile) and is the obvious next step if
+  anybody asks.
+- **"Different first page" is the only page-level exception Word can express**
+  through one header definition. When pdf2docx produces one section per page,
+  as it did here, each page gets its own and that is exact. If it ever produces
+  fewer sections than pages, a report whose band skips a middle page will show
+  the band there anyway, and the converter says so in a warning rather than
+  pretending otherwise.
+- **A table that pdf2docx sizes slightly wide clips its right edge** by a pixel
+  or two, visible on the finding cards where the severity badge meets the card
+  border. It is pdf2docx's table width, not the repairs.
+- **The similarity score is a guide rail, not the acceptance test.** Mean
+  absolute difference on a 200 px render will not notice a wrong colour in a
+  small cell. The contact sheet is what decides, and a human has to look at it.

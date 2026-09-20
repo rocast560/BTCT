@@ -87,6 +87,8 @@ Exports run one at a time; a second request queues behind the first. Each has a 
 
 **`docx.mjs`.** The same staged directory, then `pandoc main.typ -f typst -t docx`. The images in that directory are already redacted, so a Word file cannot carry an unblurred original. The UI says plainly that structure survives and custom layout does not.
 
+> **Addendum, 2026-09-19.** This is no longer how the Word file is made. The pandoc route was tried on a real CPTC report and rejected: 15 pages against the PDF's 23, no cover, every heading numbered "0", and no colours, table fills, headers or layout, because that template is built from `#place`, grids, counters and custom `#show` rules that pandoc's Typst reader does not follow. DOCX now comes from the finished PDF instead: the same staged directory and the same typst compile as `format=pdf`, then `pdf-to-docx/convert.py` (pdf2docx, in an isolated Python child). The redaction guarantee is unchanged and in fact shorter, because there is only one path to the pixels now. The pandoc source rewrite, the AST filter and the sandbox discussion are gone with the route. Measurements and the two defects that had to be repaired are in [docs/typst-tab-2026-09.md](../../typst-tab-2026-09.md).
+
 **HTTP.** `POST /api/typst/:ws/export?format=pdf|docx`, account auth, streams the file back. The tab's Export menu keeps browser-side PDF as the default and adds "DOCX" and "PDF (server)". A missing binary makes the route return 501 and the UI hides that item.
 
 **`mcp.mjs`.** Streamable HTTP at `/mcp`.
