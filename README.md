@@ -464,9 +464,16 @@ command palette. There is one report per workspace.
     may differ from the PDF." If text is still missing after that, the file is
     kept and the banner names how many lines and the first of them, so you can
     check before sending.
-  - **Fonts are not embedded in the Word file.** It is made from the PDF, so
-    the layout is the PDF's, but Word asks the machine that opens it for the
-    fonts by name. Install the report's fonts there, or expect substitutions.
+  - **The Word file matches the PDF line for line.** Each paragraph is broken
+    where the PDF broke it, with a manual line break, so the pages read the
+    same. The cost is re-flow: after rewriting a paragraph, delete the manual
+    breaks in it (Find and Replace, `^l` with a space) to let Word wrap it
+    again.
+  - **The report's fonts are embedded**, whole rather than subsetted, when the
+    font's own licence bits allow it, so the file reads the same on a machine
+    that does not have them. A font whose foundry forbids embedding is named in
+    a warning instead. Embedding costs about 1 MB for four faces, which counts
+    against the 100 MB output ceiling.
   - **Temporary disk.** An export stages into the OS temp directory (`/tmp` in
     the container, on its writable layer, not on the data volume) and uses up
     to about 300 MB while it runs: the 200 MB of staged files, one image being

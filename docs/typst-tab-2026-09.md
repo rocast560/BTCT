@@ -1445,3 +1445,133 @@ fallback.
 - **The justification rule needs three lines.** Two lines that both reach the
   edge is also what a centred pair looks like, so a two-line justified
   paragraph stays as the converter left it.
+
+### Fidelity: measuring the gap, and closing the parts that could be closed
+
+The owner called the export good and asked how close it could get. The first
+thing that needed fixing was the ruler.
+
+#### A metric worth steering by
+
+The old score was one minus the mean absolute difference over a page rendered
+200 px wide. A reviewer had already shown it cannot see a missing header: a
+band of white where text should be is a small fraction of a page's pixels.
+`compare_pages.py` now renders at 100 dpi and reports three things per page:
+that score, a structural similarity over 8 pixel windows, and how far the
+page's ink has moved and grown, in points, between the two ink bounding
+boxes. The last one is what catches a picture placed at the wrong scale,
+which looks nearly right until the boxes are measured.
+
+It also writes an **overlay** per page into the contact sheets: the PDF's ink
+in red, the Word render's in blue, ink they share in near black. On a page
+that matches, the overlay is black text on white. That, and not any number,
+is what says whether the job is done.
+
+Where the reference report stood when the round began, under the new metric:
+structural similarity **worst 0.7007 (the cover), median 0.8766, mean
+0.8509**, one page whose ink had moved more than 2 pt.
+
+#### The cover, which the overlay explained in one look
+
+The PDF draws the cover image from y=-12 to y=804: it bleeds 12 pt off each
+end of an 792 pt page. pdf2docx sizes the picture to the rectangle it was
+drawn at, so Word lays all 816 pt of it from the top of the text area, and the
+page comes out shifted down by the bleed with the bottom cut off. The
+measurement said exactly that: dy +12.24, dh -12.24.
+
+Every inline picture is now cropped to the part of it the PDF actually shows,
+with `a:srcRect`, and sized to that. It stays inline, so nothing else on the
+page moves, and the converter's own anchored renderings of vector art are left
+alone because they have no counterpart in the PDF's image list.
+
+| | before | after |
+|---|---|---|
+| cover, structural | 0.7007 | **0.9942** |
+| cover, ink offset | 12.24 pt | **0.00 pt** |
+| document mean | 0.8509 | 0.8637 |
+| pages whose ink moved over 2 pt | 1 | **0** |
+
+#### Line endings, which the owner asked for by name
+
+Word breaks a justified line a word earlier or later than typst, and on a
+text-heavy page that is most of what is left to see. The owner asked for the
+PDF's layout, so `--line-breaks=pdf` is the default: a paragraph the converter
+merged is split again with a manual break at each of the PDF's own line
+endings and left justified, which Word honours for a line ending in a manual
+break.
+
+Two things had to be right, and the first attempt at each made pages worse,
+which the metric caught:
+
+- A break that lands only where a run boundary happens to fall is worse than
+  none: the paragraph then carries some of the PDF's line ends and lets Word
+  choose the rest. Pages 5, 9 and 22 fell by up to 0.23. Breaks now split a
+  run at the exact character.
+- A line that exactly fills the column in the PDF is a hair too wide at Word's
+  metrics and wraps again into a short orphan, which pushes the rest of the
+  page down. The paragraph is given back the overhang the PDF's own justified
+  lines have over the nominal column (they reach up to 5 pt past it, measured)
+  plus 4 pt. Page 5 recovered from 0.5723 to 0.7944.
+
+Where it stands, both modes measured on the reference report:
+
+| | `--line-breaks=word` | `--line-breaks=pdf` (default) |
+|---|---|---|
+| mean | 0.8637 | 0.8603 |
+| page 5 | 0.7957 | 0.7944 |
+| page 9 | 0.7793 | 0.7052 |
+| page 22 | 0.7115 | 0.7124 |
+| line endings | Word's | **the PDF's** |
+
+So the honest summary is that `pdf` mode does what it says, and my pixel
+metric slightly prefers `word`, because the slack a forced line needs widens
+the ink by a few points on the right margin and page 9 keeps a difference I
+did not chase down. The flag exists so the other answer is one word.
+
+#### The fonts, which forced line endings make necessary
+
+With the PDF's line endings reproduced, a substituted font is not only a
+change of look: a line that fitted no longer does and the page re-wraps. So
+the fonts travel with the file, whole rather than subsetted, as obfuscated
+font parts with a relationship and a key per face.
+
+Licences are read rather than assumed: the OS/2 `fsType` decides, and
+installable, editable and preview-and-print are embedded while restricted and
+bitmap-only are not. A font that may not travel is named in a warning saying
+what a reader without it will see. The reference report embeds Poppins and
+DejaVu Sans Mono, eight faces, and grows from 1.61 MB to **2.62 MB**.
+
+#### What was not done, and why
+
+- **Table and box borders** are still heavier than the PDF's. The plan is
+  sound (take each cell's border width and colour from the PDF stroke that
+  coincides with its edge, and drop the duplicate of a shared edge) and it is
+  not done. It is a small, local difference on the finding cards.
+- **The table-of-contents leader** is still Word's dot leader at Word's pitch
+  rather than the PDF's spaced dots. Page 2 is the worst page in the document
+  at 0.6377, and most of that is the leaders plus a vertical drift down the
+  list.
+- **Code panel padding** and **vertical rhythm** were not attempted. The
+  overlay shows the second one clearly: on text-heavy pages the two inks
+  agree at the top of the page and drift apart towards the bottom, which is
+  accumulated spacing error rather than any single mistake.
+
+#### What a DOCX cannot express
+
+Some of the remaining difference is not a bug to be fixed.
+
+- **Glyph positioning.** Word hints and rounds glyph positions to its own
+  grid and applies its own kerning pairs; typst positions glyphs at
+  fractional coordinates. Two renderings of the same text in the same font at
+  the same size do not land on the same pixels, which is the faint red and
+  blue fringing on every overlay and the reason no page will reach 1.0.
+- **Justification.** Word distributes slack between words by its own rule.
+  Even with the same line endings, the word positions within a justified line
+  differ from typst's by a fraction of a space.
+- **Transparency and blend groups.** A PDF can composite with a group alpha
+  that Word has no way to describe; the converter flattens what it can see
+  and drops what it cannot.
+- **A running band is one definition per section.** Word repeats one header
+  for a whole section, so a band that differs per page can only be
+  approximated, which is why the converter declines an alternating one rather
+  than inventing something.
