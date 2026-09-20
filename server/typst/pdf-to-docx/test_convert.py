@@ -15,6 +15,7 @@ is the quickest way to see why a real report behaves the way it does.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -384,7 +385,59 @@ def run_documents():
         panel = body[body.find("deploy") - 900 : body.find("deploy") + 400] if "deploy" in body else ""
         passed &= check("<w:br/>" not in panel, "breaks: none inside a code panel")
 
-        # 12. Too many shapes for the converter.
+        # 12. Fonts. The parts have to be there, obfuscated with the key the
+        #     table names, and de-obfuscate to the file they came from.
+        import fonts as font_tools
+
+        font_dir = os.path.join(workdir, "fonts")
+        os.makedirs(font_dir, exist_ok=True)
+        source = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "dist", "fonts")
+        if os.path.isdir(source):
+            for name in sorted(os.listdir(source)):
+                if name.lower().endswith((".ttf", ".otf")):
+                    shutil.copyfile(os.path.join(source, name), os.path.join(font_dir, name))
+        pdf_path = os.path.join(workdir, "fontcase.pdf")
+        docx_path = os.path.join(workdir, "fontcase.docx")
+        compile_case(cases.HYPHENS, pdf_path)
+        result = convert.convert(pdf_path, docx_path, font_dirs=[font_dir])
+        if not result["fontsEmbedded"]:
+            print("SKIP  no font file matched the families this PDF names")
+        else:
+            with zipfile.ZipFile(docx_path) as archive:
+                names = archive.namelist()
+                parts = [n for n in names if n.startswith("word/fonts/")]
+                table = archive.read("word/fontTable.xml").decode("utf-8")
+                rels = archive.read("word/_rels/fontTable.xml.rels").decode("utf-8")
+                settings = archive.read("word/settings.xml").decode("utf-8")
+                types = archive.read("[Content_Types].xml").decode("utf-8")
+                passed &= check(bool(parts), "fonts: a font part was written", parts)
+                passed &= check("<w:embedTrueTypeFonts/>" in settings, "fonts: settings say they are embedded")
+                passed &= check("odttf" in types, "fonts: the content type is declared")
+                keys = re.findall(r'<w:embed\w+ r:id="(\w+)" w:fontKey="([^"]+)"', table)
+                passed &= check(bool(keys), "fonts: the table names a key per face", len(keys))
+                same = 0
+                for rid, key in keys:
+                    target = re.search(r'Id="%s"[^>]*Target="([^"]+)"' % rid, rels)
+                    if not target:
+                        continue
+                    raw = font_tools.obfuscate(archive.read("word/" + target.group(1)), key)
+                    if raw[:4] in (bytes([0, 1, 0, 0]), b"OTTO", b"true"):
+                        for name in os.listdir(font_dir):
+                            with open(os.path.join(font_dir, name), "rb") as handle:
+                                if handle.read() == raw:
+                                    same += 1
+                                    break
+                passed &= check(same == len(keys), "fonts: every part is its source font, obfuscated",
+                                (same, len(keys)))
+            passed &= check(result["textCheck"]["missing"] == 0, "fonts: nothing was lost")
+
+        # A font the foundry forbids must be skipped rather than embedded.
+        passed &= check(not font_tools.embeddable({"fsType": 0x0002}), "fonts: a restricted font is refused")
+        passed &= check(not font_tools.embeddable({"fsType": 0x0200}), "fonts: a bitmap-only font is refused")
+        passed &= check(font_tools.embeddable({"fsType": 0}), "fonts: an installable font is allowed")
+        passed &= check(font_tools.embeddable({"fsType": 8}), "fonts: an editable font is allowed")
+
+        # 13. Too many shapes for the converter.
         pdf_path = os.path.join(workdir, "shapes.pdf")
         compile_case(cases.SHAPES, pdf_path)
         started = time.perf_counter()
@@ -396,7 +449,7 @@ def run_documents():
             passed &= check("too complex" in str(err), "shapes: the document was refused", err)
             passed &= check(spent < 1.0, "shapes: refused in under a second", "%.3f s" % spent)
 
-        # 13. A paragraph the converter dropped, simulated by taking one out of
+        # 14. A paragraph the converter dropped, simulated by taking one out of
         #    the PDF's side of the comparison's counterpart.
         result, path = run_case(cases.REPORT, workdir, "report2")
         text = convert.docx_text(path, body_only=True)

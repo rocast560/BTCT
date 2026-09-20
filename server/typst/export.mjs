@@ -264,7 +264,15 @@ async function toDocx(root, source) {
   // second time rather than be SIGKILLed halfway through one. The margin
   // covers reading the PDF, both text checks and writing the file.
   const budget = Math.round((CONVERT_TIMEOUT_MS - CONVERT_BUDGET_MARGIN_MS) / 1000);
-  const child = await run(python, ['-I', '-B', CONVERTER, pdf, out, resultFile, String(budget)], root, CONVERT_TIMEOUT_MS);
+  // The same two font directories the compile used, so the families the PDF
+  // names can be found as files and carried into the Word file. Without them
+  // a reader who lacks the report's fonts gets substitutes, and with the
+  // PDF's own line endings reproduced a substitute re-wraps the page.
+  const fontArgs = [path.join(root, 'fonts'), defaultFontDir()]
+    .filter((dir) => fs.existsSync(dir))
+    .map((dir) => `--fonts=${dir}`);
+  const args = ['-I', '-B', CONVERTER, '--line-breaks=pdf', ...fontArgs, pdf, out, resultFile, String(budget)];
+  const child = await run(python, args, root, CONVERT_TIMEOUT_MS);
   if (child.code === 'ENOENT') throw new ExportError(501, 'the Word converter is no longer installed on this server');
 
   // null means no result file at all, which is the only case where the

@@ -49,6 +49,11 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 from docx.text.paragraph import Paragraph
 
+# Isolated mode drops the script's own directory from the import path, and
+# the server runs this with -I, so the sibling module is found by hand.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fonts  # noqa: E402
+
 # ── thresholds ────────────────────────────────────────────────────────────
 # A band has to live near a page edge. 12% of US Letter is 95 pt, which is
 # more than any running header sensibly occupies and still clear of the first
@@ -2291,7 +2296,7 @@ def run_pdf2docx(source, target):
         converter.close()
 
 
-def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf"):
+def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_dirs=()):
     """Read the PDF, decide the repairs, convert, and check nothing was lost.
 
     The two repairs delete part of the document and write something back, and
@@ -2352,6 +2357,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf"):
         # band zone is still described, and kept for the post-processing pass
         # that runs once the converter has produced a file.
         pictures = pdf_pictures(doc)
+        families = fonts.wanted_families(doc, font_family) if font_dirs else set()
         panels, swatches = find_decoration(doc, bands)
         pairs = spaced_pairs(doc)
         aligned = flush_left_runs(doc, bands, content_left, content_right)
@@ -2451,6 +2457,14 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf"):
                 "the Word file came out with a link this server does not allow (%s)"
                 % truncate(unsafe[0], 60)
             )
+        embedded, skipped = ([], [])
+        if families:
+            embedded, skipped = fonts.embed(part, families, fonts.collect(font_dirs))
+            for family, why in skipped:
+                warnings.append(
+                    "%s could not be embedded (%s), so on a computer without it Word will substitute "
+                    "another font and some lines may wrap twice." % (family, why)
+                )
         os.replace(part, docx_path)
     finally:
         for temporary in (plain_pdf, stripped_pdf):
@@ -2472,6 +2486,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf"):
             "pagesWithBands": len({index for band in bands for index in band["pages"]}),
         },
         "lineBreaks": line_breaks,
+        "fontsEmbedded": embedded,
         "tocEntries": written,
         "textCheck": {"pdfLines": len(checked_lines), "missing": len(missing), "fellBack": fell_back},
         "warnings": warnings,
@@ -2524,7 +2539,7 @@ def main(argv):
     args = [a for a in argv[1:] if not a.startswith("--")]
     flags = [a for a in argv[1:] if a.startswith("--")]
     if len(args) not in (3, 4):
-        print("usage: convert.py [--line-breaks=pdf|word] <in.pdf> <out.docx> <result.json> [budget-seconds]",
+        print("usage: convert.py [--line-breaks=pdf|word] [--fonts=DIR] <in.pdf> <out.docx> <result.json> [budget]",
               file=sys.stderr)
         return 2
     pdf_path, docx_path, result_path = args[0], args[1], args[2]
@@ -2534,6 +2549,10 @@ def main(argv):
     for flag in flags:
         if flag.startswith("--line-breaks="):
             line_breaks = "word" if flag.split("=", 1)[1] == "word" else "pdf"
+    # Directories holding the report's own fonts and the defaults the
+    # browser compiler ships, so the families the PDF names can be found
+    # as files and carried into the Word file.
+    font_dirs = [flag.split("=", 1)[1] for flag in flags if flag.startswith("--fonts=")]
     # How long the caller will wait, so the decision to convert a second time
     # is made here rather than by a SIGKILL with a generic message.
     budget = None
@@ -2541,7 +2560,8 @@ def main(argv):
         with contextlib.suppress(ValueError):
             budget = max(1.0, float(args[3]))
     try:
-        result = convert(pdf_path, docx_path, budget_seconds=budget, line_breaks=line_breaks)
+        result = convert(pdf_path, docx_path, budget_seconds=budget, line_breaks=line_breaks,
+                         font_dirs=font_dirs)
     except ConvertError as err:
         write_result(result_path, {"ok": False, "message": str(err)[:300]})
         print(str(err)[:300], file=sys.stderr)
