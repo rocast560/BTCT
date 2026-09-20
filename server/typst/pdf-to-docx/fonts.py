@@ -15,6 +15,13 @@ friends with that GUID as `w:fontKey`, and `word/settings.xml` has to say
 whole font goes in, so the file stays editable rather than carrying only the
 glyphs this report happened to use.
 
+**The font is read before it is carried.** fontTools opens a file and
+decompiles a table only when one is asked for, so a font truncated to a third
+of itself answers every question about its name and its licence and fails only
+when a reader asks it to draw something. So the tables a usable font needs are
+required by name and one real outline is decompiled; a file that cannot manage
+that is skipped as damaged.
+
 **Licences are read, not assumed.** The OS/2 table's `fsType` says what the
 foundry allows. 0 is installable, 8 is editable, 4 is preview and print, and
 2 is restricted. Only the first three are embedded; a restricted font, or one
@@ -39,6 +46,14 @@ FONT_REL_TYPE = R_NS + "/font"
 # only a bitmap may be embedded, which a Word file cannot do.
 FS_RESTRICTED = 0x0002
 FS_BITMAP_ONLY = 0x0200
+# The tables a font needs before Word can lay a line out with it. Outlines are
+# in `glyf` or in one of the two CFF flavours; the rest are what a reader has
+# to have to map a character to a glyph and to advance the pen. fontTools will
+# open a file that has none of them, because it parses a table when it is
+# asked for one and not before, which is how a font truncated to a third of
+# itself still looks readable until something reads it.
+REQUIRED_TABLES = ("cmap", "head", "hhea", "hmtx", "maxp", "name", "OS/2")
+OUTLINE_TABLES = ("glyf", "CFF ", "CFF2")
 STYLE_ELEMENTS = {
     (False, False): "w:embedRegular",
     (True, False): "w:embedBold",
@@ -65,6 +80,7 @@ def read_font(path):
         from fontTools.ttLib import TTFont
     except ImportError:  # pragma: no cover - fontTools ships with pdf2docx
         return None
+    family, style, fs_type, bold, italic, whole = None, "", 0, False, False, False
     try:
         with TTFont(path, lazy=True, fontNumber=0) as font:
             names = {}
@@ -78,11 +94,45 @@ def read_font(path):
             fs_type = int(getattr(os2, "fsType", 0) or 0)
             bold = bool(os2 and (os2.fsSelection & 0x20)) or "bold" in style
             italic = bool(os2 and (os2.fsSelection & 0x01)) or "italic" in style or "oblique" in style
-    except Exception:  # noqa: BLE001 - a font we cannot read is a font we skip
-        return None
+            whole = (all(table in font for table in REQUIRED_TABLES)
+                     and any(table in font for table in OUTLINE_TABLES)
+                     # Naming a table is not having it: fontTools decompiles
+                     # lazily, so a file cut short answers every question above
+                     # and fails only when a glyph is asked for, which in a
+                     # Word file happens on the reader's machine.
+                     and reads_a_glyph(font))
+    except Exception:  # noqa: BLE001 - a font we cannot read at all is one we skip
+        if not family:
+            return None
     if not family:
         return None
-    return {"path": path, "family": family.strip(), "bold": bold, "italic": italic, "fsType": fs_type}
+    return {"path": path, "family": family.strip(), "bold": bold, "italic": italic,
+            "fsType": fs_type, "damaged": not whole}
+
+
+def reads_a_glyph(font):
+    """Decompile one real outline, so a truncated file cannot pass as whole."""
+    order = list(font.getGlyphOrder() or ())
+    if not order:
+        return False
+    glyphs = font["glyf"] if "glyf" in font else None
+    if glyphs is not None:
+        # The first glyph of a font is `.notdef` and is often empty, so this
+        # walks until it finds one with an outline and gives up after a few:
+        # a font of nothing but blanks is not one this report is setting text
+        # in either.
+        for name in order[:64]:
+            glyph = glyphs[name]
+            glyph.expand(glyphs)
+            if getattr(glyph, "numberOfContours", 0):
+                return True
+        return False
+    charstrings = font["CFF "].cff[0].CharStrings if "CFF " in font else font["CFF2"].cff[0].CharStrings
+    for name in order[:64]:
+        if name in charstrings:
+            charstrings[name].decompile()
+            return True
+    return False
 
 
 def embeddable(entry):
@@ -137,9 +187,11 @@ def embed(docx_path, families, available):
         if not entries:
             skipped.append((family, "no font file for it was staged"))
             continue
-        usable = [e for e in entries if embeddable(e)]
+        usable = [e for e in entries if not e.get("damaged") and embeddable(e)]
         if not usable:
-            skipped.append((family, "its licence does not allow embedding"))
+            reason = ("the font file is damaged" if all(e.get("damaged") for e in entries)
+                      else "its licence does not allow embedding")
+            skipped.append((family, reason))
             continue
         chosen.append((family, usable))
     if not chosen:
@@ -148,6 +200,7 @@ def embed(docx_path, families, available):
     parts = {}
     table_rows = []
     rels = []
+    embedded = []
     for family, entries in chosen:
         rows = []
         for entry in entries:
@@ -163,10 +216,11 @@ def embed(docx_path, families, available):
             rows.append('<%s r:id="%s" w:fontKey="%s" w:subsetted="false"/>' % (style, rid, key))
         if rows:
             table_rows.append('<w:font w:name="%s">%s</w:font>' % (escape(family), "".join(rows)))
+            embedded.append(family)
     if not table_rows:
         return [], skipped
     rewrite(docx_path, parts, table_rows, rels)
-    return [family for family, _ in chosen], skipped
+    return embedded, skipped
 
 
 def escape(text):

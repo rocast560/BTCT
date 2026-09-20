@@ -638,6 +638,26 @@ def run_documents():
         passed &= check(font_tools.embeddable({"fsType": 0}), "fonts: an installable font is allowed")
         passed &= check(font_tools.embeddable({"fsType": 8}), "fonts: an editable font is allowed")
 
+        # A font file cut short parses lazily and would be embedded whole.
+        whole = [name for name in sorted(os.listdir(font_dir)) if name.lower().endswith((".ttf", ".otf"))]
+        if whole:
+            with open(os.path.join(font_dir, whole[0]), "rb") as handle:
+                raw = handle.read()
+            hurt_dir = os.path.join(workdir, "hurtfonts")
+            os.makedirs(hurt_dir, exist_ok=True)
+            hurt = os.path.join(hurt_dir, whole[0])
+            with open(hurt, "wb") as handle:
+                handle.write(raw[: len(raw) // 3])
+            entry = font_tools.read_font(hurt)
+            passed &= check(entry is None or entry.get("damaged"),
+                            "fonts: a truncated font is read as damaged", entry and entry["family"])
+            passed &= check(font_tools.read_font(os.path.join(font_dir, whole[0])).get("damaged") is False,
+                            "fonts: a whole font is not")
+            hurt_entry = {"path": hurt, "family": "Hurt", "bold": False, "italic": False,
+                          "fsType": 0, "damaged": True}
+            _, refused = font_tools.embed(None, {"Hurt"}, {"Hurt": [hurt_entry]})
+            passed &= check([why for _, why in refused] == ["the font file is damaged"],
+                            "fonts: and it says the file is damaged", refused)
 
         # 12b. A budget too small for the fidelity passes skips them, says so,
         #      and still checks that the Word file kept the PDF's text.
