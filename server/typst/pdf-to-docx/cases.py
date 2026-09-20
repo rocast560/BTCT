@@ -201,6 +201,27 @@ Affects a small number of users and results in the disclosure of non-critical
 information such as verification that a user exists on the system.
 """
 
+# A code block on a grey panel holding two strings a space would change, and
+# the same two shapes in prose where the PDF shows a real gap. The marker
+# repair has to fix the prose and leave the command alone: the text check
+# squashes whitespace, so a space added inside a command is invisible to it.
+CODE_AND_MARKERS = """
+#set page(paper: "a4", margin: 2cm)
+#set text(size: 11pt)
+= Remediation
+#block(fill: rgb(235, 235, 235), inset: 10pt, width: 100%)[
+  #text(font: "DejaVu Sans Mono", size: 9pt)[
+    ./deploy 1.{{X}} \\
+    check version1.2.3
+  ]
+]
+
+Then apply the following, in order:
+
++ {{X}} must be rebuilt first.
++ version1.2.3 is the baseline.
+"""
+
 # Cheap for typst, expensive for the converter: 120,000 one-point rectangles
 # a page. It has to be refused before pdf2docx is started.
 SHAPES = """

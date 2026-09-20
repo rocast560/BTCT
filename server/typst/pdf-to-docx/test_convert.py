@@ -346,7 +346,19 @@ def run_documents():
         passed &= check("non-critical" in text, "hyphens: a real hyphen survived")
         passed &= check("employed" in text or "employ" in text, "hyphens: the broken word was joined")
 
-        # 10. Too many shapes for the converter.
+        # 10. The marker repair must not reach into code. A space inserted
+        #     into a command is invisible to the text check, which squashes
+        #     whitespace, so this is the only thing that catches it.
+        result, path = run_case(cases.CODE_AND_MARKERS, workdir, "code")
+        passed &= check(result["textCheck"]["missing"] == 0, "code: nothing was lost", result["textCheck"])
+        text = convert.docx_text(path, body_only=False)
+        passed &= check("./deploy 1.{{X}}" in text, "code: the command kept its marker unspaced")
+        passed &= check("check version1.2.3" in text, "code: the command kept its version unspaced")
+        passed &= check("1. {{X}} must be rebuilt" in text, "prose: the list marker got its space back")
+        passed &= check("2. version1.2.3 is the baseline" in text,
+                        "prose: a version number inside a word was left alone")
+
+        # 11. Too many shapes for the converter.
         pdf_path = os.path.join(workdir, "shapes.pdf")
         compile_case(cases.SHAPES, pdf_path)
         started = time.perf_counter()
@@ -358,7 +370,7 @@ def run_documents():
             passed &= check("too complex" in str(err), "shapes: the document was refused", err)
             passed &= check(spent < 1.0, "shapes: refused in under a second", "%.3f s" % spent)
 
-        # 11. A paragraph the converter dropped, simulated by taking one out of
+        # 12. A paragraph the converter dropped, simulated by taking one out of
         #    the PDF's side of the comparison's counterpart.
         result, path = run_case(cases.REPORT, workdir, "report2")
         text = convert.docx_text(path, body_only=True)

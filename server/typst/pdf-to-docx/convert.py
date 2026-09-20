@@ -134,6 +134,10 @@ SWATCH_TEXT_GAP_PT = 10.0
 # enough to be unambiguous on a report and short enough to survive the
 # converter splitting a run somewhere else.
 PAIR_WINDOW = 8
+# Families whose name says the text is code. A space inserted into a command
+# is a change to the report, not a repair, so the marker-space pass stays out
+# of anything wearing one of these.
+MONOSPACE = re.compile(r"mono|courier|consol|menlo|inconsolata|source ?code", re.IGNORECASE)
 # A justified paragraph reaches the right edge on every line but its last.
 # Three lines is the shortest run where that means anything: two lines both
 # reaching the edge is also what a centred pair looks like.
@@ -1580,7 +1584,7 @@ def shade_run_of_paragraphs(document, panels):
     # the cursor runs ahead and the next panel is painted onto the wrong text.
     paragraphs = body_paragraphs(document)
     squashed = [compare_squash(paragraph_text(p)) for p in paragraphs]
-    painted = 0
+    painted = []
     cursor = 0
     for panel in sorted(panels, key=lambda p: (p["page"], p["rect"].y0)):
         matched = []
@@ -1600,7 +1604,7 @@ def shade_run_of_paragraphs(document, panels):
             shade_paragraph(paragraph, panel["fill"])
             if panel["bar"]:
                 left_border(paragraph, panel["bar"])
-            painted += 1
+            painted.append(paragraphs[position])
         cursor = max(matched) + 1
     return painted
 
@@ -1641,6 +1645,7 @@ def restore_swatches(document, swatches):
     square character in the swatch's colour, in the run the label starts,
     reads the same at the size a legend is printed at.
     """
+    body = document.element.body
     paragraphs = body_paragraphs(document)
     squashed = [compare_squash(paragraph_text(p)) for p in paragraphs]
     by_row = {}
@@ -1667,6 +1672,8 @@ def restore_swatches(document, swatches):
             window = matching_sequence(paragraphs, squashed, labels)
             if window is None:
                 continue
+            if any(already_shaded(body, element) for element in window):
+                continue  # the converter kept this cell's colour already
             runs = [element.find(qn("w:r")) for element in window]
             if any(run is None for run in runs):
                 continue
@@ -1710,37 +1717,45 @@ def colour_square(sibling, fill):
     return mark
 
 
-def justified_openings(doc, bands, content_left, content_right):
-    """The first line of every paragraph the PDF justified.
+def flush_left_runs(doc, bands, content_left, content_right):
+    """Runs of consecutive lines that all begin at the text area's left edge.
 
-    pdf2docx reads alignment off line geometry and gets it right on some
-    paragraphs and not others in the same document. The PDF says it plainly: a
-    justified paragraph's lines all reach the right edge of the column except
-    the last one. Three lines is the shortest run where that means anything,
-    because two lines that both reach the edge is also what a centred pair
-    looks like.
+    pdf2docx reads alignment off one line's geometry at a time, which goes
+    wrong two ways in the same paragraph. It misses justification on some
+    paragraphs and not others. And a middle line that happens to sit near the
+    middle of the column is marked centred, so it renders a few characters in
+    from the margin while the PDF has it flush: the reference report's
+    "{{OUR_COMPANY}} strongly recommends..." came out with `jc="center"` in
+    between two left-aligned lines of its own paragraph.
+
+    The PDF settles both. A line that starts at the left edge is flush left,
+    whatever its right end does, and a run of them whose every line but the
+    last also reaches the right edge is justified. Three lines is the shortest
+    run where that means anything, because two lines that both reach the edge
+    is also what a centred pair looks like.
     """
     member_rows = set()
     for band in bands:
         member_rows |= band.get("members") or set()
-    width = content_right - content_left
-    openings = []
+    found = []
     for index in range(doc.page_count):
         rows = [r for r in page_rows(doc[index]) if row_id(index, r) not in member_rows]
         run = []
 
         def close(run):
-            if len(run) < JUSTIFY_MIN_LINES:
+            lines = [compare_squash(r["text"]) for r in run]
+            if not any(len(line) >= COMPARE_MIN_CHARS for line in lines):
                 return
-            # The edge is taken from the run itself and then checked against
-            # the page's: justified prose overshoots the layout column by a
-            # glyph's overhang, by up to 5 pt on the reference report, while a
-            # table stops exactly on it.
-            edge = max(r["x1"] for r in run[:-1])
-            if edge < content_right - JUSTIFY_EDGE_PT:
-                return
-            if all(abs(r["x1"] - edge) <= JUSTIFY_EDGE_PT for r in run[:-1]):
-                openings.append(compare_squash(run[0]["text"]))
+            justified = False
+            if len(run) >= JUSTIFY_MIN_LINES:
+                # The edge is taken from the run itself and then checked
+                # against the page's: justified prose overshoots the layout
+                # column by a glyph's overhang, by up to 5 pt on the reference
+                # report, while a table stops exactly on it.
+                edge = max(r["x1"] for r in run[:-1])
+                justified = (edge >= content_right - JUSTIFY_EDGE_PT
+                             and all(abs(r["x1"] - edge) <= JUSTIFY_EDGE_PT for r in run[:-1]))
+            found.append({"lines": lines, "justified": justified})
 
         for row in rows + [None]:
             starts = row is not None and abs(row["x0"] - content_left) <= JUSTIFY_EDGE_PT
@@ -1759,26 +1774,64 @@ def justified_openings(doc, bands, content_left, content_right):
             if run and run[-1]["x1"] < content_right - JUSTIFY_EDGE_PT:
                 close(run)
                 run = []
-    return [o for o in openings if len(o) >= COMPARE_MIN_CHARS and width > 0]
+    return found
 
 
-def justify_paragraphs(document, openings):
-    """Set justified alignment on the paragraphs those lines opened."""
+def align_paragraphs(document, runs):
+    """Give each flush-left line the alignment and indent the PDF gave it.
+
+    Every line of a run starts at the same x in the PDF, so none of them may
+    carry a first-line or hanging indent and none of them may be centred or
+    right-aligned. The lines of a justified run are justified except the last,
+    which is how Word writes a justified paragraph too.
+    """
     paragraphs = body_paragraphs(document)
     squashed = [compare_squash(paragraph_text(p)) for p in paragraphs]
     cursor = 0
     done = 0
-    for opening in openings:
-        position = next((i for i in range(cursor, len(squashed)) if squashed[i].startswith(opening)), None)
-        if position is None:
-            continue
-        Paragraph(paragraphs[position], document).alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        cursor = position + 1
-        done += 1
+    for run in runs:
+        for order, needle in enumerate(run["lines"]):
+            if len(needle) < COMPARE_MIN_CHARS:
+                continue
+            position = next((i for i in range(cursor, len(squashed)) if needle in squashed[i]), None)
+            if position is None:
+                continue
+            paragraph = Paragraph(paragraphs[position], document)
+            last = order == len(run["lines"]) - 1
+            paragraph.alignment = (WD_ALIGN_PARAGRAPH.JUSTIFY if run["justified"] and not last
+                                   else WD_ALIGN_PARAGRAPH.LEFT)
+            paragraph.paragraph_format.first_line_indent = Pt(0)
+            # Not position + 1: the converter often writes several of these
+            # lines as one paragraph, and that paragraph has to stay available
+            # to the rest of the run.
+            cursor = position
+            done += 1
+        cursor += 1
     return done
 
 
 # ── step 6: the text the converter ran together ───────────────────────────
+
+
+def typed_soft_hyphens(doc, bands):
+    """Soft hyphens the author typed, rather than the ones typst broke lines at.
+
+    A break hyphen is the last character of its line. One anywhere else was in
+    the report's own text, is invisible to a reader, and is removed with the
+    rest, so the export says how many.
+    """
+    member_rows = set()
+    for band in bands:
+        member_rows |= band.get("members") or set()
+    typed = 0
+    for index in range(doc.page_count):
+        for row in page_rows(doc[index]):
+            if row_id(index, row) in member_rows:
+                continue
+            for column in row["columns"]:
+                text = column["text"]
+                typed += text.count("­") - (1 if text.endswith("­") else 0)
+    return max(0, typed)
 
 
 def spaced_pairs(doc):
@@ -1806,7 +1859,20 @@ def spaced_pairs(doc):
     return {pair for pair in pairs if pair[0] and pair[1]}
 
 
-def repair_text(document, pairs):
+def is_code(element, shaded):
+    """Is this paragraph code, where a space is a change and not a repair?
+
+    Two signals, either of which is enough: the shape pass painted it as a
+    panel (a code block is the thing that comes out of the converter as bare
+    text on white paper), or every run in it names a monospace family.
+    """
+    if element in shaded:
+        return True
+    fonts = [f.get(qn("w:ascii")) or "" for f in element.iter(qn("w:rFonts"))]
+    return bool(fonts) and all(MONOSPACE.search(name) for name in fonts)
+
+
+def repair_text(document, pairs, shaded=()):
     """Drop soft hyphens, and put back a space the converter ran together.
 
     A soft hyphen is where the typesetter broke a word, not a character of the
@@ -1814,8 +1880,16 @@ def repair_text(document, pairs):
     "likeli-hood" and "appro-priate" in the middle of a line. Real hyphens are
     U+002D and are left alone, which is why this does not use pdf2docx's own
     `delete_end_line_hyphen`: that would turn "non-critical" into
-    "noncritical".
+    "noncritical". Every soft hyphen goes, including one an author typed on
+    purpose and including one inside a code block; `typed_soft_hyphens` counts
+    those separately so the export can say it happened.
+
+    The space repair is kept away from code. The text check squashes
+    whitespace, so a space added inside a command would be invisible to it,
+    and `1.{{X}}` or `version1.2.3` in a shell line must come out byte for
+    byte as the report wrote it.
     """
+    shaded = set(shaded)
     removed, spaced = 0, 0
     for element in body_paragraphs(document):
         nodes = [n for n in element.iter(qn("w:t"))]
@@ -1824,6 +1898,8 @@ def repair_text(document, pairs):
                 removed += node.text.count("­")
                 node.text = node.text.replace("­", "")
                 node.set(qn("xml:space"), "preserve")
+        if is_code(element, shaded):
+            continue
         for left, right in zip(nodes, nodes[1:]):
             if not left.text or not right.text:
                 continue
@@ -2073,7 +2149,8 @@ def convert(pdf_path, docx_path, budget_seconds=None):
         # that runs once the converter has produced a file.
         panels, swatches = find_decoration(doc, bands)
         pairs = spaced_pairs(doc)
-        justified = justified_openings(doc, bands, content_left, content_right)
+        aligned = flush_left_runs(doc, bands, content_left, content_right)
+        typed_hyphens = typed_soft_hyphens(doc, bands)
         # Two inputs: the PDF as it stands, for the fallback, and a copy with
         # the bands erased, for the repaired pass.
         plain_pdf = docx_path + ".plain.pdf"
@@ -2101,10 +2178,10 @@ def convert(pdf_path, docx_path, budget_seconds=None):
         repair_warnings.extend(toc_warnings)
         if bands:
             repair_warnings.extend(apply_bands(document, bands, page_height, content_left, content_right, pages))
-        shade_run_of_paragraphs(document, panels)
+        shaded = shade_run_of_paragraphs(document, panels)
         restore_swatches(document, swatches)
-        justify_paragraphs(document, justified)
-        repair_text(document, pairs)
+        align_paragraphs(document, aligned)
+        repair_text(document, pairs, shaded)
         document.save(part)
         missing = missing_from_docx(repaired_lines, docx_text(part, body_only=bool(bands)))
         checked_lines = repaired_lines
@@ -2138,10 +2215,10 @@ def convert(pdf_path, docx_path, budget_seconds=None):
             # The decoration is not a repair and cannot lose text, so it runs
             # on the fallback too.
             document = Document(part)
-            shade_run_of_paragraphs(document, panels)
+            shaded = shade_run_of_paragraphs(document, panels)
             restore_swatches(document, swatches)
-            justify_paragraphs(document, justified)
-            repair_text(document, pairs)
+            align_paragraphs(document, aligned)
+            repair_text(document, pairs, shaded)
             document.save(part)
             written = 0
             bands = []
@@ -2169,6 +2246,10 @@ def convert(pdf_path, docx_path, budget_seconds=None):
             with contextlib.suppress(OSError):
                 os.remove(temporary)
 
+    if typed_hyphens:
+        warnings.append(
+            "%d invisible soft hyphen(s) that were typed into the report were removed." % typed_hyphens
+        )
     if written:
         warnings.append("%d table-of-contents entries were rebuilt." % written)
     return {
