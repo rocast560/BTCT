@@ -2037,7 +2037,22 @@ def force_line_breaks(document, runs, shaded):
             cursor += 1
             continue
         joined = "".join(lines)
-        position = next((i for i in range(cursor, len(squashed)) if squashed[i] == joined), None)
+        # The run's lines are not always the whole of a paragraph. The
+        # converter writes a sub-heading and the paragraph under it as one
+        # block, with a break between them, and the run then holds only the
+        # body: an exact match misses it, nothing is broken, and Word wraps
+        # those lines itself. Five paragraphs of the reference report, and
+        # twelve of its lines, were ending up somewhere the PDF never put
+        # them for exactly this reason.
+        # The run has to be the END of the paragraph, not merely somewhere
+        # inside it. A table-of-contents entry contains its own title twice
+        # over once the leader is squashed away, and an inside match put a
+        # line break in the middle of a row of dots.
+        position, skip = None, 0
+        for index in range(cursor, len(squashed)):
+            if squashed[index].endswith(joined):
+                position, skip = index, len(squashed[index]) - len(joined)
+                break
         if position is None:
             cursor += 1
             continue
@@ -2045,7 +2060,15 @@ def force_line_breaks(document, runs, shaded):
         if is_code(element, shaded) or in_table_single_line(document.element.body, element):
             cursor = position + 1
             continue
-        added = split_paragraph_at(element, lines)
+        if DOT_RUN.search(paragraph_text(element)):
+            # A row of dots is deleted by the comparison but not by the text,
+            # so a character offset counted in one does not mean the same
+            # place in the other, and a break landed in the middle of a table
+            # of contents entry's leader. Those lines are rebuilt from the
+            # PDF elsewhere and have no business here.
+            cursor = position + 1
+            continue
+        added = split_paragraph_at(element, lines, skip)
         if added:
             # Widen the column by what the PDF's own lines overhang it, so a
             # line that fits there fits here and Word does not wrap it again
@@ -2072,7 +2095,7 @@ def in_table_single_line(body, element):
     return False
 
 
-def split_paragraph_at(element, lines):
+def split_paragraph_at(element, lines, skip=0):
     """Insert `w:br` at each of the PDF's line ends, splitting runs if need be.
 
     Landing a break only where a run boundary happens to fall is worse than
@@ -2085,7 +2108,7 @@ def split_paragraph_at(element, lines):
     if not runs:
         return 0
     wanted = []
-    total = 0
+    total = skip
     for line in lines[:-1]:
         total += len(line)
         wanted.append(total)
