@@ -49,20 +49,55 @@ RUN bun install --frozen-lockfile || bun install
 
 # ─────────────────────────────────────────────────────────────────────────
 # Stage 3: the report export binaries. They are only ever spawned when
-# ENABLE_TYPST=1, but they ship unconditionally so turning the flag on is a
+# ENABLE_TYPST=1, but they ship by default so turning the flag on is a
 # restart rather than a rebuild. Both archives are pinned by version and by
-# sha256. Neither project publishes a checksum file, so the digests below
-# were computed from the release artefacts the first build downloaded, and
-# the build now fails if those bytes ever change.
+# sha256.
 # ─────────────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS report-bins
+
+# THE FOUR DIGESTS BELOW ARE TRUST-ON-FIRST-USE, recorded 2026-09-19.
+# Neither project publishes a signed checksum file, so they were computed
+# from the release artefacts the first build downloaded and cross-checked
+# against the digest GitHub's own release API reports for the same assets.
+# That makes them an integrity control (the build fails if those bytes ever
+# change) and not an authenticity one.
+#
+# TO BUMP A VERSION: change the ARG, run the build, let the sha256sum step
+# fail and print the digest it saw. Before pasting that digest in, check it
+# out of band against the release asset itself:
+#
+#   gh api repos/typst/typst/releases/tags/v<X> --jq '.assets[] | {name, digest}'
+#   gh api repos/jgm/pandoc/releases/tags/<Y>   --jq '.assets[] | {name, digest}'
+#
+# Then update the date on this comment. Both bumps also invalidate a
+# measured safety property, so neither is only a version change:
+#   TYPST_VERSION  re-run the SVG href checks in docs/typst-tab-2026-09.md.
+#                  A staged SVG is never sized, and that is safe only
+#                  because usvg resolves an href for exactly <image> and
+#                  <feImage> and typst refuses http, file and out-of-root
+#                  hrefs inside an SVG.
+#   PANDOC_VERSION re-run the sandbox attack inputs (`read` of an absolute
+#                  path, `include` of a path outside the root, and an image
+#                  at a URL): the DOCX path is safe because --sandbox
+#                  refuses all three in the reader step.
 ARG TYPST_VERSION=0.14.2
 ARG PANDOC_VERSION=3.11
 ARG TARGETARCH
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+
+# A box that will never export can build without them and save the measured
+# 205 MiB: `--build-arg WITH_REPORT_BINS=0`. The server still starts, the
+# capabilities route reports both false, the buttons do not appear and the
+# export routes answer 501.
+ARG WITH_REPORT_BINS=1
+
 RUN set -eu; \
+    mkdir -p /out; \
+    [ "${WITH_REPORT_BINS}" = "1" ] || exit 0; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl xz-utils; \
+    rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    [ "${WITH_REPORT_BINS}" = "1" ] || exit 0; \
     case "${TARGETARCH:-amd64}" in \
       amd64) T=x86_64-unknown-linux-musl; P=amd64; \
         TS=a6044cbad2a954deb921167e257e120ac0a16b20339ec01121194ff9d394996d; \
@@ -75,14 +110,14 @@ RUN set -eu; \
     curl -fsSL -o /tmp/typst.tar.xz "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${T}.tar.xz"; \
     echo "${TS}  /tmp/typst.tar.xz" | sha256sum -c -; \
     tar -xJf /tmp/typst.tar.xz -C /tmp; \
-    install -m 0755 "/tmp/typst-${T}/typst" /usr/local/bin/typst; \
+    install -m 0755 "/tmp/typst-${T}/typst" /out/typst; \
     curl -fsSL -o /tmp/pandoc.tar.gz "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-linux-${P}.tar.gz"; \
     echo "${PS}  /tmp/pandoc.tar.gz" | sha256sum -c -; \
     tar -xzf /tmp/pandoc.tar.gz -C /tmp; \
-    install -m 0755 "/tmp/pandoc-${PANDOC_VERSION}/bin/pandoc" /usr/local/bin/pandoc; \
+    install -m 0755 "/tmp/pandoc-${PANDOC_VERSION}/bin/pandoc" /out/pandoc; \
     rm -rf /tmp/typst.tar.xz /tmp/pandoc.tar.gz "/tmp/typst-${T}" "/tmp/pandoc-${PANDOC_VERSION}"; \
-    typst --version; \
-    pandoc --version | head -1
+    /out/typst --version; \
+    /out/pandoc --version | head -1
 
 # ─────────────────────────────────────────────────────────────────────────
 # Stage 4: minimal runtime image. Server code + server node_modules +
@@ -123,7 +158,8 @@ COPY --chown=bun:bun server/retention.mjs     /app/server/retention.mjs
 # directory is copied rather than a line per file, so a new module there
 # cannot be forgotten; the cost is the .d.mts declarations and
 # bake.check.mjs, a few kilobytes the runtime never loads.
-COPY --from=report-bins /usr/local/bin/typst /usr/local/bin/pandoc /usr/local/bin/
+ARG WITH_REPORT_BINS=1
+COPY --from=report-bins /out/ /usr/local/bin/
 COPY --chown=bun:bun server/typst/ /app/server/typst/
 # The crop, blur and placeholder math the browser uses, imported by
 # server/typst/bake.mjs and docx-source.mjs rather than copied, so a
@@ -137,8 +173,10 @@ COPY --chown=bun:bun src/lib/blur-math.ts src/lib/crop-math.ts src/lib/image-for
      src/lib/typst-placeholders.ts src/lib/typst-geometry.ts /app/src/lib/
 # Fail the build here rather than at somebody's first export: the typst
 # binary is static musl, but pandoc's linux release links against glibc and
-# this base image is not the one that fetched it.
-RUN typst --version && pandoc --version | head -1
+# this base image is not the one that fetched it. Skipped, not relaxed, when
+# the binaries were deliberately left out.
+RUN if [ "${WITH_REPORT_BINS}" = "1" ]; then typst --version && pandoc --version | head -1; \
+    else echo "report binaries left out (WITH_REPORT_BINS=0): server export is unavailable"; fi
 
 # Copy the static client build.
 COPY --from=client-build --chown=bun:bun /app/dist /app/dist
