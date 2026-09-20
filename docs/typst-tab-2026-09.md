@@ -1914,6 +1914,20 @@ optional step here that can be worth ten seconds, and it is given what is
 left of the export's deadline after a margin for writing the file. A face
 there is no time for is refused with a warning rather than started.
 
+A later round also strips every character XML 1.0 forbids from a family's
+name as soon as it is read (`fonts.read_font`), because a hostile font can put
+one in its name table and an unfiltered name would leave `word/fontTable.xml`
+unparsable; stripped to nothing, the font is treated as unreadable like any
+other bad one. The redraw budget above is now checked every 200 glyphs inside
+a face's own conversion loop rather than only before a face starts, since one
+CFF face of tens of thousands of glyphs (1,200 to 2,200 glyphs a second,
+measured here) could otherwise run well past the allowance on its own; the
+byte cap is likewise read off the file on disk before a face is converted, so
+a refusal is not paid for by the conversion it refuses. A face whose redraw
+raises, or an `embed()` call that raises outright, now degrades to a plain
+warning rather than losing a Word file that has already passed the text check
+and the link check.
+
 On the starter template: Word's render went from `Cambria`, `Cambria-Bold`
 and `Cambria-Italic` to `___WRD_EMBED_SUB_46` and `___WRD_EMBED_SUB_46,Bold`,
 which read back as `NewCM10-Regular` and `NewCM10-Bold`. Similarity 0.9483 to

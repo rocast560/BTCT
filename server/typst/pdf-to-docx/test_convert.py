@@ -818,6 +818,14 @@ def run_font_conversion_checks(font_tools, font_dir, workdir):
     passed &= check(font_tools.licence_of(entry) is not None,
                     "fonts: and its licence is one this recognises", font_tools.licence_of(entry))
 
+    # A deadline already past has to stop the loop at its first check, not
+    # somewhere after a face's worth of glyphs have already been drawn.
+    started = time.perf_counter()
+    past = font_tools.to_truetype(source, deadline=time.monotonic() - 1.0)
+    spent = time.perf_counter() - started
+    passed &= check(past is None, "fonts: a deadline already past yields no face", past)
+    passed &= check(spent < 1.0, "fonts: and it stops well under a second", "%.3f s" % spent)
+
     data = font_tools.to_truetype(source)
     passed &= check(data is not None, "fonts: it converts")
     if data is None:
@@ -876,6 +884,122 @@ def run_font_conversion_checks(font_tools, font_dir, workdir):
                                                  convert_seconds=0.0)
     passed &= check(embedded == [] and "not enough time" in refused[0][1],
                     "fonts: and so is a margin too thin to redraw it in", refused)
+    return passed
+
+
+def run_font_control_char_checks(font_tools, font_dir, workdir):
+    """A family carrying raw control characters must not break the table.
+
+    `escape` only quotes `&`, `<` and `"`, and nothing stops a font's own name
+    table from saying its family is `Ev\\x01il\\x07Fam`: written straight into
+    `w:font w:name="..."` that is not well-formed XML. `read_font` is where
+    every later use of a family or subfamily reads it, so it is where the
+    characters come out.
+    """
+    from fontTools.ttLib import TTFont
+
+    passed = True
+    source = next((os.path.join(font_dir, n) for n in sorted(os.listdir(font_dir))
+                   if n.lower().endswith(".ttf")), None)
+    if source is None:
+        print("SKIP  no TrueType font was staged, so the control-character check is untested")
+        return passed
+
+    renamed = os.path.join(workdir, "control-char-font.ttf")
+    font = TTFont(source)
+    for record in font["name"].names:
+        if record.nameID == 1:
+            record.string = "Ev\x01il\x07Fam"
+        elif record.nameID == 2:
+            record.string = "Reg\x0cular"
+    font.save(renamed)
+    font.close()
+
+    entry = font_tools.read_font(renamed)
+    passed &= check(entry is not None, "fonts: a font renamed with control characters still reads")
+    if entry is None:
+        return passed
+    passed &= check(entry["family"] == "EvilFam",
+                    "fonts: control characters are stripped from the family", entry["family"])
+    passed &= check(entry["subfamily"] == "Regular",
+                    "fonts: and from the subfamily", entry["subfamily"])
+
+    target = os.path.join(workdir, "control-char.docx")
+    blank = Document()
+    blank.add_paragraph("x")
+    blank.save(target)
+    embedded, refused, _ = font_tools.embed(target, one_family_plan(entry["family"], entry))
+    passed &= check(embedded == [entry["family"]], "fonts: it is still carried", (embedded, refused))
+    with zipfile.ZipFile(target) as archive:
+        table = archive.read("word/fontTable.xml").decode("utf-8")
+    try:
+        ElementTree.fromstring(table)
+        well_formed = True
+    except ElementTree.ParseError as err:
+        well_formed = False
+        print("     %s" % err)
+    passed &= check(well_formed, "fonts: the fontTable.xml it wrote parses as XML")
+    return passed
+
+
+def run_font_failure_checks(font_tools, font_dir, workdir):
+    """A face, or the whole embed step, that raises must not cost the document.
+
+    `to_truetype` and `fonts.embed` both run against a font this server did
+    not choose, so a bug or a fontTools edge case in either has to degrade to
+    a warning: the caller already has a Word file that passed the text check
+    and the link check, and losing it over a font is the worse failure.
+    """
+    import cases
+
+    passed = True
+    source = next((os.path.join(font_dir, n) for n in sorted(os.listdir(font_dir))
+                   if n.lower().endswith(".otf")), None)
+    if source is None:
+        print("SKIP  no OpenType font was staged, so the failure paths are untested")
+        return passed
+    entry = font_tools.read_font(source)
+    if not entry or not entry.get("postscriptOutlines"):
+        print("SKIP  the staged .otf did not read as PostScript outlines")
+        return passed
+
+    target = os.path.join(workdir, "raiser.docx")
+    blank = Document()
+    blank.add_paragraph("x")
+    blank.save(target)
+
+    def raise_to_truetype(*_args, **_kwargs):
+        raise RuntimeError("synthetic to_truetype failure")
+
+    original_to_truetype = font_tools.to_truetype
+    font_tools.to_truetype = raise_to_truetype
+    try:
+        embedded, refused, redrawn = font_tools.embed(target, one_family_plan(entry["family"], entry))
+    finally:
+        font_tools.to_truetype = original_to_truetype
+    passed &= check(embedded == [] and redrawn == [],
+                    "fonts: a face whose conversion raises is skipped, not fatal", (embedded, refused))
+    passed &= check(bool(refused) and "could not be redrawn" in refused[0][1],
+                    "fonts: and gets the same warning a declined conversion gives", refused)
+
+    def raise_embed(*_args, **_kwargs):
+        raise RuntimeError("synthetic embed failure")
+
+    original_embed = font_tools.embed
+    font_tools.embed = raise_embed
+    try:
+        pdf_path = os.path.join(workdir, "embedfail.pdf")
+        docx_path = os.path.join(workdir, "embedfail.docx")
+        compile_case(cases.HYPHENS, pdf_path)
+        result = convert.convert(pdf_path, docx_path, font_dirs=[font_dir])
+    finally:
+        font_tools.embed = original_embed
+    passed &= check(os.path.exists(docx_path) and os.path.getsize(docx_path) > 0,
+                    "fonts: a raising embed step still leaves the finished document")
+    passed &= check(result["fontsEmbedded"] == [], "fonts: nothing is reported embedded",
+                    result["fontsEmbedded"])
+    passed &= check(any("internal error" in w for w in result["warnings"]),
+                    "fonts: and one plain warning says fonts were not embedded", result["warnings"])
     return passed
 
 
@@ -1211,6 +1335,8 @@ def run_documents():
                             "fonts: and it says the file is damaged", refused)
 
         passed &= run_font_conversion_checks(font_tools, font_dir, workdir)
+        passed &= run_font_control_char_checks(font_tools, font_dir, workdir)
+        passed &= run_font_failure_checks(font_tools, font_dir, workdir)
 
         # And there is a bound on the bytes a Word file may carry.
         huge = face_entry(os.path.join(font_dir, whole[0]) if whole else __file__, "Huge")

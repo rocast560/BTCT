@@ -4215,19 +4215,32 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             )
         embedded, skipped, redrawn = ([], [], [])
         if font_plan:
-            embedded, skipped, redrawn = fonts.embed(
-                part, font_plan, convert_fonts, font_conversion_allowance(started, budget_seconds))
-            for family, why in skipped:
+            # A report's fonts and its chosen families are attacker-influenced
+            # (invariant #18), and by this point the document has already
+            # passed the text check and the link check. A bug or a fontTools
+            # edge case in the font step must degrade to a warning rather than
+            # throw away a finished, checked document.
+            try:
+                embedded, skipped, redrawn = fonts.embed(
+                    part, font_plan, convert_fonts, font_conversion_allowance(started, budget_seconds))
+            except Exception:  # noqa: BLE001 - losing the document over a font bug is the worse failure
+                embedded, skipped, redrawn = [], [], []
                 warnings.append(
-                    "%s could not be embedded (%s), so on a computer without it Word will substitute "
-                    "another font and some lines may wrap twice." % (family, why)
+                    "Fonts could not be embedded because of an internal error, so on a computer "
+                    "without them Word will substitute other fonts."
                 )
-            if redrawn:
-                warnings.append(
-                    "%s had outlines of a kind Word will not carry, so they were redrawn as TrueType "
-                    "to go in the file. Every advance width is unchanged, so no line moves."
-                    % ", ".join(redrawn)
-                )
+            else:
+                for family, why in skipped:
+                    warnings.append(
+                        "%s could not be embedded (%s), so on a computer without it Word will substitute "
+                        "another font and some lines may wrap twice." % (family, why)
+                    )
+                if redrawn:
+                    warnings.append(
+                        "%s had outlines of a kind Word will not carry, so they were redrawn as TrueType "
+                        "to go in the file. Every advance width is unchanged, so no line moves."
+                        % ", ".join(redrawn)
+                    )
         if squares and swatch_face is None:
             warnings.append(
                 "A chart legend's colour squares are set in a character none of this report's fonts "

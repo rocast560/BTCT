@@ -137,6 +137,19 @@ NAME_IDS = (NAME_COPYRIGHT, NAME_FAMILY, NAME_SUBFAMILY, NAME_FULL,
             NAME_POSTSCRIPT, NAME_LICENCE, NAME_LICENCE_URL,
             NAME_TYPO_FAMILY, NAME_TYPO_SUBFAMILY)
 NOT_A_NAME = re.compile(r"[^0-9a-z]+")
+# Characters XML 1.0 cannot carry, in an attribute or in text: the C0 controls
+# other than tab, newline and carriage return, the two noncharacters, and a
+# surrogate half with no partner. A font's name table is free-form bytes, so
+# nothing stops a hostile one from putting these in its family, and Word's
+# font table names a family in an attribute (`w:font w:name="..."`): a name
+# that reaches it unfiltered leaves fontTable.xml not well-formed, or makes
+# python-docx's own writer refuse the string outright when a run names it.
+# Built from `chr()` rather than written as literal code points, so this file
+# stays plain ASCII instead of carrying the very characters it exists to
+# reject.
+_XML_NONCHARACTERS = chr(0xFFFE) + chr(0xFFFF)
+_XML_SURROGATE_RANGE = chr(0xD800) + "-" + chr(0xDFFF)
+XML_FORBIDDEN = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f%s%s]" % (_XML_NONCHARACTERS, _XML_SURROGATE_RANGE))
 # Licences this recognises well enough to convert a font's outlines under.
 # Conversion is a modification, so it is not done on a licence nobody here
 # has read: an unrecognised one is refused and named, which is the same
@@ -156,6 +169,12 @@ CONVERTIBLE_LICENCES = (
 # unit per thousand is what every converter uses and is a twentieth of a pixel
 # at 20 pt on a 300 dpi page, so nothing a reader can see moves.
 CONVERT_MAX_ERR_EM = 0.001
+# How often the glyph loop checks a deadline. Measured at 1,200 to 2,200
+# glyphs a second, so a 65,535-glyph CFF face is tens of seconds on its own
+# against the caller's much larger budget for the whole conversion; checking
+# the clock every 200 glyphs stops within a fraction of a second of the
+# deadline and costs nothing worth measuring against the drawing itself.
+CONVERT_DEADLINE_CHECK_GLYPHS = 200
 # Tables that describe outlines this no longer has, or vouch for bytes this
 # has changed.
 CONVERT_DROPS = ("CFF ", "CFF2", "VORG", "DSIG")
@@ -200,6 +219,16 @@ def key_of(name):
     recognised as one font.
     """
     return NOT_A_NAME.sub("", str(name or "").lower())
+
+
+def strip_xml_unsafe(name):
+    """A name with the characters XML cannot carry taken out.
+
+    Read once here, in `read_font`, so every later use of a family or
+    subfamily, the font table's own `w:name` attribute among them, is already
+    safe rather than trusted to escape it correctly on its own.
+    """
+    return XML_FORBIDDEN.sub("", str(name or ""))
 
 
 def obfuscate(data, key):
@@ -249,14 +278,19 @@ def read_font(path):
                      and reads_a_glyph(font))
     except Exception:  # noqa: BLE001 - a font we cannot read at all is one we skip
         pass
-    family = (names.get(NAME_FAMILY) or names.get(NAME_TYPO_FAMILY) or "").strip()
+    # Stripped of anything XML 1.0 forbids before anything else touches it: a
+    # hostile font's family is a string this script writes into an XML
+    # attribute later, and nothing upstream of here checks it.
+    family = strip_xml_unsafe(names.get(NAME_FAMILY) or names.get(NAME_TYPO_FAMILY) or "").strip()
     if not family:
+        # Stripping took the whole name, so this font is as unreadable as one
+        # whose name table never had a family to begin with.
         return None
     return {
         "path": path,
         # Name ID 1 and 2: the pair Word resolves a run with.
         "family": family,
-        "subfamily": (names.get(NAME_SUBFAMILY) or "").strip(),
+        "subfamily": strip_xml_unsafe(names.get(NAME_SUBFAMILY) or "").strip(),
         # Name ID 6 and 4: how the PDF and its reader refer to the same face.
         "postscript": (names.get(NAME_POSTSCRIPT) or "").strip(),
         "full": (names.get(NAME_FULL) or "").strip(),
@@ -379,7 +413,7 @@ def refusal(entries, convert_outlines=True):
     return "its licence does not allow embedding"
 
 
-def to_truetype(path):
+def to_truetype(path, deadline=None):
     """The same face with quadratic outlines, in memory, or None.
 
     `w:embedTrueTypeFonts` means what it says, so a font whose outlines are
@@ -394,6 +428,13 @@ def to_truetype(path):
     has to be. `post` is written as format 2 so the glyph names survive, and
     falls back to format 3 when they will not fit, which is the one case
     where something is lost and it is something no reader draws.
+
+    `deadline` is a monotonic time this stops at rather than finish: one CFF
+    face can be 65,535 glyphs, tens of seconds of drawing on its own, and the
+    budget check that used to run only before a face started could let one
+    face alone run the caller past its own timeout. Checked every
+    `CONVERT_DEADLINE_CHECK_GLYPHS` glyphs, including the first, so a deadline
+    already passed when this is called returns almost immediately.
     """
     try:
         from fontTools.ttLib import TTFont, newTable
@@ -416,7 +457,10 @@ def to_truetype(path):
         source = font.getGlyphSet()
         error = CONVERT_MAX_ERR_EM * font["head"].unitsPerEm
         drawn = {}
-        for name in order:
+        for index, name in enumerate(order):
+            if (deadline is not None and index % CONVERT_DEADLINE_CHECK_GLYPHS == 0
+                    and time.monotonic() > deadline):
+                return None
             pen = TTGlyphPen(drawn)
             # Reversed, because TrueType fills the other way round than
             # PostScript does and an unreversed contour comes out hollow.
@@ -623,7 +667,15 @@ def face_bytes(entry, budget):
     `budget` is a one-element list holding the seconds left for conversion,
     or None for no limit, and it is decremented as faces are converted: a
     report that needs six faces redrawn should not spend the caller's whole
-    margin doing it and then be killed before it writes the file.
+    margin doing it and then be killed before it writes the file. The same
+    number becomes `to_truetype`'s deadline, so one face cannot run past the
+    margin the budget check only enforced between faces before.
+
+    A face whose conversion raises is treated exactly like one that returns
+    None: skipped, with the plain warning `embed` already gives a face it
+    could not redraw. `to_truetype` reads a font this server did not choose,
+    and a bug or a fontTools edge case in it must not cost the finished
+    document.
     """
     if not entry.get("postscriptOutlines"):
         with open(entry["path"], "rb") as handle:
@@ -631,10 +683,20 @@ def face_bytes(entry, budget):
     if budget[0] is not None and budget[0] <= 0:
         return None, False
     started = time.monotonic()
-    data = to_truetype(entry["path"])
+    deadline = started + budget[0] if budget[0] is not None else None
+    try:
+        data = to_truetype(entry["path"], deadline=deadline)
+    except Exception:  # noqa: BLE001 - a face we cannot redraw safely is one we do not carry
+        data = None
     if budget[0] is not None:
         budget[0] -= time.monotonic() - started
     return data, data is not None
+
+
+def too_big_message(size):
+    """The refusal `embed` gives a face over `MAX_FONT_BYTES`, before or after conversion."""
+    return "the font file is %d MB, over the %d MB a single face may take" % (
+        round(size / (1024 * 1024)), MAX_FONT_BYTES // (1024 * 1024))
 
 
 def embed(docx_path, plan_, convert_outlines=True, convert_seconds=None):
@@ -676,6 +738,17 @@ def embed(docx_path, plan_, convert_outlines=True, convert_seconds=None):
             style = STYLE_ELEMENTS[(entry["bold"], entry["italic"])]
             if any(row.startswith("<" + style) for row in rows):
                 continue
+            # Checked against the file on disk before anything is spent
+            # converting it: a CFF face over the cap would otherwise pay for
+            # its own redraw, tens of seconds by the measurement in
+            # `to_truetype`, only to be refused once it was already bytes.
+            # The redrawn size is checked again below, because a conversion
+            # can come out a different size than the file it started from and
+            # the running total needs the real number.
+            source_size = os.path.getsize(entry["path"])
+            if source_size > MAX_FONT_BYTES:
+                skipped.append((family, too_big_message(source_size)))
+                continue
             data, converted = face_bytes(entry, budget)
             if data is None:
                 skipped.append((family, refusal([entry], convert_outlines)
@@ -684,8 +757,7 @@ def embed(docx_path, plan_, convert_outlines=True, convert_seconds=None):
                 continue
             size = len(data)
             if size > MAX_FONT_BYTES:
-                skipped.append((family, "the font file is %d MB, over the %d MB a single face may take"
-                                % (round(size / (1024 * 1024)), MAX_FONT_BYTES // (1024 * 1024))))
+                skipped.append((family, too_big_message(size)))
                 continue
             if carried + size > MAX_FONT_TOTAL_BYTES:
                 skipped.append((family, "the Word file already carries the %d MB of fonts it may"
