@@ -617,6 +617,26 @@ def run_rhythm_checks():
     passed &= check(convert.table_metrics(table._tbl) is None,
                     "rhythm: a table Word is free to size is not modelled")
 
+    # Word keeps the larger of the spacing after one paragraph and the
+    # spacing before the next, so the one above has to give its spacing back
+    # before the one below can come any higher, even when the gap it wants is
+    # positive.
+    collapsing = [[anchor_row("First block here", 100.0, 92.0, 103.0),
+                   anchor_row("Second block here", 112.0, 104.0, 115.0)]]
+    document = rhythm_document(0.0, 0.0, 15.0)
+    convert.set_spacing(document.paragraphs[0]._p, after=20.0)
+    convert.align_vertical_rhythm(document, collapsing, 792.0)
+    above = convert.paragraph_metrics(document.paragraphs[0]._p)
+    below = convert.paragraph_metrics(document.paragraphs[1]._p)
+    # 72 top margin, a 12 pt box, then 112 - 0.8 x 15 - 84 = 16 of gap, which
+    # is less than the 20 above it and therefore unreachable until that goes.
+    passed &= check(above is not None and above["after"] == 0.0,
+                    "rhythm: a larger spacing above is given back, not added to",
+                    above and above["after"])
+    passed &= check(below is not None and abs(below["before"] - 16.0) < 0.3,
+                    "rhythm: and the block below asks for the whole gap itself",
+                    below and below["before"])
+
     passed &= run_cell_checks()
     passed &= run_table_place_checks()
     passed &= run_panel_checks()

@@ -188,9 +188,16 @@ LINE_FIT_MAX_RELIEF_PT = 12.0
 # five line heights each from 1.0 to 2.0 em, one per page so nothing above
 # could contribute): every one landed on 0.8 x L within 0.10 pt, which is the
 # 1/600 inch Word rounds to when it writes a PDF. The same probe showed that
-# spacing before and after sum rather than collapse, and that space before is
-# dropped at the top of a page. Those three facts are the whole layout model
-# the vertical pass needs, and none of them is about this report.
+# space before is dropped at the top of a page.
+#
+# The gap between two paragraphs is the LARGER of the spacing after the first
+# and the spacing before the second, not their sum. Twelve cases, one per
+# page, both values stated and neither inherited: every one came out on the
+# larger of the two within 0.12 pt, including 12 pt after against 4 pt before
+# and 5 pt after against 20 pt before. An earlier round wrote the opposite
+# down, from cases where one of the two was zero and the two rules agree.
+# Those three facts are the whole layout model the vertical pass needs, and
+# none of them is about this report.
 EXACT_BASELINE_RATIO = 0.8
 # How far ahead of the cursor a block may look for its first PDF row. The
 # converter writes a stray empty paragraph here and there; it never re-orders
@@ -2530,8 +2537,11 @@ def align_paragraphs(document, runs):
 #    2.6 pt lower than the last.
 # 2. A paragraph's spacing before is measured from the previous row's ink,
 #    while Word measures from the previous line box, which is taller.
-# 3. Spacing after on one paragraph and spacing before on the next both
-#    apply, and the converter writes both from the same gap.
+# 3. The converter writes the same gap twice, as the spacing after one
+#    paragraph and again as the spacing before the next. Word keeps the larger
+#    of the two, so the gap is right until one of the passes here wants the
+#    second block higher: lowering its spacing before then changes nothing
+#    until the block above gives its spacing after back.
 #
 # The repair is one walk per page. Every block's first baseline is known from
 # the PDF, and where Word will draw it is known from the layout model above,
@@ -2845,8 +2855,8 @@ def first_baseline(cell, depth):
             if metrics is None:
                 return None
             if compare_squash(paragraph_text(block)):
-                return cursor + pending + metrics["before"] + EXACT_BASELINE_RATIO * metrics["line"]
-            cursor += pending + metrics["before"] + metrics["lines"] * metrics["line"]
+                return cursor + max(pending, metrics["before"]) + EXACT_BASELINE_RATIO * metrics["line"]
+            cursor += max(pending, metrics["before"]) + metrics["lines"] * metrics["line"]
             pending = metrics["after"]
         elif block.tag == qn("w:tbl"):
             rows = block.findall(qn("w:tr"))
@@ -3011,27 +3021,26 @@ def place_cell(box, row_top, bottom, lines, undo, anchors, depth):
                     line, floor = metrics["line"], metrics["line"]
                 count = max(metrics["lines"], len(mine))
                 target = first_baseline_target(mine, line)
-                gap = target - EXACT_BASELINE_RATIO * line - cursor - pending
-                if gap < 0 and pending > 0 and above is not None:
+                gap = target - EXACT_BASELINE_RATIO * line - cursor
+                if gap < pending and pending > 0 and above is not None:
                     keep_spacing(undo, *above)
                     set_spacing(above[0], after=0.0)
-                    gap += pending
                     pending = 0.0
                 if gap < 0 and line > floor:
                     room = count - EXACT_BASELINE_RATIO
                     if room > 0:
                         line = max(floor, line + gap / room)
                         target = first_baseline_target(mine, line)
-                        gap = target - EXACT_BASELINE_RATIO * line - cursor - pending
+                        gap = target - EXACT_BASELINE_RATIO * line - cursor
                 gap = max(0.0, gap)
                 keep_spacing(undo, block, metrics)
                 set_spacing(block, before=gap, line=line)
                 if (abs(gap - metrics["before"]) >= RHYTHM_TOLERANCE_PT
                         or abs(line - metrics["line"]) >= RHYTHM_TOLERANCE_PT):
                     moved += 1
-            cursor += pending + gap + count * line
+            cursor += max(pending, gap) + count * line
             pending = metrics["after"]
-            was += was_pending + metrics["before"] + count * metrics["line"]
+            was += max(was_pending, metrics["before"]) + count * metrics["line"]
             was_pending = metrics["after"]
             above = (block, metrics)
         elif block.tag == qn("w:tbl"):
@@ -3204,9 +3213,9 @@ class PageWalk:
 
     def flow(self, lead, height, after, was_lead, was_height, was_after, lines=1):
         self.last_lines = lines
-        self.cursor += self.pending + lead + height
+        self.cursor += max(self.pending, lead) + height
         self.pending = after
-        self.was += self.was_pending + was_lead + was_height
+        self.was += max(self.was_pending, was_lead) + was_height
         self.was_pending = was_after
 
 
@@ -3270,13 +3279,14 @@ def place_page(section, blocks, rows, lines, page_height, absolute, anchors=(), 
                 walk.above = (block, metrics)
                 continue
             walk.placed = span[1]
-            gap = target - EXACT_BASELINE_RATIO * line - walk.cursor - walk.pending
-            if gap < 0 and walk.pending > 0 and walk.above is not None:
-                # The spacing after the block above is the first thing to give
-                # back, because it and this block's spacing before both apply.
+            gap = target - EXACT_BASELINE_RATIO * line - walk.cursor
+            if gap < walk.pending and walk.pending > 0 and walk.above is not None:
+                # Word takes the larger of the spacing after the block above
+                # and the spacing before this one, not their sum, so as long as
+                # the one above is the larger, writing this one changes
+                # nothing. It has to give its spacing back first.
                 walk.keep(*walk.above)
                 set_spacing(walk.above[0], after=0.0)
-                gap += walk.pending
                 walk.pending = 0.0
             if gap < 0 and line > floor:
                 # Still no room for the box the converter asked for. A shorter
@@ -3286,7 +3296,7 @@ def place_page(section, blocks, rows, lines, page_height, absolute, anchors=(), 
                 if room > 0:
                     line = max(floor, line + gap / room)
                     target = first_baseline_target(mine, line)
-                    gap = target - EXACT_BASELINE_RATIO * line - walk.cursor - walk.pending
+                    gap = target - EXACT_BASELINE_RATIO * line - walk.cursor
             gap = 0.0 if order == 0 else max(0.0, gap)
             if walk.drift is None:
                 walk.drift = gap - lead
@@ -3385,10 +3395,12 @@ def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=()):
         section = document.sections[index]
         lines = text_columns(rows)
         edges = rules[index] if index < len(rules) else ()
-        undo, changed, fits, drift = place_page(section, blocks, rows, lines, page_height, True, anchors, edges)
+        undo, changed, fits, drift = place_page(section, blocks, rows, lines, page_height,
+                                                True, anchors, edges)
         if not fits or abs(drift) > RHYTHM_ABSOLUTE_LIMIT_PT:
             restore(undo)
-            undo, changed, fits, _ = place_page(section, blocks, rows, lines, page_height, False, anchors, edges)
+            undo, changed, fits, _ = place_page(section, blocks, rows, lines, page_height,
+                                                False, anchors, edges)
             if not fits:
                 restore(undo)
                 changed = 0
