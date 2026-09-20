@@ -304,6 +304,41 @@ def run_cell_checks():
                     "cells: a heading's number lands on the title's own baseline",
                     numbered and 69.4 + numbered["before"] + 0.8 * numbered["line"])
 
+    # A cell holding two leadings is cut the way a top-level block is, and the
+    # cut is undone if the table is given back.
+    card = exact_table(Document(), [60.0], [200.0])
+    body = fill_cell(card.rows[0].cells[0], "Heading one", before=0.0, line=15.8)
+    for text in ("first body line", "Heading two", "second body line"):
+        holder = convert.OxmlElement("w:r")
+        holder.append(convert.OxmlElement("w:br"))
+        body._p.append(holder)
+        body.add_run(text)
+    cell_lines = [pdf_line("Heading one", 113.5, 64.0, 150.0),
+                  pdf_line("first body line", 127.0, 64.0, 200.0),
+                  pdf_line("Heading two", 145.0, 64.0, 150.0),
+                  pdf_line("second body line", 158.5, 64.0, 200.0)]
+    boxes = convert.table_grid(card._tbl, 100.0, 54.0)[0]["cells"]
+    made = []
+    convert.cut_cell_pitches(boxes[0]["cell"], convert.merged_lines(cell_lines), made)
+    pieces = boxes[0]["cell"].findall(convert.qn("w:p"))
+    passed &= check(len(made) == 1 and len(pieces) == 2,
+                    "cells: a cell paragraph is cut where the leading changes",
+                    (len(made), len(pieces)))
+    passed &= check("".join(convert.paragraph_text(p) for p in pieces)
+                    == "Heading onefirst body lineHeading twosecond body line",
+                    "cells: and not one character moved",
+                    [convert.paragraph_text(p) for p in pieces])
+    head = convert.paragraph_metrics(pieces[0])
+    tail = convert.paragraph_metrics(pieces[1])
+    passed &= check(abs((head["before"] + 2 * head["line"] + max(head["after"], tail["before"])
+                         + 2 * tail["line"] + tail["after"]) - (0.0 + 4 * 15.8 + 0.0)) < 0.05,
+                    "cells: the pieces are as tall together as the paragraph was",
+                    (head, tail))
+    convert.rejoin_unplaced(made, set())
+    passed &= check(len(boxes[0]["cell"].findall(convert.qn("w:p"))) == 1,
+                    "cells: a cut the pass never placed is joined back up",
+                    len(boxes[0]["cell"].findall(convert.qn("w:p"))))
+
     # A list marker and the text beside it are two columns of one row and one
     # line of one cell.
     merged = convert.merged_lines([pdf_line("1.", 100.0, 60.0, 68.0),
@@ -1384,7 +1419,7 @@ def run_documents():
         keep_cells = convert.align_table_cells
         calls, damaged = [], set()
 
-        def vandalise(table, top, left, lines, anchors=(), depth=convert.RHYTHM_NESTING):
+        def vandalise(table, top, left, lines, anchors=(), depth=convert.RHYTHM_NESTING, seams=None):
             calls.append(table)
             root = id(table.getroottree().getroot())
             if root not in damaged:
@@ -1401,7 +1436,7 @@ def run_documents():
                     for node in victim:
                         node.text = ""
                     damaged.add(root)
-            return keep_cells(table, top, left, lines, anchors, depth)
+            return keep_cells(table, top, left, lines, anchors, depth, seams)
 
         convert.align_table_cells = vandalise
         try:

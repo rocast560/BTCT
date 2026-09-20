@@ -3015,7 +3015,51 @@ def known_panel(anchors, element):
     return None
 
 
-def align_table_cells(table, top, left, lines, anchors=(), depth=RHYTHM_NESTING):
+def cut_cell_pitches(cell, ordered, seams):
+    """Cut this cell's paragraphs where the PDF changed the leading inside them.
+
+    The same cut the top level gets, on the lines geometry has already dropped
+    into this cell, and run before the cell is walked rather than during it, so
+    the walk sees the pieces and never a paragraph changing under it. That is
+    what makes it possible here at all: a cell's rows are only known once the
+    grid has been anchored, which happens in the middle of the page's walk.
+
+    A finding card writes a sub-heading and the paragraph under it as one
+    block, four times over, at 13.48 pt inside a pair and 18.05 pt between two
+    of them. Three of its seven lines sit 2.3 pt low however the one line
+    height is chosen.
+
+    `splittable` is asked without the shaded set, which it uses only to know
+    code from prose. Nothing is lost: a code block's runs all name a monospace
+    family, which is the other half of that test, and its lines are separate
+    paragraphs anyway, so there is no break to turn into anything.
+    """
+    placed = 0
+    for block in list(cell):
+        if block.tag == qn("w:tbl"):
+            # Whatever is left in `ordered` belongs to the nested table.
+            break
+        if block.tag != qn("w:p"):
+            continue
+        metrics = paragraph_metrics(block)
+        if metrics is None:
+            break
+        key = block_key(block)
+        span = consume_rows(ordered, placed, key) if len(key) >= COMPARE_MIN_CHARS else None
+        if span is None:
+            continue
+        placed = span[1]
+        mine = ordered[span[0]:span[1]]
+        cuts = pitch_cuts(mine)
+        if not cuts or not splittable(block, ()):
+            continue
+        holders = break_runs(block)
+        if holders is None or len(holders) != len(mine) - 1:
+            continue
+        seams.extend(cut_paragraph(block, [holders[cut - 1] for cut in cuts]))
+
+
+def align_table_cells(table, top, left, lines, anchors=(), depth=RHYTHM_NESTING, seams=None):
     """Put the text inside a table on the baselines the PDF has for it.
 
     Returns `(moved, undo)`, and an empty undo means nothing was written.
@@ -3049,7 +3093,8 @@ def align_table_cells(table, top, left, lines, anchors=(), depth=RHYTHM_NESTING)
             while last + 1 < len(rows) and rows[last + 1]["y1"] <= bottom:
                 last += 1
             found, fits = place_cell(box, row["y0"], bottom,
-                                     lines_in_cell(bands, index, last, box), undo, anchors, depth)
+                                     lines_in_cell(bands, index, last, box), undo, anchors, depth,
+                                     seams)
             if not fits:
                 # A correction that would push a cell's last line past the
                 # bottom edge Word clips an exact row at would lose text
@@ -3060,7 +3105,7 @@ def align_table_cells(table, top, left, lines, anchors=(), depth=RHYTHM_NESTING)
     return moved, undo
 
 
-def place_cell(box, row_top, bottom, lines, undo, anchors, depth):
+def place_cell(box, row_top, bottom, lines, undo, anchors, depth, seams=None):
     """Walk one cell's blocks, correcting the spacing between them.
 
     The same walk as a page, with three differences. A cell does not drop its
@@ -3071,6 +3116,8 @@ def place_cell(box, row_top, bottom, lines, undo, anchors, depth):
     is what `fits` reports.
     """
     ordered = merged_lines(lines)
+    if seams is not None:
+        cut_cell_pitches(box["cell"], ordered, seams)
     cursor = was = cell_content_top(box["cell"], row_top)
     pending = was_pending = 0.0
     placed = moved = 0
@@ -3133,7 +3180,7 @@ def place_cell(box, row_top, bottom, lines, undo, anchors, depth):
                 pending = step
             if depth > 0:
                 found, deeper = align_table_cells(block, cursor + pending, cell_content_left(box),
-                                                  lines, anchors, depth - 1)
+                                                  lines, anchors, depth - 1, seams)
                 moved += found
                 undo.extend(deeper)
             cursor += pending + inner["height"]
@@ -3318,7 +3365,8 @@ class PageWalk:
         self.was_pending = was_after
 
 
-def place_page(section, blocks, rows, lines, page_height, absolute, anchors=(), edges=(), boxes=()):
+def place_page(section, blocks, rows, lines, page_height, absolute, anchors=(), edges=(), boxes=(),
+               seams=None):
     """Walk one page's blocks, correcting the spacing between them.
 
     Returns `(undo, changed, fits, drift)`: what to restore, how many blocks
@@ -3453,7 +3501,8 @@ def place_page(section, blocks, rows, lines, page_height, absolute, anchors=(), 
                     walk.changed += 1
                 walk.pending = gap
             found, table_undo = align_table_cells(block, walk.cursor + walk.pending,
-                                                  section.left_margin.pt, lines, anchors)
+                                                  section.left_margin.pt, lines, anchors,
+                                                  RHYTHM_NESTING, seams)
             walk.changed += found
             walk.undo.extend(table_undo)
             walk.flow(0.0, metrics["height"], 0.0, 0.0,
@@ -3732,6 +3781,10 @@ def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=(), se
     if len(sections) != len(pages) or len(sections) != len(document.sections):
         rejoin_unplaced(seams, set())
         return 0
+    # The cuts this pass makes inside a table cell join the ones the pre-pass
+    # made at the top level, so a piece that is never placed is joined back up
+    # wherever it was cut.
+    made = list(seams)
     moved = 0
     written = set()
     for index, blocks in enumerate(sections):
@@ -3743,11 +3796,11 @@ def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=(), se
         edges = rules[index] if index < len(rules) else ()
         drawn = boxes[index] if index < len(boxes) else ()
         undo, changed, fits, drift = place_page(section, blocks, rows, lines, page_height,
-                                                True, anchors, edges, drawn)
+                                                True, anchors, edges, drawn, made)
         if not fits or abs(drift) > RHYTHM_ABSOLUTE_LIMIT_PT:
             restore(undo)
             undo, changed, fits, _ = place_page(section, blocks, rows, lines, page_height,
-                                                False, anchors, edges, drawn)
+                                                False, anchors, edges, drawn, made)
             if not fits:
                 restore(undo)
                 undo, changed = [], 0
@@ -3755,7 +3808,7 @@ def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=(), se
         # thing that says a cut paragraph was really given its spacing back.
         written.update(id(block) for block, _, _, _ in undo)
         moved += changed
-    rejoin_unplaced(seams, written)
+    rejoin_unplaced(made, written)
     return moved
 
 
