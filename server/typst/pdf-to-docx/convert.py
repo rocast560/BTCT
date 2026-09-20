@@ -144,6 +144,8 @@ MONOSPACE = re.compile(r"mono|courier|consol|menlo|inconsolata|source ?code", re
 JUSTIFY_MIN_LINES = 3
 JUSTIFY_EDGE_PT = 3.0
 JUSTIFY_LINE_GAP_PT = 6.0
+# English Metric Units, which is what a drawing in a Word file is measured in.
+EMU_PER_PT = 12700
 
 # ── what the converter will not take on ───────────────────────────────────
 # Three bounds, all of them measured rather than guessed. The reference
@@ -1717,6 +1719,74 @@ def colour_square(sibling, fill):
     return mark
 
 
+def pdf_pictures(doc):
+    """Every raster image the PDF places, with where it sits and what shows.
+
+    A cover usually bleeds off the page, so the rectangle it was drawn at and
+    the part of it a reader sees are two different things, and Word only has
+    the second: an inline picture starts at the text origin and cannot hang
+    over the page edge.
+    """
+    out = []
+    for index in range(doc.page_count):
+        page = doc[index]
+        for info in page.get_image_info():
+            rect = pymupdf.Rect(info["bbox"])
+            visible = rect & page.rect
+            if visible.is_empty or rect.width <= 0 or rect.height <= 0:
+                continue
+            out.append({"page": index, "rect": rect, "visible": visible})
+    return out
+
+
+def fit_pictures(document, pictures):
+    """Give each inline picture the size and the crop the PDF gave it.
+
+    pdf2docx sizes a picture to the rectangle it was drawn at, which for a
+    full-bleed cover is larger than the page: Word then places all 816 pt of
+    an 816 pt image from the top of the text area, so the whole page is
+    pushed down by the bleed and the bottom is cut off. Cropping the picture
+    to the part of it the PDF actually shows, with `a:srcRect`, and sizing it
+    to that, puts it exactly where the PDF has it without moving anything
+    else on the page.
+
+    Only inline pictures are touched. The converter anchors the images it
+    renders itself from vector art, and those have no counterpart here.
+    """
+    inlines = [d for d in document.element.body.iter(qn("wp:inline"))]
+    if len(inlines) != len(pictures):
+        return 0
+    fixed = 0
+    for element, picture in zip(inlines, pictures):
+        rect, visible = picture["rect"], picture["visible"]
+        width = int(round(visible.width * EMU_PER_PT))
+        height = int(round(visible.height * EMU_PER_PT))
+        for node in [element.find(qn("wp:extent"))] + list(element.iter(qn("a:ext"))):
+            if node is None:
+                continue
+            node.set("cx", str(width))
+            node.set("cy", str(height))
+        crop = {
+            "l": (visible.x0 - rect.x0) / rect.width,
+            "t": (visible.y0 - rect.y0) / rect.height,
+            "r": (rect.x1 - visible.x1) / rect.width,
+            "b": (rect.y1 - visible.y1) / rect.height,
+        }
+        fill = next(element.iter(qn("pic:blipFill")), None)
+        if fill is not None and any(value > 0.0005 for value in crop.values()):
+            for existing in fill.findall(qn("a:srcRect")):
+                fill.remove(existing)
+            node = OxmlElement("a:srcRect")
+            for side, value in crop.items():
+                if value > 0.0005:
+                    # Thousandths of a percent of the source image's side.
+                    node.set(side, str(int(round(value * 100000))))
+            blip = fill.find(qn("a:blip"))
+            (blip.addnext(node) if blip is not None else fill.append(node))
+        fixed += 1
+    return fixed
+
+
 def flush_left_runs(doc, bands, content_left, content_right):
     """Runs of consecutive lines that all begin at the text area's left edge.
 
@@ -2147,6 +2217,7 @@ def convert(pdf_path, docx_path, budget_seconds=None):
         # Read before the bands are erased, so a panel that reaches into the
         # band zone is still described, and kept for the post-processing pass
         # that runs once the converter has produced a file.
+        pictures = pdf_pictures(doc)
         panels, swatches = find_decoration(doc, bands)
         pairs = spaced_pairs(doc)
         aligned = flush_left_runs(doc, bands, content_left, content_right)
@@ -2181,6 +2252,7 @@ def convert(pdf_path, docx_path, budget_seconds=None):
         shaded = shade_run_of_paragraphs(document, panels)
         restore_swatches(document, swatches)
         align_paragraphs(document, aligned)
+        fit_pictures(document, pictures)
         repair_text(document, pairs, shaded)
         document.save(part)
         missing = missing_from_docx(repaired_lines, docx_text(part, body_only=bool(bands)))
@@ -2218,6 +2290,7 @@ def convert(pdf_path, docx_path, budget_seconds=None):
             shaded = shade_run_of_paragraphs(document, panels)
             restore_swatches(document, swatches)
             align_paragraphs(document, aligned)
+            fit_pictures(document, pictures)
             repair_text(document, pairs, shaded)
             document.save(part)
             written = 0
