@@ -235,6 +235,13 @@ RHYTHM_NESTING = 4
 # this pass does not understand (a floating table, a frame), and there the
 # first block keeps its place and only the rhythm below it is corrected.
 RHYTHM_ABSOLUTE_LIMIT_PT = 12.0
+# How much bigger than a block's own leading a gap between two of its
+# baselines has to be before it is read as the space between two blocks the
+# converter wrote as one. A typesetter sets one paragraph at one leading and
+# the baselines in a PDF are exact, so there is nothing to absorb here but
+# Word's own 1/600 inch rounding; the smallest real change on the reference
+# report is 0.85 pt, between a sub-heading's line and the body under it.
+PITCH_SPLIT_PT = 0.5
 # Two cell edges are the same edge when they are this close. The converter
 # writes a cell's width to a twentieth of a point, so the left edges of a
 # merged cell and its continuation agree to well inside this.
@@ -3433,7 +3440,213 @@ def restore(undo):
         set_spacing(block, before=before, after=after, line=line)
 
 
-def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=(), boxes=()):
+def pitch_cuts(rows):
+    """Where a block's own baselines say the converter joined two blocks.
+
+    The smallest distance between two of a block's baselines is the leading
+    the typesetter set it at. A bigger one is the space a report puts between
+    a sub-heading and the paragraph under it, or between two entries of a
+    list, and the converter writes both of those as one paragraph with a line
+    break in it. One exact line height cannot serve two leadings, so the wider
+    gaps are where the paragraph has to become two.
+
+    Returns the row indexes a paragraph break belongs before, and an empty
+    list when every gap is the same, which is every ordinary paragraph. Two
+    rows have a single gap and no second one to read it against, so they are
+    never cut: there is no evidence which of the two kinds of gap it is.
+    """
+    gaps = [later["base"] - earlier["base"] for earlier, later in zip(rows, rows[1:])]
+    if len(gaps) < 2:
+        return []
+    leading = min(gaps)
+    return [index + 1 for index, gap in enumerate(gaps) if gap > leading + PITCH_SPLIT_PT]
+
+
+def break_runs(element):
+    """The runs holding this paragraph's own line breaks, in order.
+
+    None when any break sits somewhere a paragraph boundary cannot replace it
+    one for one: a page break, a break inside a hyperlink or a field, or a
+    break sharing its run with text. Both the converter and this file's own
+    line-break pass write a break as a run of its own directly in the
+    paragraph, so the ordinary case is the one that is handled and anything
+    else gives the paragraph back untouched.
+    """
+    holders = []
+    for node in element.iter(qn("w:br")):
+        if (node.get(qn("w:type")) or "textWrapping") != "textWrapping":
+            return None
+        run = node.getparent()
+        if run is None or run.tag != qn("w:r") or run.getparent() is not element:
+            return None
+        if any(child is not node and child.tag != qn("w:rPr") for child in run):
+            return None
+        holders.append(run)
+    return holders
+
+
+def splittable(element, shaded):
+    """May this paragraph be cut in two without changing what it says?
+
+    Four kinds are refused rather than risked: one that paints its own shape
+    would paint it twice, a numbered one would take a second number, code has
+    to come out byte for byte, and a table-of-contents line is rebuilt from
+    the PDF elsewhere. So is one holding a drawing, which is where the picture
+    pass put it.
+    """
+    if has_own_shape(element) or is_code(element, shaded):
+        return False
+    properties = element.find(qn("w:pPr"))
+    if properties is not None and properties.find(qn("w:numPr")) is not None:
+        return False
+    if next(element.iter(qn("w:drawing")), None) is not None:
+        return False
+    return not DOT_RUN.search(paragraph_text(element))
+
+
+def cut_paragraph(element, holders):
+    """Turn the given line breaks into paragraph breaks.
+
+    Returns the seams, `(head, tail, holder)` in the order they were made, so
+    the change can be taken back exactly: the break run is kept rather than
+    dropped, and putting it back where it was and moving the tail's content in
+    after it gives back the paragraph it came from.
+
+    The spacing is shared out so the pieces are together the height the one
+    paragraph was: the first keeps the spacing before, the last keeps the
+    spacing after, the seams get none, and every piece keeps the line height.
+    A paragraph that is cut and then never placed is therefore exactly as many
+    points tall as the one it replaced, which is what stops a cut from pushing
+    a line onto the next page.
+    """
+    metrics = paragraph_metrics(element)
+    if metrics is None:
+        return []
+    seams = []
+    head = element
+    for holder in holders:
+        moving, found = [], False
+        for child in head:
+            if child is holder:
+                found = True
+            elif found:
+                moving.append(child)
+        if not found:
+            break
+        tail = OxmlElement("w:p")
+        properties = head.find(qn("w:pPr"))
+        if properties is not None:
+            tail.append(copy.deepcopy(properties))
+        for child in moving:
+            tail.append(child)
+        head.remove(holder)
+        head.addnext(tail)
+        seams.append((head, tail, holder))
+        head = tail
+    if not seams:
+        return []
+    set_spacing(element, after=0.0)
+    for _, tail, _ in seams[:-1]:
+        set_spacing(tail, before=0.0, after=0.0)
+    set_spacing(seams[-1][1], before=0.0, after=metrics["after"])
+    return seams
+
+
+def rejoin_paragraph(head, tail, holder):
+    """Put one cut of a paragraph back, exactly as it was."""
+    metrics = paragraph_metrics(tail)
+    head.append(holder)
+    for child in list(tail):
+        if child.tag != qn("w:pPr"):
+            head.append(child)
+    parent = tail.getparent()
+    if parent is not None:
+        parent.remove(tail)
+    if metrics is not None:
+        set_spacing(head, after=metrics["after"])
+
+
+def split_pitch_changes(document, pages, shaded=()):
+    """Cut a paragraph in two where the PDF changed its leading inside it.
+
+    The converter writes a sub-heading and the paragraph under it as one block
+    with a line break between them, and a Word paragraph has one exact line
+    height for all of its lines. Whichever height that one number takes, the
+    lines set at the other leading walk away from the page they came from: on
+    the reference report the body under a sub-heading finishes 2.4 to 7.3 pt
+    below where the PDF has it, which is the largest thing left on four of its
+    pages, and the heading itself is dragged up to meet it.
+
+    The cut adds nothing and deletes nothing. A line break becomes a paragraph
+    break, which the text check, the reader and a copy out of Word all read
+    the same way, and the spacing is shared out so the pieces are as tall
+    together as the paragraph was. What the pieces are worth is the layout
+    pass after this one, which can now give each of them the line height its
+    own lines were set at, so a piece that pass does not reach is joined back
+    up rather than left with no space above it.
+
+    The blocks are paired with the PDF's rows the way `place_page` pairs them,
+    and the walk stops where that one stops, so the two agree about which rows
+    belong to which block.
+    """
+    sections = section_blocks(document.element.body)
+    if len(sections) != len(pages):
+        return []
+    shaded = set(shaded)
+    seams = []
+    for index, blocks in enumerate(sections):
+        rows = pages[index]
+        if not rows:
+            continue
+        placed = 0
+        for block in blocks:
+            if block.tag == qn("w:p"):
+                if paragraph_metrics(block) is None:
+                    break
+            elif block.tag == qn("w:tbl"):
+                if table_metrics(block) is None:
+                    break
+            else:
+                break
+            key = block_key(block)
+            span = consume_rows(rows, placed, key) if len(key) >= COMPARE_MIN_CHARS else None
+            if span is None:
+                continue
+            placed = span[1]
+            if block.tag != qn("w:p"):
+                continue
+            mine = rows[span[0]:span[1]]
+            cuts = pitch_cuts(mine)
+            if not cuts or not splittable(block, shaded):
+                continue
+            holders = break_runs(block)
+            if holders is None or len(holders) != len(mine) - 1:
+                # One break per line end, or these breaks are not the PDF's
+                # line ends and a cut would fall somewhere it never broke.
+                continue
+            seams.extend(cut_paragraph(block, [holders[cut - 1] for cut in cuts]))
+    return seams
+
+
+def rejoin_unplaced(seams, written):
+    """Join back up every cut piece the layout pass did not go on to place.
+
+    A piece that was placed carries the spacing the PDF asks for above it. One
+    that was not carries none, because none is what keeps a cut from making
+    the document taller, and two paragraphs with nothing between them read a
+    line tighter than the report printed. Joining it back up gives the reader
+    the paragraph the converter wrote, which is where this round started.
+    """
+    joined = 0
+    for head, tail, holder in reversed(seams):
+        if id(tail) in written:
+            continue
+        rejoin_paragraph(head, tail, holder)
+        joined += 1
+    return joined
+
+
+def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=(), seams=(), boxes=()):
     """Put every block's first line on the baseline the PDF gave it.
 
     One walk per section, because the converter writes one section per PDF
@@ -3448,8 +3661,10 @@ def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=(), bo
     body = document.element.body
     sections = section_blocks(body)
     if len(sections) != len(pages) or len(sections) != len(document.sections):
+        rejoin_unplaced(seams, set())
         return 0
     moved = 0
+    written = set()
     for index, blocks in enumerate(sections):
         rows = pages[index]
         if not rows:
@@ -3466,8 +3681,12 @@ def align_vertical_rhythm(document, pages, page_height, anchors=(), rules=(), bo
                                                 False, anchors, edges, drawn)
             if not fits:
                 restore(undo)
-                changed = 0
+                undo, changed = [], 0
+        # What is left in `undo` is what this page kept, which is the only
+        # thing that says a cut paragraph was really given its spacing back.
+        written.update(id(block) for block, _, _, _ in undo)
         moved += changed
+    rejoin_unplaced(seams, written)
     return moved
 
 
@@ -4215,7 +4434,8 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         # Last, because it reads the spacing and the line count of every block
         # the passes above have finished writing.
         if affordable(started, budget_seconds, repairs):
-            align_vertical_rhythm(document, anchors, page_height, panel_tables, rules,
+            seams = split_pitch_changes(document, anchors, shaded)
+            align_vertical_rhythm(document, anchors, page_height, panel_tables, rules, seams,
                                   drawn_boxes)
         name_runs(document, font_plan)
         fill_bare_runs(document)
@@ -4266,8 +4486,9 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             repair_text(document, pairs, shaded)
             restore_break_hyphens(document, broken, shaded)
             if affordable(started, budget_seconds, repairs):
+                seams = split_pitch_changes(document, plain_anchors, shaded)
                 align_vertical_rhythm(document, plain_anchors, page_height, panel_tables, rules,
-                                      drawn_boxes)
+                                      seams, drawn_boxes)
             name_runs(document, font_plan)
             fill_bare_runs(document)
             document.save(part)

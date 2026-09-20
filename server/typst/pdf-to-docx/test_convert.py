@@ -487,6 +487,140 @@ def run_table_box_checks():
     return passed
 
 
+def split_document(text_lines, before=6.0, after=9.0, line=19.7):
+    """One paragraph holding several lines, broken the way the converter breaks
+    them: a run of text, then a run holding nothing but the break."""
+    document = Document()
+    document.sections[0].top_margin = Pt(72)
+    paragraph = document.add_paragraph()
+    convert.set_spacing(paragraph._p, before=before, after=after, line=line)
+    for order, text in enumerate(text_lines):
+        if order:
+            holder = convert.OxmlElement("w:r")
+            holder.append(convert.OxmlElement("w:br"))
+            paragraph._p.append(holder)
+        paragraph.add_run(text)
+    return document, paragraph._p
+
+
+def paragraph_shape(element):
+    """What a paragraph holds, for a before-and-after comparison."""
+    return (convert.paragraph_text(element),
+            len([node for node in element.iter(convert.qn("w:br"))]),
+            len([node for node in element.iter(convert.qn("w:r"))]))
+
+
+def run_pitch_split_checks():
+    """Cutting a paragraph where the PDF changed the leading inside it."""
+    passed = True
+
+    def rows(bases, ascent=11.6):
+        return [anchor_row("Line %d here" % order, base, base - ascent, base + 3.0)
+                for order, base in enumerate(bases)]
+
+    passed &= check(convert.pitch_cuts(rows([100.0, 114.8, 129.6, 144.4])) == [],
+                    "split: one leading all the way down is not a cut")
+    passed &= check(convert.pitch_cuts(rows([100.0])) == [] and convert.pitch_cuts(rows([100.0, 120.0])) == [],
+                    "split: one gap has nothing to be read against")
+    passed &= check(convert.pitch_cuts(rows([100.0, 119.7, 134.5, 149.3])) == [1],
+                    "split: a heading and the body under it are two blocks",
+                    convert.pitch_cuts(rows([100.0, 119.7, 134.5, 149.3])))
+    passed &= check(convert.pitch_cuts(rows([100.0, 122.8, 138.5, 161.3, 177.0])) == [1, 3],
+                    "split: and a list of them is as many as it has",
+                    convert.pitch_cuts(rows([100.0, 122.8, 138.5, 161.3, 177.0])))
+    passed &= check(convert.pitch_cuts(rows([100.0, 114.8, 129.9, 144.7])) == [],
+                    "split: a difference under half a point is rounding, not a block")
+
+    # The breaks have to be replaceable one for one.
+    document, element = split_document(["Line 0 here", "Line 1 here", "Line 2 here"])
+    holders = convert.break_runs(element)
+    passed &= check(holders is not None and len(holders) == 2,
+                    "split: the paragraph's own line breaks are found", holders and len(holders))
+    page_break = convert.OxmlElement("w:r")
+    node = convert.OxmlElement("w:br")
+    node.set(convert.qn("w:type"), "page")
+    page_break.append(node)
+    element.append(page_break)
+    passed &= check(convert.break_runs(element) is None,
+                    "split: a page break is not a line break and stops the cut")
+    element.remove(page_break)
+    mixed = convert.OxmlElement("w:r")
+    mixed.append(convert.OxmlElement("w:br"))
+    text = convert.OxmlElement("w:t")
+    text.text = "tail"
+    mixed.append(text)
+    element.append(mixed)
+    passed &= check(convert.break_runs(element) is None,
+                    "split: a break sharing its run with text stops it too")
+    element.remove(mixed)
+
+    passed &= check(convert.splittable(element, ()), "split: an ordinary paragraph may be cut")
+    numbered = convert.OxmlElement("w:numPr")
+    element.get_or_add_pPr().insert(0, numbered)
+    passed &= check(not convert.splittable(element, ()),
+                    "split: a numbered paragraph would take a second number")
+    element.get_or_add_pPr().remove(numbered)
+    passed &= check(not convert.splittable(element, (element,)),
+                    "split: code has to come out as it went in")
+
+    # The cut itself: the same characters, one break fewer, the same height.
+    document, element = split_document(["Line 0 here", "Line 1 here", "Line 2 here"])
+    before_text = convert.paragraph_text(element)
+    before_breaks = paragraph_shape(element)[1]
+    holders = convert.break_runs(element)
+    seams = convert.cut_paragraph(element, [holders[0]])
+    tail = seams[0][1]
+    passed &= check(len(seams) == 1, "split: one cut makes one seam", len(seams))
+    passed &= check(convert.paragraph_text(element) + convert.paragraph_text(tail) == before_text,
+                    "split: not one character was added or lost",
+                    (convert.paragraph_text(element), convert.paragraph_text(tail)))
+    passed &= check(paragraph_shape(element)[1] + paragraph_shape(tail)[1] == before_breaks - 1,
+                    "split: a paragraph break replaced exactly one line break")
+    head_metrics = convert.paragraph_metrics(element)
+    tail_metrics = convert.paragraph_metrics(tail)
+    passed &= check(head_metrics["before"] == 6.0 and head_metrics["after"] == 0.0,
+                    "split: the first piece keeps the spacing before", head_metrics)
+    passed &= check(tail_metrics["before"] == 0.0 and tail_metrics["after"] == 9.0,
+                    "split: the last keeps the spacing after", tail_metrics)
+    was = 6.0 + 3 * 19.7 + 9.0
+    now = (head_metrics["before"] + head_metrics["lines"] * head_metrics["line"]
+           + max(head_metrics["after"], tail_metrics["before"])
+           + tail_metrics["lines"] * tail_metrics["line"] + tail_metrics["after"])
+    passed &= check(abs(now - was) < 0.05,
+                    "split: the pieces are as tall together as the paragraph was", (was, now))
+
+    convert.rejoin_paragraph(*seams[0])
+    passed &= check(convert.paragraph_text(element) == before_text
+                    and paragraph_shape(element)[1] == before_breaks,
+                    "split: and joining it back up gives the paragraph it came from",
+                    paragraph_shape(element))
+    passed &= check(convert.paragraph_metrics(element)["after"] == 9.0,
+                    "split: with the spacing after it had")
+
+    # End to end, against a page whose rows say where the leading changed.
+    document, element = split_document(["Line 0 here", "Line 1 here", "Line 2 here"])
+    pdf_rows = [rows([100.0, 119.7, 134.5])]
+    seams = convert.split_pitch_changes(document, pdf_rows)
+    passed &= check(len(seams) == 1 and len(document.paragraphs) == 2,
+                    "split: the pass finds the change and cuts there",
+                    (len(seams), len(document.paragraphs)))
+    convert.align_vertical_rhythm(document, pdf_rows, 792.0, seams=seams)
+    passed &= check(len(document.paragraphs) == 2,
+                    "split: a piece the layout pass placed stays a paragraph",
+                    len(document.paragraphs))
+    heights = [convert.paragraph_metrics(p._p)["line"] for p in document.paragraphs]
+    passed &= check(abs(heights[1] - 14.8) < 0.1,
+                    "split: and the body under it gets the leading the PDF set", heights)
+
+    # A piece nothing placed is joined back up rather than left with no space.
+    document, element = split_document(["Line 0 here", "Line 1 here", "Line 2 here"])
+    seams = convert.split_pitch_changes(document, pdf_rows)
+    passed &= check(convert.rejoin_unplaced(seams, set()) == 1 and len(document.paragraphs) == 1,
+                    "split: a piece the layout pass never reached is joined back up",
+                    len(document.paragraphs))
+    return passed
+
+
 def run_panel_checks():
     """A code panel rebuilt as a table, so the grey gets the PDF's padding."""
     passed = True
@@ -680,6 +814,7 @@ def run_rhythm_checks():
     passed &= run_cell_checks()
     passed &= run_table_place_checks()
     passed &= run_table_box_checks()
+    passed &= run_pitch_split_checks()
     passed &= run_panel_checks()
 
     # A word the typesetter broke keeps its hyphen where the line still ends.
