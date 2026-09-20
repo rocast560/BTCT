@@ -274,8 +274,25 @@ def normalize(text):
     return DIGITS.sub("#", " ".join(text.split()))
 
 
+def pdf_base_name(pdf_font_name):
+    """`ABCDEF+Poppins-Bold` to `Poppins-Bold`: the face, as the PDF names it.
+
+    A PDF writes a font's PostScript name behind a subset prefix. That name
+    identifies one face and no other, which is what makes it the key to the
+    font file the report was set in, and through that to the family name Word
+    will look the face up by.
+    """
+    name = SUBSET_PREFIX.sub("", str(pdf_font_name or "")).split(",")[0].strip()
+    return name or None
+
+
 def font_family(pdf_font_name):
-    """`ABCDEF+Poppins-Bold` to `Poppins`, so Word is asked for a family."""
+    """`ABCDEF+Poppins-Bold` to `Poppins`, a family read off the name alone.
+
+    A guess, and only used where nothing better is available: when no font
+    file was staged, the style suffix is the one clue the PDF gives about
+    which part of the name is the family.
+    """
     name = SUBSET_PREFIX.sub("", str(pdf_font_name or "")).split(",")[0]
     while True:
         shorter = FONT_STYLE_SUFFIX.sub("", name)
@@ -347,6 +364,9 @@ def page_rows(page):
                     "x1": x1,
                     "text": span["text"],
                     "font": font_family(span["font"]),
+                    # The face itself, kept beside the guess at its family so
+                    # a staged font file can name it the way Word resolves it.
+                    "psname": pdf_base_name(span["font"]),
                     "size": span["size"],
                     "bold": bool(span["flags"] & BOLD_FLAG),
                     "color": span["color"],
@@ -715,6 +735,7 @@ def describe_columns(rows):
                     "x1": row["x1"],
                     "text": row["text"],
                     "font": row["columns"][0]["font"],
+                    "psname": row["columns"][0]["psname"],
                     "size": row["columns"][0]["size"],
                     "bold": row["columns"][0]["bold"],
                     "color": row["columns"][0]["color"],
@@ -762,6 +783,7 @@ def describe_one_column(cells):
         "x1": max(cell["x1"] for _, cell in cells),
         "parts": [p for p in parts if p["kind"] != "text" or p["text"]],
         "font": first["font"],
+        "psname": first.get("psname"),
         "size": first["size"],
         "bold": first["bold"],
         "color": first["color"],
@@ -1006,6 +1028,7 @@ def detect_toc(doc, bands):
                     "segments": segments,
                     "number": match.group("page"),
                     "font": segments[0]["font"],
+                    "psname": segments[0].get("psname"),
                     "size": segments[0]["size"],
                     "bold": segments[0]["bold"],
                     "color": segments[0]["color"],
@@ -1031,6 +1054,7 @@ def title_segments(row):
                     "offset": round(column["x0"] - row["x0"], 1),
                     "text": text,
                     "font": column["font"],
+                    "psname": column.get("psname"),
                     "size": column["size"],
                     "bold": column["bold"],
                     "color": column["color"],
@@ -1070,6 +1094,12 @@ SECTPR_ORDER = (
     "w:headerReference w:footerReference w:footnotePr w:endnotePr w:type w:pgSz w:pgMar"
     " w:paperSrc w:pgBorders w:lnNumType w:pgNumType w:cols w:formProt w:vAlign w:noEndnote"
     " w:titlePg w:textDirection w:bidi w:rtlGutter w:docGrid w:printerSettings w:sectPrChange"
+).split()
+RPR_ORDER = (
+    "w:rStyle w:rFonts w:b w:bCs w:i w:iCs w:caps w:smallCaps w:strike w:dstrike w:outline"
+    " w:shadow w:emboss w:imprint w:noProof w:snapToGrid w:vanish w:webHidden w:color"
+    " w:spacing w:w w:kern w:position w:sz w:szCs w:highlight w:u w:effect w:bdr w:shd"
+    " w:fitText w:vertAlign w:rtl w:cs w:em w:lang w:eastAsianLayout w:specVanish w:oMath"
 ).split()
 
 
@@ -1116,11 +1146,16 @@ def add_page_field(paragraph):
 def style_run(run, look):
     if look["font"]:
         run.font.name = look["font"]  # sets w:ascii and w:hAnsi
-        fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+        table = run._element.get_or_add_rPr().get_or_add_rFonts()
         for attribute in ("w:cs", "w:eastAsia"):
-            fonts.set(qn(attribute), look["font"])
+            table.set(qn(attribute), look["font"])
     run.font.size = Pt(round(look["size"], 1))
     run.font.bold = look["bold"]
+    # Only when a font file said which face this is. Read off the PDF alone
+    # there is no italic flag to trust, and writing one either way would
+    # decide something this does not know.
+    if look.get("italic") is not None:
+        run.font.italic = look["italic"]
     run.font.color.rgb = rgb_of(look["color"])
 
 
@@ -1873,7 +1908,7 @@ def colour_square(sibling, fill):
         properties.remove(existing)
     colour = OxmlElement("w:color")
     colour.set(qn("w:val"), hex_of(fill))
-    properties.append(colour)
+    insert_ordered(properties, colour, RPR_ORDER)
     text = OxmlElement("w:t")
     text.set(qn("xml:space"), "preserve")
     text.text = "■ "
@@ -2920,6 +2955,104 @@ def repair_text(document, pairs, shaded=()):
     return removed, spaced
 
 
+# ── step 8: the font names Word resolves with ─────────────────────────────
+
+
+def name_looks(value, plan):
+    """Give every look read off the PDF the family Word resolves it to.
+
+    The bands and the table of contents are read as PDF spans and written as
+    Word runs, so each one carries the name the PDF used. Here that name
+    becomes the family in the font file's own name table, with the two flags
+    the file states, which is the only pair Word will match a face on.
+    """
+    if isinstance(value, dict):
+        face = fonts.resolve_pdf_font(plan, value.get("psname"))
+        if face:
+            value["font"] = face["family"]
+            value["bold"] = face["bold"]
+            value["italic"] = face["italic"]
+        for item in value.values():
+            name_looks(item, plan)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            name_looks(item, plan)
+
+
+def run_parts(document):
+    """The body and every header and footer, as XML roots."""
+    roots = [document.element.body]
+    for part in document.part.package.iter_parts():
+        element = getattr(part, "element", None)
+        if element is not None and element.tag in (qn("w:hdr"), qn("w:ftr")):
+            roots.append(element)
+    return roots
+
+
+def flag_of(properties, tag):
+    """Whether a run property is on, reading Word's several ways of saying no."""
+    node = properties.find(qn(tag)) if properties is not None else None
+    if node is None:
+        return False
+    return (node.get(qn("w:val")) or "true").lower() not in ("0", "false", "off")
+
+
+def set_flag(properties, tag, value):
+    """`w:b` or `w:i` said out loud, on or off, where the schema wants it."""
+    node = properties.find(qn(tag))
+    if node is None:
+        node = OxmlElement(tag)
+        insert_ordered(properties, node, RPR_ORDER)
+    node.set(qn("w:val"), "1" if value else "0")
+
+
+def named_font(run):
+    """The family a run asks for by name, or None when it asks for nothing."""
+    properties = run.find(qn("w:rPr"))
+    table = properties.find(qn("w:rFonts")) if properties is not None else None
+    return table.get(qn("w:ascii")) if table is not None else None
+
+
+def name_runs(document, plan):
+    """Name every run by the family Word resolves, with the flags to match.
+
+    The converter labels a run with whatever the PDF called the face, and the
+    PDF calls it by its PostScript name. Word matches on the legacy family
+    instead, so a run asking for `DejaVuSansMono` never reaches the file
+    called `DejaVu Sans Mono`, embedded in the same document or not, and Word
+    substitutes without saying so.
+
+    The flags come from the same file. A face whose subfamily is Bold is the
+    family plus `w:b`; a face whose subfamily is Regular is the family with
+    `w:b` cleared, however heavy its name reads, because a weight Word does
+    not keep per family has a family of its own and asking for bold on top of
+    it paints a fake weight over a face that already had one.
+    """
+    named = 0
+    for root in run_parts(document):
+        for run in root.iter(qn("w:r")):
+            current = named_font(run)
+            if not current:
+                continue
+            properties = run.find(qn("w:rPr"))
+            face = fonts.resolve(plan, current, flag_of(properties, "w:b"), flag_of(properties, "w:i"))
+            if not face:
+                continue
+            table = properties.find(qn("w:rFonts"))
+            for attribute in ("w:ascii", "w:hAnsi", "w:cs"):
+                table.set(qn(attribute), face["family"])
+            if table.get(qn("w:eastAsia")) is not None:
+                table.set(qn("w:eastAsia"), face["family"])
+            # A theme name would be consulted before the one just written.
+            for attribute in ("w:asciiTheme", "w:hAnsiTheme", "w:cstheme", "w:eastAsiaTheme"):
+                if table.get(qn(attribute)) is not None:
+                    del table.attrib[qn(attribute)]
+            set_flag(properties, "w:b", face["bold"])
+            set_flag(properties, "w:i", face["italic"])
+            named += 1
+    return named
+
+
 # ── the safety net: did the Word file keep the PDF's text? ────────────────
 #
 # Every repair above deletes something from the document and writes something
@@ -3075,22 +3208,50 @@ def missing_from_docx(pdf_lines, docx_body_text):
 # ── the run ───────────────────────────────────────────────────────────────
 
 
-def run_pdf2docx(source, target):
+def run_pdf2docx(source, target, plan=None):
     """pdf2docx, with its own chatter kept off both streams.
 
     It logs a line per page on the root logger, which it configures itself at
     import time, and it prints the input path while doing so. Neither belongs
     in a server's output, so the level is lowered after the import and stdout
     is pointed at stderr for the call in case anything prints directly.
+
+    It is also told what each face is, when a font file was staged for it.
+    Its own answer is the family name in the PDF's embedded copy, found by
+    asking whether one name contains the other, and both halves of that go
+    wrong on a real report: a reader hands a font name back out of a 24 byte
+    field, and a name cut short there stops matching exactly and starts
+    matching by containment, so `BtctProbeSansSemiBold-Regular` comes back as
+    the family below it. That family is the one Word would then paint a fake
+    bold over. Only the name is replaced here; the line height pdf2docx
+    measured for the face it chose is left exactly as it was, so nothing on
+    the page moves.
     """
     from pdf2docx import Converter
+    try:
+        from pdf2docx.font.Fonts import Fonts
+    except ImportError:  # pragma: no cover - a pdf2docx that names spans some other way
+        Fonts = None
 
     logging.getLogger().setLevel(logging.ERROR)
+    original = Fonts.get if Fonts is not None else None
+
+    def named(self, font_name):
+        found = original(self, font_name)
+        face = fonts.resolve_pdf_font(plan, pdf_base_name(font_name))
+        if face is None or not hasattr(found, "_replace"):
+            return found
+        return found._replace(name=face["family"])
+
     converter = Converter(source)
     try:
+        if original is not None and plan:
+            Fonts.get = named
         with contextlib.redirect_stdout(sys.stderr):
             converter.convert(target)
     finally:
+        if original is not None:
+            Fonts.get = original
         converter.close()
 
 
@@ -3186,7 +3347,12 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         # The fallback keeps the bands in the body, so its pages carry rows
         # this one does not and the targets have to be read again without them.
         plain_anchors = anchors if not bands else page_anchor_rows(doc, [])
-        families = fonts.wanted_families(doc, font_family) if font_dirs else set()
+        # Read the staged fonts before anything is written, because what the
+        # bands and the table of contents are named depends on what the font
+        # files call themselves.
+        font_plan = fonts.plan(fonts.pdf_faces(doc, pdf_base_name), fonts.collect(font_dirs)) if font_dirs else None
+        name_looks(bands, font_plan)
+        name_looks(entries, font_plan)
         panels, swatches = find_decoration(doc, bands)
         pairs = spaced_pairs(doc)
         broken = broken_words(doc, bands)
@@ -3209,7 +3375,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
     fell_back = False
     try:
         started = time.monotonic()
-        run_pdf2docx(stripped_pdf, part)
+        run_pdf2docx(stripped_pdf, part, font_plan)
         first_pass = time.monotonic() - started
         if not os.path.exists(part) or os.path.getsize(part) == 0:
             raise ConvertError("the converter produced no Word file")
@@ -3236,6 +3402,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
         # the passes above have finished writing.
         if affordable(started, budget_seconds, repairs):
             align_vertical_rhythm(document, anchors, page_height)
+        name_runs(document, font_plan)
         document.save(part)
         missing = missing_from_docx(repaired_lines, docx_text(part, body_only=bool(bands)))
         checked_lines = repaired_lines
@@ -3263,7 +3430,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
                 "The header and footer could not be lifted safely on this report, so the Word file "
                 "keeps them in the page body and its page count may differ from the PDF."
             ]
-            run_pdf2docx(plain_pdf, part)
+            run_pdf2docx(plain_pdf, part, font_plan)
             if not os.path.exists(part) or os.path.getsize(part) == 0:
                 raise ConvertError("the converter produced no Word file")
             # The decoration is not a repair and cannot lose text, so it runs
@@ -3284,6 +3451,7 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
             restore_break_hyphens(document, broken, shaded)
             if affordable(started, budget_seconds, repairs):
                 align_vertical_rhythm(document, plain_anchors, page_height)
+            name_runs(document, font_plan)
             document.save(part)
             written = 0
             bands = []
@@ -3306,8 +3474,8 @@ def convert(pdf_path, docx_path, budget_seconds=None, line_breaks="pdf", font_di
                 % truncate(unsafe[0], 60)
             )
         embedded, skipped = ([], [])
-        if families:
-            embedded, skipped = fonts.embed(part, families, fonts.collect(font_dirs))
+        if font_plan:
+            embedded, skipped = fonts.embed(part, font_plan)
             for family, why in skipped:
                 warnings.append(
                     "%s could not be embedded (%s), so on a computer without it Word will substitute "

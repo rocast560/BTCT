@@ -35,6 +35,11 @@ import convert  # noqa: E402
 
 PAGE_WIDTH, PAGE_HEIGHT = 612.0, 792.0
 LEFT, RIGHT = 54.0, 558.0
+W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+# The run children that put something on the page. A run of none of these is
+# a bookmark or a field boundary, and what font it names does not show.
+VISIBLE_RUN_CHILDREN = tuple(W + tag for tag in ("t", "tab", "br", "sym", "noBreakHyphen",
+                                                 "softHyphen", "instrText"))
 
 
 def build_pdf():
@@ -472,6 +477,99 @@ def squashed_docx(path, body_only):
     return convert.compare_squash(convert.docx_text(path, body_only=body_only))
 
 
+def face_entry(path, family, **extra):
+    """A staged face as `fonts` describes one, for the refusal checks."""
+    entry = {"path": path, "family": family, "subfamily": "Regular", "postscript": "",
+             "full": "", "typoFamily": "", "typoSubfamily": "", "bold": False,
+             "italic": False, "fsType": 0, "damaged": False, "postscriptOutlines": False}
+    entry.update(extra)
+    return entry
+
+
+def one_family_plan(family, entry):
+    """A plan holding one family of one face, which is all a refusal needs."""
+    return {"faces": {family: entry}, "missing": [], "families": {family: {(False, False): entry}},
+            "byFamily": {family.lower(): family}, "byFace": {}}
+
+
+RUN_FONTS = W + "rFonts"
+RUN_STYLE = {W + "b": "bold", W + "i": "italic"}
+
+
+def run_flag(properties, tag):
+    node = properties.find(tag)
+    if node is None:
+        return False
+    return (node.get(W + "val") or "true").lower() not in ("0", "false", "off")
+
+
+def run_font_naming_checks(font_tools, docx_path, font_dir, result):
+    """Every run names a family Word can resolve, and the table agrees.
+
+    This is what the whole change is for, so it is asserted on the file
+    rather than on the functions: the name in a run has to be a family name
+    out of some staged font file's own name table, the bold and italic bits
+    have to be the ones that file states in name ID 2, and there has to be
+    one `w:font` for each of those families carrying the faces it declares.
+    """
+    passed = True
+    staged = font_tools.collect([font_dir])
+    by_family = {}
+    for entry in staged:
+        by_family.setdefault(entry["family"], {})[(entry["bold"], entry["italic"])] = entry
+    with zipfile.ZipFile(docx_path) as archive:
+        parts = [n for n in archive.namelist()
+                 if re.match(r"word/(document|header\d*|footer\d*)\.xml$", n)]
+        table = ElementTree.fromstring(archive.read("word/fontTable.xml"))
+        runs = []
+        for part in sorted(parts):
+            for paragraph in ElementTree.fromstring(archive.read(part)).iter(W + "p"):
+                for run in paragraph.iter(W + "r"):
+                    drawn = [child.tag for child in run if child.tag in VISIBLE_RUN_CHILDREN]
+                    if drawn:
+                        runs.append((part, run))
+
+    wrong = []
+    for _, run in runs:
+        properties = run.find(W + "rPr")
+        fonts_node = properties.find(RUN_FONTS) if properties is not None else None
+        if fonts_node is None:
+            continue
+        name = fonts_node.get(W + "ascii")
+        slots = by_family.get(name)
+        if slots is None:
+            wrong.append((name, "no staged file calls itself that"))
+            continue
+        want = (run_flag(properties, W + "b"), run_flag(properties, W + "i"))
+        if want not in slots:
+            wrong.append((name, "no face of it is %s" % (want,)))
+        for attribute in (W + "hAnsi", W + "cs"):
+            if fonts_node.get(attribute) != name:
+                wrong.append((name, "%s disagrees" % attribute.split("}")[1]))
+    passed &= check(not wrong, "fonts: every run names a family out of a font file, with its own flags",
+                    wrong[:3])
+
+    declared = {}
+    for node in table.iter(W + "font"):
+        slots = [child.tag.split("}")[1] for child in node if child.tag.startswith(W + "embed")]
+        if slots:
+            declared[node.get(W + "name")] = sorted(slots)
+    named = sorted({fonts_node.get(W + "ascii") for _, run in runs
+                    for properties in [run.find(W + "rPr")] if properties is not None
+                    for fonts_node in [properties.find(RUN_FONTS)] if fonts_node is not None})
+    passed &= check(sorted(declared) == sorted(result["fontsEmbedded"]),
+                    "fonts: one w:font per carried family", (sorted(declared), result["fontsEmbedded"]))
+    for family, slots in declared.items():
+        want = sorted(font_tools.STYLE_ELEMENTS[style].split(":")[1]
+                      for style in by_family.get(family, {})
+                      if font_tools.carriable(by_family[family][style]))
+        passed &= check(slots == want, "fonts: %s carries the faces its files declare" % family,
+                        (slots, want))
+    passed &= check(all(name in declared or name not in by_family for name in named),
+                    "fonts: no run names a carried family the table left out", named)
+    return passed
+
+
 def run_documents():
     import cases
 
@@ -636,7 +734,14 @@ def run_documents():
                     shutil.copyfile(os.path.join(source, name), os.path.join(font_dir, name))
         pdf_path = os.path.join(workdir, "fontcase.pdf")
         docx_path = os.path.join(workdir, "fontcase.docx")
-        compile_case(cases.HYPHENS, pdf_path)
+        # Set in a family the Word file can actually carry, whichever one of
+        # the staged files that turns out to be. typst's own default is an
+        # OpenType face with PostScript outlines, which Word declines, and a
+        # test that read the default would be testing the refusal twice.
+        staged = font_tools.collect([font_dir])
+        carried = next((e for e in staged if font_tools.carriable(e)), None)
+        prelude = '#set text(font: "%s")\n' % carried["family"] if carried else ""
+        compile_case(prelude + cases.HYPHENS, pdf_path)
         result = convert.convert(pdf_path, docx_path, font_dirs=[font_dir])
         if not result["fontsEmbedded"]:
             print("SKIP  no font file matched the families this PDF names")
@@ -668,6 +773,7 @@ def run_documents():
                 passed &= check(same == len(keys), "fonts: every part is its source font, obfuscated",
                                 (same, len(keys)))
             passed &= check(result["textCheck"]["missing"] == 0, "fonts: nothing was lost")
+            passed &= run_font_naming_checks(font_tools, docx_path, font_dir, result)
 
         # A font the foundry forbids must be skipped rather than embedded.
         passed &= check(not font_tools.embeddable({"fsType": 0x0002}), "fonts: a restricted font is refused")
@@ -690,19 +796,23 @@ def run_documents():
                             "fonts: a truncated font is read as damaged", entry and entry["family"])
             passed &= check(font_tools.read_font(os.path.join(font_dir, whole[0])).get("damaged") is False,
                             "fonts: a whole font is not")
-            hurt_entry = {"path": hurt, "family": "Hurt", "bold": False, "italic": False,
-                          "fsType": 0, "damaged": True}
-            _, refused = font_tools.embed(None, {"Hurt"}, {"Hurt": [hurt_entry]})
+            hurt_entry = dict(face_entry(hurt, "Hurt"), damaged=True)
+            _, refused = font_tools.embed(None, one_family_plan("Hurt", hurt_entry))
             passed &= check([why for _, why in refused] == ["the font file is damaged"],
                             "fonts: and it says the file is damaged", refused)
 
+        # A font Word will not carry whatever the file says is refused too.
+        postscript = dict(face_entry(__file__, "Curly"), postscriptOutlines=True)
+        _, refused = font_tools.embed(None, one_family_plan("Curly", postscript))
+        passed &= check([why for _, why in refused] == ["Word does not carry a font whose outlines are PostScript"],
+                        "fonts: a PostScript-outline font is refused", refused)
+
         # And there is a bound on the bytes a Word file may carry.
-        big = {"Huge": [{"path": os.path.join(font_dir, whole[0]) if whole else __file__,
-                         "family": "Huge", "bold": False, "italic": False, "fsType": 0, "damaged": False}]}
+        huge = face_entry(os.path.join(font_dir, whole[0]) if whole else __file__, "Huge")
         keep = font_tools.MAX_FONT_BYTES
         font_tools.MAX_FONT_BYTES = 1
         try:
-            embedded, refused = font_tools.embed(None, {"Huge"}, big)
+            embedded, refused = font_tools.embed(None, one_family_plan("Huge", huge))
         finally:
             font_tools.MAX_FONT_BYTES = keep
         passed &= check(embedded == [] and refused and "may take" in refused[0][1],
