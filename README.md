@@ -1685,7 +1685,27 @@ matching `update-btct <tag>` command for the Linux host.
 Production runs the same `Dockerfile` + `docker-compose.yml`, on a Linux server,
 behind a TLS reverse proxy (nginx / Caddy / Traefik) for HTTPS.
 
-One-time setup:
+On Debian or a derivative (Ubuntu, Kali), [`install-btct.sh`](install-btct.sh)
+does the whole one-time setup and launch:
+
+```bash
+./install-btct.sh              # from a checkout
+# or, with nothing checked out yet:
+curl -fsSL https://raw.githubusercontent.com/rocast560/BTCT/lw-version/install-btct.sh | bash
+```
+
+It installs git, curl and openssl if they are missing, installs Docker Engine
+and the compose plugin from Docker's apt repository if `docker` or
+`docker compose` is missing (derivatives use the Debian repo), starts and
+enables the daemon, and adds you to the `docker` group. Run from a checkout it
+uses that folder; otherwise it clones `$BTCT_REPO` (`$BTCT_BRANCH`, default
+`lw-version`) into `$BTCT_DIR` (default `/opt/btct`) or pulls an existing clone.
+It then writes `.env` with a fresh `AUTH_SECRET` (never replacing one),
+runs `docker compose up -d --build` (`--no-build` skips the rebuild) and polls
+`/healthz` on whatever host port the compose file maps. Every step checks
+before it acts, so re-running it is safe.
+
+Manual one-time setup:
 
 ```bash
 sudo apt update
